@@ -56,23 +56,23 @@ montana-zlib = { path = "crates/zlib" }
 montana-zstd = { path = "crates/zstd" }
 
 # async
-async-trait = "0.1"
-reqwest = { version = "0.12", features = ["json"] }
+async-trait = "0.1.89"
+reqwest = "0.12.26"
 
 # compression
-brotli = "8"
-flate2 = "1"
-zstd = "0.13"
+brotli = "8.0.2"
+flate2 = "1.1.5"
+zstd = "0.13.3"
 
 # misc
-clap = { version = "4", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = "4.5.53"
+serde = "1.0.228"
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+tracing = "0.1.43"
+tracing-subscriber = "0.3.22"
 
 # testing
-criterion = { version = "0.5", features = ["async_tokio"] }
-rstest = "0.24"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+criterion = "0.8.1"
+rstest = "0.26.1"
+tokio = "1.48.0"

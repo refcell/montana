@@ -14,12 +14,12 @@ workspace = true
 
 [dependencies]
 # async
-reqwest.workspace = true
-tokio.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 # misc
-clap.workspace = true
-serde.workspace = true
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

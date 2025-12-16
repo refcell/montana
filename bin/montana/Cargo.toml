@@ -17,5 +17,5 @@ workspace = true
 montana-cli.workspace = true
 
 # misc
-clap.workspace = true
+clap = { workspace = true, features = ["derive"] }
 tracing.workspace = true

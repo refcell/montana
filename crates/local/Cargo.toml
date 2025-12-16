@@ -16,17 +16,17 @@ workspace = true
 montana-pipeline.workspace = true
 
 async-trait.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-criterion.workspace = true
+criterion = { workspace = true, features = ["async_tokio"] }
 montana-brotli.workspace = true
 montana-zlib.workspace = true
 montana-zstd.workspace = true
 rstest.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [[bench]]
 name = "pipeline"

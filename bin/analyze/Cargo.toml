@@ -22,9 +22,9 @@ montana-zlib.workspace = true
 montana-zstd.workspace = true
 
 # async
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 # misc
-clap.workspace = true
+clap = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tracing.workspace = true

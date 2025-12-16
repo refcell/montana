@@ -2290,6 +2290,7 @@ dependencies = [
  "op-alloy",
  "op-revm",
  "revm",
+ "thiserror",
  "tracing",
 ]
 

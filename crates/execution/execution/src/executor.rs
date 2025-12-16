@@ -12,7 +12,16 @@ use revm::{
     context_interface::result::{ExecutionResult, Output},
     database_interface::DatabaseRef,
 };
-use tracing::{error, info, warn};
+use thiserror::Error;
+use tracing::info;
+
+/// Errors that can occur during block execution
+#[derive(Debug, Error)]
+pub enum ExecutorError {
+    /// EVM execution error
+    #[error("EVM execution error: {0}")]
+    Evm(String),
+}
 
 /// Result of executing a single transaction
 #[derive(Debug, Clone)]
@@ -30,10 +39,6 @@ pub struct TxResult {
 pub struct BlockResult {
     /// Block number
     pub block_number: u64,
-    /// Number of successful transactions
-    pub success_count: usize,
-    /// Number of failed transactions
-    pub fail_count: usize,
     /// Individual transaction results
     pub tx_results: Vec<TxResult>,
 }
@@ -55,7 +60,7 @@ where
     }
 
     /// Execute all transactions in a block
-    pub fn execute_block(&mut self, block: OpBlock) -> BlockResult {
+    pub fn execute_block(&mut self, block: OpBlock) -> Result<BlockResult, ExecutorError> {
         let block_number = block.header().number();
         let tx_count = block.transactions.len();
         let timestamp = block.header().timestamp();
@@ -66,8 +71,6 @@ where
         );
 
         let spec_id = self.chain.spec_id_at_timestamp(timestamp);
-        info!("Using spec: {spec_id:?}");
-
         let block_env = block_to_env(&block);
 
         let mut cfg = CfgEnv::default();
@@ -76,42 +79,26 @@ where
 
         let transactions = block.transactions.into_transactions();
         let mut tx_results = Vec::with_capacity(tx_count);
-        let mut success_count = 0;
-        let mut fail_count = 0;
 
         for (idx, tx) in transactions.enumerate() {
-            let result = self.execute_tx(&tx, idx, tx_count, &block_env, &cfg);
-
-            if result.success {
-                success_count += 1;
-            } else {
-                fail_count += 1;
-            }
-
+            let result = self.execute_tx(&tx, idx, tx_count, &block_env, &cfg)?;
             tx_results.push(result);
         }
 
-        info!(
-            "Block {} execution complete: {} succeeded, {} failed",
-            block_number, success_count, fail_count
-        );
-
-        BlockResult { block_number, success_count, fail_count, tx_results }
+        Ok(BlockResult { block_number, tx_results })
     }
 
     fn execute_tx(
         &mut self,
         tx: &op_alloy::rpc_types::Transaction,
-        idx: usize,
-        tx_count: usize,
+        _idx: usize,
+        _tx_count: usize,
         block_env: &revm::context::BlockEnv,
         cfg: &CfgEnv<op_revm::OpSpecId>,
-    ) -> TxResult {
+    ) -> Result<TxResult, ExecutorError> {
         let envelope: &OpTxEnvelope = tx.inner.inner.inner();
-        let tx_hash = envelope.tx_hash();
+        let _tx_hash = envelope.tx_hash();
         let sender = tx.inner.inner.signer();
-        info!("Executing tx {}/{}: {}", idx + 1, tx_count, tx_hash);
-
         let op_tx = tx_to_op_tx(tx, sender);
 
         let ctx = revm::Context::op()
@@ -127,36 +114,23 @@ where
             Ok(result) => {
                 self.db.commit(result.state);
 
-                match result.result {
+                let tx_result = match result.result {
                     ExecutionResult::Success { ref output, gas_used, .. } => {
                         let output_bytes = match output {
                             Output::Call(data) | Output::Create(data, _) => data.to_vec(),
                         };
-                        info!(
-                            "  Success: gas_used={}, output_size={}",
-                            gas_used,
-                            output_bytes.len()
-                        );
                         TxResult { success: true, gas_used, output: Some(output_bytes) }
                     }
                     ExecutionResult::Revert { ref output, gas_used } => {
-                        warn!(
-                            "  Reverted: gas_used={}, output={}",
-                            gas_used,
-                            alloy::primitives::hex::encode(output)
-                        );
                         TxResult { success: false, gas_used, output: Some(output.to_vec()) }
                     }
-                    ExecutionResult::Halt { reason, gas_used } => {
-                        warn!("  Halted: reason={reason:?}, gas_used={gas_used}");
+                    ExecutionResult::Halt { reason: _, gas_used } => {
                         TxResult { success: false, gas_used, output: None }
                     }
-                }
+                };
+                Ok(tx_result)
             }
-            Err(e) => {
-                error!("  Execution error: {e}");
-                TxResult { success: false, gas_used: 0, output: None }
-            }
+            Err(e) => Err(ExecutorError::Evm(e.to_string())),
         }
     }
 }

@@ -10,10 +10,6 @@ pub(crate) struct Args {
     #[arg(short, long, env = "BASE_RPC_URL")]
     pub rpc_url: String,
 
-    /// Verify execution results against RPC receipts
-    #[arg(short, long, default_value = "true")]
-    pub verify: bool,
-
     /// Producer mode
     #[command(subcommand)]
     pub mode: ProducerMode,

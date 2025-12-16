@@ -15,6 +15,7 @@ op-alloy.workspace = true
 op-revm.workspace = true
 revm.workspace = true
 
+thiserror.workspace = true
 tracing.workspace = true
 
 [lints]

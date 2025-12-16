@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use alloy::{
     consensus::BlockHeader,
-    network::BlockResponse,
-    providers::{ProviderBuilder, RootProvider},
+    eips::BlockId,
+    network::{BlockResponse, ReceiptResponse},
+    providers::{Provider, ProviderBuilder, RootProvider},
 };
 use blocksource::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer, OpBlock};
 use chainspec::BASE_MAINNET;
@@ -21,12 +22,12 @@ use execution::BlockExecutor;
 use eyre::Result;
 use op_alloy::network::Optimism;
 use tokio::{runtime::Handle, sync::mpsc};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const CHANNEL_CAPACITY: usize = 256;
 
-/// Execute a block using the `BlockExecutor`
-fn execute_block(block: OpBlock, provider: &RootProvider<Optimism>) -> Result<()> {
+/// Execute a block using the `BlockExecutor` and verify against RPC receipts
+async fn execute_block(block: OpBlock, provider: &RootProvider<Optimism>) -> Result<()> {
     let block_number = block.header().number();
 
     // Create the database backed by RPC (state at block - 1)
@@ -35,7 +36,52 @@ fn execute_block(block: OpBlock, provider: &RootProvider<Optimism>) -> Result<()
     let db = CachedDatabase::new(rpc_db);
 
     let mut executor = BlockExecutor::new(db, BASE_MAINNET);
-    let _result = executor.execute_block(block);
+    let result = executor.execute_block(block)?;
+
+    // Fetch receipts from RPC for verification
+    let receipts =
+        provider.get_block_receipts(BlockId::number(block_number)).await?.unwrap_or_default();
+
+    // Verify execution results against RPC receipts
+    let mut verified = 0;
+    let mut mismatched = 0;
+
+    for (idx, (tx_result, receipt)) in result.tx_results.iter().zip(receipts.iter()).enumerate() {
+        let receipt_gas = receipt.gas_used();
+        let receipt_success = receipt.status();
+
+        if tx_result.gas_used == receipt_gas && tx_result.success == receipt_success {
+            verified += 1;
+        } else {
+            mismatched += 1;
+            warn!(
+                "Block {} tx {}: gas mismatch (exec={}, receipt={}) or status mismatch (exec={}, receipt={})",
+                block_number,
+                idx,
+                tx_result.gas_used,
+                receipt_gas,
+                tx_result.success,
+                receipt_success
+            );
+        }
+    }
+
+    if mismatched == 0 {
+        info!(
+            "Block {} verification PASSED: {}/{} transactions verified",
+            block_number,
+            verified,
+            result.tx_results.len()
+        );
+    } else {
+        warn!(
+            "Block {} verification FAILED: {} mismatched, {} verified out of {} transactions",
+            block_number,
+            mismatched,
+            verified,
+            result.tx_results.len()
+        );
+    }
 
     Ok(())
 }
@@ -68,7 +114,7 @@ async fn run(args: Args) -> Result<()> {
 
     // Consumer loop: process blocks as they arrive
     while let Some(block) = rx.recv().await {
-        if let Err(e) = execute_block(block, &provider) {
+        if let Err(e) = execute_block(block, &provider).await {
             error!("Block execution error: {e}");
         }
     }

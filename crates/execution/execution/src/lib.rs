@@ -5,4 +5,4 @@
 
 mod executor;
 
-pub use executor::{BlockExecutor, BlockResult, TxResult};
+pub use executor::{BlockExecutor, BlockResult, ExecutorError, TxResult};

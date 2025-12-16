@@ -3,21 +3,60 @@
 use clap::ValueEnum;
 
 /// Available compression algorithms.
+///
+/// This enum provides selection between different compression algorithms for batch
+/// submission and derivation. The `All` variant enables comparison mode where all
+/// algorithms are run and their results are compared.
+///
+/// # Examples
+///
+/// ```
+/// use montana_cli::CompressionAlgorithm;
+///
+/// // Get the default algorithm
+/// let default = CompressionAlgorithm::default();
+/// assert_eq!(default, CompressionAlgorithm::Brotli);
+///
+/// // Iterate over all single compression algorithms
+/// let algorithms: Vec<_> = CompressionAlgorithm::all_algorithms().collect();
+/// assert_eq!(algorithms.len(), 3);
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum CompressionAlgorithm {
     /// Brotli compression (default).
+    ///
+    /// Provides high compression ratios, commonly used in web contexts.
     #[default]
     Brotli,
     /// Zlib (DEFLATE) compression.
+    ///
+    /// Widely supported compression format with good balance of speed and ratio.
     Zlib,
     /// Zstandard compression.
+    ///
+    /// Modern compression algorithm with tunable compression levels and fast decompression.
     Zstd,
     /// Run all compression algorithms and compare results.
+    ///
+    /// Executes all three compression algorithms and provides comparative metrics.
     All,
 }
 
 impl CompressionAlgorithm {
     /// Returns an iterator over all single compression algorithms (excludes All).
+    ///
+    /// This is useful when you need to iterate over the concrete compression algorithms
+    /// without including the `All` comparison mode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use montana_cli::CompressionAlgorithm;
+    ///
+    /// for algo in CompressionAlgorithm::all_algorithms() {
+    ///     println!("Algorithm: {}", algo);
+    /// }
+    /// ```
     pub fn all_algorithms() -> impl Iterator<Item = Self> {
         [Self::Brotli, Self::Zlib, Self::Zstd].into_iter()
     }

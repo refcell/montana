@@ -1,6 +1,8 @@
 //! Montana Batch Submitter Execution Extension
 //!
 //! An execution extension that submits L2 batches to L1 as part of the OP Stack batcher pipeline.
+//!
+//! **Status:** This is currently a stub implementation. The batch submitter functionality is not yet implemented.
 
 #![doc = include_str!("../README.md")]
 #![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]

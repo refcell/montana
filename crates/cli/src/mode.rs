@@ -3,14 +3,39 @@
 use clap::ValueEnum;
 
 /// Available operation modes.
+///
+/// Defines the three operation modes supported by Montana for working with L2 blocks
+/// and compressed batches.
+///
+/// # Examples
+///
+/// ```
+/// use montana_cli::Mode;
+///
+/// // Get the default mode
+/// let default = Mode::default();
+/// assert_eq!(default, Mode::Batch);
+///
+/// // Display mode as string
+/// assert_eq!(Mode::Derivation.to_string(), "derivation");
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum Mode {
     /// Batch submission mode (default) - compress and submit L2 blocks.
+    ///
+    /// Takes L2 block data from the input file, applies the selected compression algorithm,
+    /// and writes the compressed batch to the output file.
     #[default]
     Batch,
     /// Derivation mode - decompress and derive L2 blocks from compressed batches.
+    ///
+    /// Takes compressed batch data from the input file, decompresses it using the selected
+    /// algorithm, and writes the derived L2 blocks to the output file.
     Derivation,
     /// Roundtrip mode - batch submission followed by derivation with validation.
+    ///
+    /// Performs batch submission followed by derivation on the result, then validates
+    /// that the roundtrip process produces identical output to the input.
     Roundtrip,
 }
 

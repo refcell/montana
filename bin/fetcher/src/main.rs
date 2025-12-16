@@ -1,3 +1,17 @@
+//! # Fetcher Binary
+//!
+//! A command-line tool for fetching Base L2 blocks and transactions from an RPC endpoint
+//! and converting them to Montana's JSON input format.
+//!
+//! This is a fully functional implementation that:
+//! - Fetches blocks via JSON-RPC (eth_getBlockByNumber)
+//! - Converts RPC responses to Montana's LocalBatchSource format
+//! - Supports configurable block ranges, output paths, and RPC endpoints
+//! - Provides verbose logging for debugging
+//!
+//! **Note**: L1 origin data is currently stubbed with placeholder values (block_number: 0).
+//! A complete implementation would require additional L1 block lookups.
+
 #![doc = include_str!("../README.md")]
 #![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]

@@ -72,13 +72,19 @@ The inverse pipeline for derivation:
 
 - [`montana`](./bin/montana): The batch submitter execution extension.
 - [`analyze`](./bin/analyze): Compression analyzer for comparing algorithm performance.
+- [`shadow`](./bin/shadow): Real-time batch submission and derivation monitoring TUI.
+- [`fetcher`](./bin/fetcher): Base L2 block fetcher.
 
 **Pipeline**
 
 - [`montana-pipeline`](./crates/pipeline): Core pipeline types and traits.
+- [`montana-batcher`](./crates/batcher): Batcher service for L2 batch submission orchestration.
+- [`montana-txmgr`](./crates/txmgr): Transaction manager for L1 batch submission with blob and calldata support.
 - [`montana-local`](./crates/local): Local file-based source and sink implementations.
 - [`montana-cli`](./crates/cli): CLI utilities and argument parsing.
 - [`montana-brotli`](./crates/brotli): Brotli compression implementation.
+- [`montana-zlib`](./crates/zlib): Zlib compression implementation.
+- [`montana-zstd`](./crates/zstd): Zstandard compression implementation.
 
 ## Performance
 

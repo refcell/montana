@@ -39,16 +39,7 @@ Montana implements a **three-stage, trait-abstracted duplex pipeline**:
 
 ## Pipeline Configuration
 
-The pipeline is configured via `PipelineConfig`:
-
-```rust
-pub struct PipelineConfig {
-    pub batch_interval: Duration,     // Default: 12 seconds (L1 block time)
-    pub max_batch_bytes: usize,       // Default: 128 KB (compressed, fits 1 blob)
-    pub min_batch_bytes: usize,       // Default: 1 KB (avoid dust submissions)
-    pub max_blocks_per_batch: u16,    // Default: 1000
-}
-```
+The pipeline configuration is not exported directly from this crate. Configuration is typically done through implementations that use these traits. For example, the `montana-batcher` crate provides `BatcherConfig` for configuring batch submission pipelines.
 
 Compression is configured separately:
 
@@ -73,40 +64,20 @@ pub struct CompressionConfig {
 
 ## Batching Model
 
-### Current: Polling Accumulation
+### Trait-Based Architecture
 
-The pipeline uses a **polling accumulation model** via the `tick()` method:
+The pipeline provides core traits for implementing batching strategies:
 
-```rust
-impl BatcherPipeline {
-    pub async fn tick(&mut self) -> Result<Option<SubmissionReceipt>, PipelineError> {
-        // 1. Collect pending blocks from source
-        let new_blocks = self.source.pending_blocks().await?;
-        self.state.pending_blocks.extend(new_blocks);
+- `BatchSource` provides pending L2 blocks
+- `Compressor` handles compression/decompression
+- `BatchCodec` encodes blocks into wire format
+- `BatchSink` submits compressed batches to L1
 
-        // 2. Encode and compress
-        let raw = self.codec.encode(&header, &self.state.pending_blocks)?;
-        let compressed = self.compressor.compress(&raw)?;
+Implementations using these traits (like `montana-batcher`) typically follow a polling accumulation model where batches are submitted based on:
+- **Time-based**: A configured batch interval (e.g., 12 seconds)
+- **Size-based**: When accumulated data reaches minimum thresholds
 
-        // 3. Check size constraints
-        if compressed.len() < self.config.min_batch_bytes {
-            return Ok(None); // Accumulate more
-        }
-        if compressed.len() > self.config.max_batch_bytes {
-            return self.submit_split(raw).await; // Split into multiple batches
-        }
-
-        // 4. Submit batch
-        self.sink.submit(batch).await
-    }
-}
-```
-
-Batches are submitted when:
-- **Time-based**: The batch interval (12 seconds) has elapsed
-- **Size-based**: Compressed data exceeds `min_batch_bytes` (1 KB)
-
-If compressed data exceeds `max_batch_bytes` (128 KB), the batch is split.
+The trait design allows for different batching strategies and submission patterns.
 
 ### Streaming Considerations
 
@@ -179,43 +150,53 @@ Each transaction: `[tx_len: u24] [tx_data: tx_len bytes]`
 
 ## Error Handling
 
-The pipeline uses trait-based error handling with retry support:
+The pipeline uses comprehensive error types for each component:
 
-```rust
-pub trait Retryable {
-    fn is_retryable(&self) -> bool;
-}
-```
+- `SourceError`: Connection failures, empty results, missing L1 origin
+- `SinkError`: L1 connection failures, transaction failures, insufficient funds, blob gas pricing, timeouts
+- `CompressionError`: Compression failures, corrupted data, size limits
+- `CodecError`: Invalid versions, truncated data, invalid block counts
+- `PipelineError`: Wrapper combining all error types
 
-Combinators for robustness:
-- `RetryingSink<S>`: Adds exponential backoff retry logic
-- `FallbackSink<P, S>`: Tries primary sink, falls back to secondary
+Implementations can determine retry strategies based on error types. For example, connection failures and timeout errors are typically retryable, while insufficient funds or sequencing window expiration are not.
 
 ## Usage
 
+This crate provides the core traits for building pipelines. Here's an example of implementing a custom source:
+
 ```rust
-use montana_pipeline::{
-    BatcherPipeline, PipelineConfig,
-    BrotliCompressor, CompressionConfig,
-};
+use montana_pipeline::{BatchSource, L2BlockData, SourceError};
+use async_trait::async_trait;
 
-// Create pipeline components
-let source = MyBlockSource::new();
-let compressor = BrotliCompressor::max_compression();
-let sink = MyBlobSink::new();
+struct MyBlockSource {
+    // Your implementation details
+}
 
-// Configure and run
-let config = PipelineConfig::default();
-let mut pipeline = BatcherPipeline::new(source, compressor, sink, config);
-
-// Run in a loop
-loop {
-    if let Some(receipt) = pipeline.tick().await? {
-        println!("Submitted batch {}", receipt.batch_number);
+#[async_trait]
+impl BatchSource for MyBlockSource {
+    async fn pending_blocks(&mut self) -> Result<Vec<L2BlockData>, SourceError> {
+        // Fetch blocks from your L2 execution client
+        todo!()
     }
-    tokio::time::sleep(config.batch_interval).await;
+
+    async fn l1_origin(&self) -> Result<u64, SourceError> {
+        // Return current L1 origin block number
+        todo!()
+    }
+
+    async fn l1_origin_hash(&self) -> Result<[u8; 20], SourceError> {
+        // Return L1 origin block hash prefix
+        todo!()
+    }
+
+    async fn parent_hash(&self) -> Result<[u8; 20], SourceError> {
+        // Return parent L2 block hash prefix
+        todo!()
+    }
 }
 ```
+
+For a complete batching system, see the `montana-batcher` crate which provides a service that orchestrates these traits.
 
 ## License
 

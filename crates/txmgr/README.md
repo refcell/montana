@@ -28,25 +28,56 @@ Transaction manager for L1 batch submission with EIP-4844 blob and calldata supp
 
 ## Usage
 
+### Creating Transaction Candidates
+
 ```rust
-use montana_txmgr::{TxManagerConfig, TxCandidate, TxBuilder};
-use alloy::primitives::{Address, Bytes};
+use montana_txmgr::{TxCandidate, TxManagerConfig};
+use alloy::primitives::{Address, Bytes, U256};
+use alloy::consensus::BlobTransactionSidecar;
 
 // Create a calldata transaction candidate
 let candidate = TxCandidate::calldata(
     Address::ZERO, // batch inbox address
     Bytes::from_static(&[0x01, 0x02, 0x03]),
-);
+)
+.with_gas_limit(100_000)  // Optional gas limit override
+.with_value(U256::ZERO);   // Optional value (default is 0)
 
 // Or create a blob transaction
-// let sidecar = BlobTransactionSidecar::new(...);
-// let candidate = TxCandidate::blob(inbox_address, sidecar);
+let sidecar = BlobTransactionSidecar::default(); // Create with your blob data
+let candidate = TxCandidate::blob(
+    Address::ZERO, // batch inbox address
+    sidecar,
+);
 
-// Configure the transaction manager
+// Check transaction type
+assert!(candidate.is_blob());
+```
+
+### Configuring the Transaction Manager
+
+```rust
+use std::time::Duration;
+
 let config = TxManagerConfig::builder()
     .num_confirmations(10)
-    .resubmission_timeout(std::time::Duration::from_secs(48))
+    .resubmission_timeout(Duration::from_secs(48))
+    .network_timeout(Duration::from_secs(10))
+    .price_bump_percent(10)
+    .blob_price_bump_percent(100)
     .build();
+```
+
+### Transaction Receipt
+
+```rust
+use montana_txmgr::TxReceipt;
+
+// After successful submission, you receive a receipt
+// let receipt: TxReceipt = ...
+
+// Calculate total cost (base gas + blob gas if applicable)
+let total_wei = receipt.total_cost();
 ```
 
 ## Configuration

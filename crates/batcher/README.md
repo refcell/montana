@@ -16,9 +16,10 @@ Batcher service for L2 batch submission orchestration.
 | Component | Description |
 |-----------|-------------|
 | `BatcherConfig` | Configuration with builder pattern and sensible defaults |
-| `BatcherService<S,C,K>` | Core service generic over pipeline traits |
-| `BatchDriver` | Batching strategy and decision logic |
-| `BatcherState` | Current service state |
+| `BatcherService<S,C,K>` | Core service generic over pipeline traits (BatchSource, Compressor, BatchSink) |
+| `BatchDriver` | Batching strategy and decision logic - accumulates blocks and decides when to submit |
+| `PendingBatch` | A batch ready for submission with blocks and size metadata |
+| `BatcherState` | Current service state (last batch number, L1 block, health, totals) |
 | `BatcherMetrics` | Observability metrics (stub implementation) |
 | `BatcherError` | Comprehensive error types with retry classification |
 
@@ -36,7 +37,25 @@ let config = BatcherConfig::builder()
     .build();
 
 // Create service with your implementations of the pipeline traits
-// let service = BatcherService::new(source, compressor, sink, config);
+let mut service = BatcherService::new(source, compressor, sink, config);
+
+// Run the service loop
+loop {
+    match service.tick().await {
+        Ok(Some(receipt)) => {
+            println!("Submitted batch {}", receipt.batch_number);
+        }
+        Ok(None) => {
+            // No batch submitted this tick
+        }
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+            // Handle error based on whether it's retryable
+        }
+    }
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
 ```
 
 ## Configuration

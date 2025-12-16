@@ -6,6 +6,32 @@ use montana_pipeline::{CompressionConfig, CompressionError, Compressor};
 ///
 /// Zstandard provides excellent compression ratios with very fast decompression,
 /// making it ideal for L2 batch compression where derivation speed matters.
+///
+/// # Compression Levels
+///
+/// Zstandard supports compression levels 1-22:
+/// - **1**: Fastest compression (use [`ZstdCompressor::fast()`])
+/// - **3**: Balanced compression (use [`ZstdCompressor::balanced()`] or default)
+/// - **19**: Maximum compression without ultra mode (use [`ZstdCompressor::best()`])
+/// - **22**: Maximum compression (very slow, requires ultra mode)
+///
+/// # Examples
+///
+/// ```
+/// use montana_zstd::ZstdCompressor;
+/// use montana_pipeline::Compressor;
+///
+/// // Use default balanced compression
+/// let compressor = ZstdCompressor::default();
+/// let data = b"Hello, World!";
+/// let compressed = compressor.compress(data).unwrap();
+/// let decompressed = compressor.decompress(&compressed).unwrap();
+/// assert_eq!(decompressed, data);
+///
+/// // Use best compression
+/// let best = ZstdCompressor::best();
+/// let compressed = best.compress(data).unwrap();
+/// ```
 #[derive(Debug, Clone)]
 pub struct ZstdCompressor {
     config: CompressionConfig,

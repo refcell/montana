@@ -73,7 +73,7 @@ shadow -v
 +-------------------+-----------------------+
 ```
 
-The TUI uses a 1/4 to 3/4 vertical split, with the header taking the top quarter and the log panes sharing the bottom three quarters equally.
+The TUI uses a vertical split where the header occupies the top 1/4 of the screen, and the bottom 3/4 is split horizontally between the two log panes (each taking 50% of the width).
 
 ## How It Works
 

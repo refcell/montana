@@ -12,6 +12,23 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 /// - 3+: TRACE
 ///
 /// The `RUST_LOG` environment variable can be used to override the default filter.
+///
+/// # Examples
+///
+/// ```no_run
+/// use montana_cli::init_tracing;
+///
+/// // Initialize with INFO level logging (verbosity = 1)
+/// init_tracing(1);
+///
+/// // Now tracing macros will work
+/// tracing::info!("Application started");
+/// ```
+///
+/// # Panics
+///
+/// This function will panic if a global tracing subscriber has already been set.
+/// It should only be called once at the start of the application.
 pub fn init_tracing(verbosity: u8) {
     let level = match verbosity {
         0 => Level::WARN,

@@ -9,6 +9,32 @@ use montana_pipeline::{CompressionConfig, CompressionError, Compressor};
 /// Brotli provides excellent compression ratios, especially for text-like data
 /// such as RLP-encoded transactions. The default configuration uses maximum
 /// compression (level 11) with a 4MB window for optimal batch sizes.
+///
+/// # Compression Levels
+///
+/// Brotli supports compression levels 0-11:
+/// - **0**: No compression (store only)
+/// - **1**: Fastest compression (use [`BrotliCompressor::fast()`])
+/// - **6**: Balanced compression (use [`BrotliCompressor::balanced()`])
+/// - **11**: Maximum compression (use [`BrotliCompressor::max_compression()`] or default)
+///
+/// # Examples
+///
+/// ```
+/// use montana_brotli::BrotliCompressor;
+/// use montana_pipeline::Compressor;
+///
+/// // Use default maximum compression
+/// let compressor = BrotliCompressor::default();
+/// let data = b"Hello, World!";
+/// let compressed = compressor.compress(data).unwrap();
+/// let decompressed = compressor.decompress(&compressed).unwrap();
+/// assert_eq!(decompressed, data);
+///
+/// // Use fast compression
+/// let fast = BrotliCompressor::fast();
+/// let compressed = fast.compress(data).unwrap();
+/// ```
 #[derive(Debug, Clone)]
 pub struct BrotliCompressor {
     config: CompressionConfig,

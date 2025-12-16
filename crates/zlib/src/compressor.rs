@@ -9,6 +9,32 @@ use montana_pipeline::{CompressionConfig, CompressionError, Compressor};
 ///
 /// Zlib provides good compression ratios with fast decompression speeds.
 /// It's widely supported and well-suited for general-purpose compression.
+///
+/// # Compression Levels
+///
+/// Zlib supports compression levels 0-9:
+/// - **0**: No compression (store only)
+/// - **1**: Fastest compression (use [`ZlibCompressor::fast()`])
+/// - **6**: Balanced compression (use [`ZlibCompressor::balanced()`] or default)
+/// - **9**: Maximum compression (use [`ZlibCompressor::best()`])
+///
+/// # Examples
+///
+/// ```
+/// use montana_zlib::ZlibCompressor;
+/// use montana_pipeline::Compressor;
+///
+/// // Use default balanced compression
+/// let compressor = ZlibCompressor::default();
+/// let data = b"Hello, World!";
+/// let compressed = compressor.compress(data).unwrap();
+/// let decompressed = compressor.decompress(&compressed).unwrap();
+/// assert_eq!(decompressed, data);
+///
+/// // Use best compression
+/// let best = ZlibCompressor::best();
+/// let compressed = best.compress(data).unwrap();
+/// ```
 #[derive(Debug, Clone)]
 pub struct ZlibCompressor {
     config: CompressionConfig,

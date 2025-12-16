@@ -7,10 +7,12 @@ mod cli;
 
 use std::time::Duration;
 
-use alloy::{consensus::BlockHeader, network::BlockResponse, providers::ProviderBuilder};
-use blocksource::{
-    BlockProducer, HistoricalRangeProducer, LiveRpcProducer, OpBlock, RpcBlockSource,
+use alloy::{
+    consensus::BlockHeader,
+    network::BlockResponse,
+    providers::{ProviderBuilder, RootProvider},
 };
+use blocksource::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer, OpBlock};
 use chainspec::BASE_MAINNET;
 use clap::Parser;
 use cli::{Args, ProducerMode};
@@ -24,13 +26,12 @@ use tracing::{error, info};
 const CHANNEL_CAPACITY: usize = 256;
 
 /// Execute a block using the `BlockExecutor`
-async fn execute_block(block: OpBlock, rpc_url: &str) -> Result<()> {
+fn execute_block(block: OpBlock, provider: &RootProvider<Optimism>) -> Result<()> {
     let block_number = block.header().number();
 
     // Create the database backed by RPC (state at block - 1)
     let state_block = block_number.saturating_sub(1);
-    let block_source = RpcBlockSource::new(rpc_url).await?;
-    let rpc_db = RPCDatabase::new(block_source.provider().clone(), state_block, Handle::current());
+    let rpc_db = RPCDatabase::new(provider.clone(), state_block, Handle::current());
     let db = CachedDatabase::new(rpc_db);
 
     let mut executor = BlockExecutor::new(db, BASE_MAINNET);
@@ -66,10 +67,8 @@ async fn run(args: Args) -> Result<()> {
     });
 
     // Consumer loop: process blocks as they arrive
-    let rpc_url = args.rpc_url.clone();
-
     while let Some(block) = rx.recv().await {
-        if let Err(e) = execute_block(block, &rpc_url).await {
+        if let Err(e) = execute_block(block, &provider) {
             error!("Block execution error: {e}");
         }
     }

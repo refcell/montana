@@ -2,7 +2,7 @@
 
 use alloy::{
     eips::BlockNumberOrTag,
-    providers::{Provider, ProviderBuilder, RootProvider},
+    providers::{Provider, RootProvider},
 };
 use eyre::{Result, eyre};
 use op_alloy::network::Optimism;
@@ -16,24 +16,10 @@ pub struct RpcBlockSource {
 }
 
 impl RpcBlockSource {
-    /// Create a new RPC block source from a URL.
-    ///
-    /// # Errors
-    /// Returns an error if the connection to the RPC endpoint fails.
-    pub async fn new(rpc_url: &str) -> Result<Self> {
-        let provider = ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .network::<Optimism>()
-            .connect(rpc_url)
-            .await?;
-
-        Ok(Self { provider })
-    }
-
-    /// Get the underlying provider for additional RPC operations.
+    /// Create a new RPC block source from a provider.
     #[must_use]
-    pub const fn provider(&self) -> &RootProvider<Optimism> {
-        &self.provider
+    pub const fn new(provider: RootProvider<Optimism>) -> Self {
+        Self { provider }
     }
 
     /// Fetch a block by number.

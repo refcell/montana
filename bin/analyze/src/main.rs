@@ -171,7 +171,12 @@ async fn run_roundtrip_mode(cli: &Cli) -> Result<(), Box<dyn std::error::Error>>
         // Find first difference
         for (i, (a, b)) in original_batch.iter().zip(decompressed.iter()).enumerate() {
             if a != b {
-                tracing::error!("  First difference at byte {}: original=0x{:02x}, decompressed=0x{:02x}", i, a, b);
+                tracing::error!(
+                    "  First difference at byte {}: original=0x{:02x}, decompressed=0x{:02x}",
+                    i,
+                    a,
+                    b
+                );
                 break;
             }
         }
@@ -215,12 +220,16 @@ fn encode_blocks(blocks: &[L2BlockData]) -> Vec<u8> {
 }
 
 /// Get the compressor for the given algorithm.
-fn get_compressor(algo: CompressionAlgorithm) -> Result<Box<dyn Compressor + Send + Sync>, Box<dyn std::error::Error>> {
+fn get_compressor(
+    algo: CompressionAlgorithm,
+) -> Result<Box<dyn Compressor + Send + Sync>, Box<dyn std::error::Error>> {
     match algo {
         CompressionAlgorithm::Brotli => Ok(Box::new(BrotliCompressor::balanced())),
         CompressionAlgorithm::Zlib => Ok(Box::new(ZlibCompressor::balanced())),
         CompressionAlgorithm::Zstd => Ok(Box::new(ZstdCompressor::balanced())),
-        CompressionAlgorithm::All => Err("Cannot use 'all' compression for derivation/roundtrip mode".into()),
+        CompressionAlgorithm::All => {
+            Err("Cannot use 'all' compression for derivation/roundtrip mode".into())
+        }
     }
 }
 

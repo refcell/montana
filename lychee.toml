@@ -11,4 +11,6 @@ exclude = [
     'https://rustup.rs/',
     'https://github.com/base/montana/actions/workflows/ci.yml',
     'https://github.com/base/montana/blob/main/LICENSE',
+    # GitHub user-attachments URLs are ephemeral and may return 404
+    'https://github.com/user-attachments/assets/.*',
 ]

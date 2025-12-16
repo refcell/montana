@@ -38,7 +38,7 @@ For detailed documentation on the pipeline architecture, configuration, batching
 
 ## Demo
 
-![Demo](./assets/shadow.gif)
+<video src="https://github.com/refcell/montana/raw/main/assets/shadow.mov" controls autoplay loop muted></video>
 
 ## Overview
 

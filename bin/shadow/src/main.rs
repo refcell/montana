@@ -230,8 +230,14 @@ fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
 fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let stats = &app.stats;
 
-    // Create header content
-    let header_text = vec![
+    // Split header into left (stats) and right (timing metrics) sections
+    let header_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(area);
+
+    // Left side: existing stats
+    let left_text = vec![
         Line::from(vec![
             Span::styled("  MONTANA SHADOW  ", Style::default().fg(Color::Cyan).bold()),
             Span::raw(" | "),
@@ -301,16 +307,58 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         ]),
     ];
 
-    let header = Paragraph::new(header_text)
+    let left_header = Paragraph::new(left_text)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Stats & Metrics ")
+                .title(" Stats ")
                 .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
-    frame.render_widget(header, area);
+    frame.render_widget(left_header, header_chunks[0]);
+
+    // Right side: timing metrics
+    let avg_latency = stats.avg_latency_ms();
+    let stddev = stats.latency_stddev_ms();
+    let sample_count = stats.derivation_latencies_ms.len();
+
+    let right_text = vec![
+        Line::from(vec![Span::styled(
+            "Derivation Latency",
+            Style::default().fg(Color::Yellow).bold(),
+        )]),
+        Line::from(vec![]),
+        Line::from(vec![
+            Span::styled("Avg: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                avg_latency.map_or_else(|| "--".to_string(), |v| format!("{:.1}ms", v)),
+                Style::default().fg(Color::White).bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Std Dev: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                stddev.map_or_else(|| "--".to_string(), |v| format!("{:.1}ms", v)),
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Samples: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{}", sample_count), Style::default().fg(Color::White)),
+        ]),
+    ];
+
+    let right_header = Paragraph::new(right_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Timing Metrics ")
+                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(right_header, header_chunks[1]);
 }
 
 /// Draw the batch submission log pane.

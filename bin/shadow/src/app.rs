@@ -3,6 +3,8 @@
 //! This module contains the shared state between the TUI and the
 //! background batch submission and derivation tasks.
 
+use std::{collections::HashMap, time::Instant};
+
 use crate::mode::BatchSubmissionMode;
 
 /// Log level for display.
@@ -68,6 +70,51 @@ pub(crate) struct Stats {
     pub(crate) bytes_decompressed: usize,
     /// Whether derivation is healthy (matches batch submission).
     pub(crate) derivation_healthy: bool,
+    /// Batch derivation latencies in milliseconds (for calculating avg/variance).
+    pub(crate) derivation_latencies_ms: Vec<u64>,
+}
+
+impl Stats {
+    /// Record a new derivation latency sample.
+    pub(crate) fn record_latency(&mut self, latency_ms: u64) {
+        // Keep at most the last 100 samples
+        if self.derivation_latencies_ms.len() >= 100 {
+            self.derivation_latencies_ms.remove(0);
+        }
+        self.derivation_latencies_ms.push(latency_ms);
+    }
+
+    /// Get the average derivation latency in milliseconds.
+    pub(crate) fn avg_latency_ms(&self) -> Option<f64> {
+        if self.derivation_latencies_ms.is_empty() {
+            return None;
+        }
+        let sum: u64 = self.derivation_latencies_ms.iter().sum();
+        Some(sum as f64 / self.derivation_latencies_ms.len() as f64)
+    }
+
+    /// Get the variance of derivation latencies in milliseconds squared.
+    pub(crate) fn latency_variance_ms(&self) -> Option<f64> {
+        let avg = self.avg_latency_ms()?;
+        if self.derivation_latencies_ms.len() < 2 {
+            return None;
+        }
+        let variance: f64 = self
+            .derivation_latencies_ms
+            .iter()
+            .map(|&x| {
+                let diff = x as f64 - avg;
+                diff * diff
+            })
+            .sum::<f64>()
+            / (self.derivation_latencies_ms.len() - 1) as f64;
+        Some(variance)
+    }
+
+    /// Get the standard deviation of derivation latencies in milliseconds.
+    pub(crate) fn latency_stddev_ms(&self) -> Option<f64> {
+        self.latency_variance_ms().map(|v| v.sqrt())
+    }
 }
 
 /// Main application state.
@@ -91,6 +138,8 @@ pub(crate) struct App {
     pub(crate) derivation_logs: Vec<LogEntry>,
     /// Maximum log entries to keep per pane.
     max_logs: usize,
+    /// Batch submission timestamps (batch_number -> submit time).
+    pub(crate) batch_submission_times: HashMap<u64, Instant>,
 }
 
 impl App {
@@ -111,6 +160,7 @@ impl App {
             batch_logs: Vec::new(),
             derivation_logs: Vec::new(),
             max_logs: 1000,
+            batch_submission_times: HashMap::new(),
         };
 
         app.batch_logs.push(LogEntry::info("Connecting to RPC..."));
@@ -141,6 +191,7 @@ impl App {
         self.stats = Stats { derivation_healthy: true, ..Default::default() };
         self.batch_logs.clear();
         self.derivation_logs.clear();
+        self.batch_submission_times.clear();
         self.is_paused = false;
 
         self.batch_logs.push(LogEntry::info("Reset - reconnecting to RPC..."));

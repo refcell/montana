@@ -4,7 +4,10 @@
 //! and derivation in the background, streaming blocks from an RPC
 //! endpoint and updating the shared app state.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use montana_brotli::BrotliCompressor;
 use montana_pipeline::{CompressedBatch, Compressor, L2BlockData};
@@ -145,6 +148,9 @@ pub(crate) async fn run_batch_submission(
                             // Create the batch
                             let batch = CompressedBatch { batch_number, data: compressed.clone() };
 
+                            // Record submission time before submitting
+                            let submit_time = Instant::now();
+
                             // Submit through the batch context sink
                             match batch_context.sink().submit(batch).await {
                                 Ok(receipt) => {
@@ -161,6 +167,11 @@ pub(crate) async fn run_batch_submission(
                                         } else {
                                             1.0
                                         };
+
+                                    // Record submission timestamp for latency calculation
+                                    app_guard
+                                        .batch_submission_times
+                                        .insert(batch_number, submit_time);
 
                                     // Log success with tx hash if available
                                     let tx_hash = receipt.tx_hash;
@@ -256,6 +267,7 @@ pub(crate) async fn run_derivation(app: Arc<Mutex<App>>, batch_context: Arc<Batc
         }
 
         // Try to get a batch from the source
+        let derive_time = Instant::now();
         let batch = match batch_context.source().next_batch().await {
             Ok(Some(batch)) => batch,
             Ok(None) => {
@@ -283,6 +295,14 @@ pub(crate) async fn run_derivation(app: Arc<Mutex<App>>, batch_context: Arc<Batc
                 app_guard.stats.blocks_derived += 1;
                 app_guard.stats.bytes_decompressed += decompressed_size;
                 app_guard.stats.derivation_healthy = true;
+
+                // Calculate and record latency if we have a submission timestamp
+                if let Some(submit_time) =
+                    app_guard.batch_submission_times.remove(&batch.batch_number)
+                {
+                    let latency = derive_time.duration_since(submit_time);
+                    app_guard.stats.record_latency(latency.as_millis() as u64);
+                }
 
                 app_guard.log_derivation(LogEntry::info(format!(
                     "Derived batch #{}: {} -> {} bytes",

@@ -17,7 +17,7 @@ workspace = true
 blocksource.workspace = true
 chainspec.workspace = true
 database.workspace = true
-execution.workspace = true
+vm.workspace = true
 
 # alloy
 alloy.workspace = true

@@ -18,7 +18,7 @@ use chainspec::BASE_MAINNET;
 use clap::Parser;
 use cli::{Args, ProducerMode};
 use database::{CachedDatabase, RPCDatabase};
-use execution::BlockExecutor;
+use vm::BlockExecutor;
 use eyre::Result;
 use op_alloy::network::Optimism;
 use tokio::{runtime::Handle, sync::mpsc};

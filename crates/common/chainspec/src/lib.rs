@@ -168,8 +168,9 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     #[rstest]
     #[case(1_704_992_400, OpSpecId::BEDROCK, "before Canyon")]

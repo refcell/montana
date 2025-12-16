@@ -2281,21 +2281,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "execution"
-version = "0.0.1"
-dependencies = [
- "alloy",
- "blocksource",
- "chainspec",
- "database",
- "op-alloy",
- "op-revm",
- "revm",
- "thiserror",
- "tracing",
-]
-
-[[package]]
 name = "eyre"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3314,7 +3299,6 @@ dependencies = [
  "chainspec",
  "clap",
  "database",
- "execution",
  "eyre",
  "op-alloy",
  "op-revm",
@@ -3322,6 +3306,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.22",
+ "vm",
 ]
 
 [[package]]
@@ -5962,6 +5947,21 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vm"
+version = "0.0.1"
+dependencies = [
+ "alloy",
+ "blocksource",
+ "chainspec",
+ "database",
+ "op-alloy",
+ "op-revm",
+ "revm",
+ "thiserror",
+ "tracing",
+]
 
 [[package]]
 name = "wait-timeout"

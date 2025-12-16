@@ -102,7 +102,7 @@ The inverse pipeline for derivation:
 
 - [`blocksource`](./crates/execution/blocksource): Block source implementations for fetching OP Stack blocks.
 - [`database`](./crates/execution/database): Database implementations for EVM state.
-- [`execution`](./crates/execution/execution): Block executor using op-revm.
+- [`vm`](./crates/execution/vm): Block executor using op-revm.
 
 ## Performance
 

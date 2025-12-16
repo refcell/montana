@@ -43,10 +43,14 @@ For detailed documentation on the pipeline architecture, configuration, batching
 
 ## Demo
 
-<https://github.com/user-attachments/assets/43573ae5-5ce7-44a8-be40-697e6c719877>
+<https://github.com/user-attachments/assets/ac59dcd6-a887-4e75-8e28-7317812c8b20>
+
 
 > [!NOTE]
-> The demo runs `just s` which is aliased to run the shadow binary. It shows pausing batch submission and resuming it by pressing "p".
+>
+> The demo runs `just s` which is aliased to run the shadow binary.
+> It shows pausing batch submission and resuming it by pressing "p".
+> This demo uses a local anvil instance as the data availability provider.
 
 ## Overview
 

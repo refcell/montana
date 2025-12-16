@@ -8,7 +8,7 @@ repository = "https://github.com/base/montana"
 
 [workspace]
 resolver = "2"
-members = ["bin/*", "crates/common/*", "crates/consensus/*", "crates/execution/*"]
+members = ["bin/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/utilities/*"]
 default-members = ["bin/montana", "bin/analyze"]
 
 [workspace.lints.rust]
@@ -53,12 +53,14 @@ montana-batch-runner = { version = "0.0.1", path = "crates/consensus/batch-runne
 montana-batcher = { version = "0.0.1", path = "crates/consensus/batcher" }
 montana-brotli = { version = "0.0.1", path = "crates/consensus/brotli" }
 montana-derivation-runner = { version = "0.0.1", path = "crates/consensus/derivation-runner" }
-montana-cli = { version = "0.0.1", path = "crates/consensus/cli" }
 montana-local = { version = "0.0.1", path = "crates/consensus/local" }
 montana-pipeline = { version = "0.0.1", path = "crates/consensus/pipeline" }
 montana-txmgr = { version = "0.0.1", path = "crates/consensus/txmgr" }
 montana-zlib = { version = "0.0.1", path = "crates/consensus/zlib" }
 montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
+
+# utilities crates
+montana-cli = { version = "0.0.1", path = "crates/utilities/cli" }
 
 # common crates
 chainspec = { path = "crates/common/chainspec" }

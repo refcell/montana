@@ -87,10 +87,13 @@ The inverse pipeline for derivation:
 - [`montana-batcher`](./crates/consensus/batcher): Batcher service for L2 batch submission orchestration.
 - [`montana-txmgr`](./crates/consensus/txmgr): Transaction manager for L1 batch submission with blob and calldata support.
 - [`montana-local`](./crates/consensus/local): Local file-based source and sink implementations.
-- [`montana-cli`](./crates/consensus/cli): CLI utilities and argument parsing.
 - [`montana-brotli`](./crates/consensus/brotli): Brotli compression implementation.
 - [`montana-zlib`](./crates/consensus/zlib): Zlib compression implementation.
 - [`montana-zstd`](./crates/consensus/zstd): Zstandard compression implementation.
+
+**Utilities**
+
+- [`montana-cli`](./crates/utilities/cli): CLI utilities and argument parsing.
 
 **Common**
 

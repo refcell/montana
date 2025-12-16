@@ -201,9 +201,9 @@ impl BatchSource for AnvilBatchSourceWrapper {
 /// Context holding the batch sink and source for the current mode.
 pub(crate) struct BatchContext {
     /// The batch sink for submission.
-    sink: Box<dyn BatchSink>,
+    sink: Arc<Box<dyn BatchSink>>,
     /// The batch source for derivation.
-    source: Box<dyn BatchSource>,
+    source: Arc<Box<dyn BatchSource>>,
     /// Anvil manager (kept alive for the duration of the simulation).
     #[allow(dead_code)]
     anvil: Option<AnvilManager>,
@@ -224,7 +224,12 @@ impl BatchContext {
             BatchSubmissionMode::InMemory => {
                 let queue = InMemoryBatchQueue::new();
                 let source = queue.source();
-                Ok(Self { sink: Box::new(queue), source: Box::new(source), anvil: None, mode })
+                Ok(Self {
+                    sink: Arc::new(Box::new(queue)),
+                    source: Arc::new(Box::new(source)),
+                    anvil: None,
+                    mode,
+                })
             }
             BatchSubmissionMode::Anvil => {
                 let config = AnvilConfig { batch_inbox, ..Default::default() };
@@ -234,8 +239,8 @@ impl BatchContext {
                 let sink = AnvilBatchSinkWrapper::new(anvil.sink());
                 let source = AnvilBatchSourceWrapper::new(anvil.source());
                 Ok(Self {
-                    sink: Box::new(sink),
-                    source: Box::new(source),
+                    sink: Arc::new(Box::new(sink)),
+                    source: Arc::new(Box::new(source)),
                     anvil: Some(anvil),
                     mode,
                 })
@@ -246,14 +251,14 @@ impl BatchContext {
         }
     }
 
-    /// Get a reference to the sink.
-    pub(crate) fn sink(&self) -> &dyn BatchSink {
-        self.sink.as_ref()
+    /// Get an Arc clone of the sink (for sharing).
+    pub(crate) fn sink_arc(&self) -> Arc<Box<dyn BatchSink>> {
+        Arc::clone(&self.sink)
     }
 
     /// Get a reference to the source.
     pub(crate) fn source(&self) -> &dyn BatchSource {
-        self.source.as_ref()
+        self.source.as_ref().as_ref()
     }
 
     /// Get the Anvil endpoint URL (if in Anvil mode).

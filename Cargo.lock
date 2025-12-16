@@ -3314,6 +3314,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-batch-runner"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "montana-pipeline",
+ "reqwest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "montana-batcher"
 version = "0.0.1"
 dependencies = [
@@ -3342,6 +3357,18 @@ dependencies = [
  "clap",
  "tracing",
  "tracing-subscriber 0.3.22",
+]
+
+[[package]]
+name = "montana-derivation-runner"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "montana-pipeline",
+ "rstest",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5155,14 +5182,13 @@ dependencies = [
  "clap",
  "crossterm",
  "montana-anvil",
+ "montana-batch-runner",
  "montana-brotli",
+ "montana-derivation-runner",
  "montana-pipeline",
  "montana-zlib",
  "montana-zstd",
  "ratatui",
- "reqwest",
- "serde",
- "serde_json",
  "thiserror",
  "tokio",
 ]

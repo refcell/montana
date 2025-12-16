@@ -18,6 +18,17 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use montana_batch_runner::{
+    BatchSubmissionCallback, BatchSubmissionConfig, BatchSubmissionRunner, RpcBlockSource,
+};
+use montana_brotli::BrotliCompressor;
+use montana_derivation_runner::{DerivationConfig, DerivationRunner};
+use montana_pipeline::{
+    CompressedBatch, Compressor, L1BatchSource, SourceError as PipelineSourceError,
+    SubmissionReceipt,
+};
+use montana_zlib::ZlibCompressor;
+use montana_zstd::ZstdCompressor;
 use ratatui::{
     DefaultTerminal,
     layout::{Constraint, Direction, Layout, Rect},
@@ -30,14 +41,12 @@ use tokio::sync::Mutex;
 mod app;
 mod batch;
 mod mode;
-mod rpc;
-mod runner;
 
 use app::{App, LogEntry, LogLevel};
 use batch::BatchContext;
 use mode::BatchSubmissionMode;
 use montana_anvil::Address;
-use runner::{run_batch_submission, run_derivation};
+use montana_batch_runner::BlockSource;
 
 /// Default Base mainnet RPC URL.
 const DEFAULT_RPC_URL: &str = "https://mainnet.base.org";
@@ -150,19 +159,161 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
     // Wrap the batch context in an Arc for sharing
     let batch_context = Arc::new(batch_context);
 
-    // Spawn background tasks
-    let batch_app = Arc::clone(&app);
-    let derivation_app = Arc::clone(&app);
-    let batch_args = args;
-    let sink_context = Arc::clone(&batch_context);
-    let source_context = Arc::clone(&batch_context);
+    // Get compressor name
+    let compressor_name = args.compression.clone();
 
+    // Build configurations
+    let batch_config = BatchSubmissionConfig::builder()
+        .poll_interval_ms(args.poll_interval)
+        .max_blocks_per_batch(args.max_blocks_per_batch)
+        .target_batch_size(args.target_batch_size)
+        .build();
+
+    let derivation_config = DerivationConfig::builder().poll_interval_ms(50).build();
+
+    // Get starting block
+    let start_block = match args.start {
+        Some(start) => start,
+        None => rt.block_on(async {
+            let source = RpcBlockSource::new(args.rpc.clone());
+            match source.get_head().await {
+                Ok(head) => {
+                    let mut app_guard = app.lock().await;
+                    app_guard
+                        .log_batch(LogEntry::info(format!("Connected! Chain head at #{}", head)));
+                    app_guard.set_chain_head(head);
+                    head
+                }
+                Err(e) => {
+                    let mut app_guard = app.lock().await;
+                    app_guard.log_batch(LogEntry::error(format!("Failed to connect: {}", e)));
+                    0
+                }
+            }
+        }),
+    };
+
+    // Dispatch to the appropriate compressor-specific runner function
+    // This avoids generic type issues by handling each compressor type separately
+    match compressor_name.to_lowercase().as_str() {
+        "zlib" => run_with_compressor(
+            &mut terminal,
+            &rt,
+            app,
+            batch_context,
+            args.rpc,
+            batch_config,
+            derivation_config,
+            start_block,
+            ZlibCompressor::balanced(),
+        ),
+        "zstd" => run_with_compressor(
+            &mut terminal,
+            &rt,
+            app,
+            batch_context,
+            args.rpc,
+            batch_config,
+            derivation_config,
+            start_block,
+            ZstdCompressor::balanced(),
+        ),
+        _ => run_with_compressor(
+            &mut terminal,
+            &rt,
+            app,
+            batch_context,
+            args.rpc,
+            batch_config,
+            derivation_config,
+            start_block,
+            BrotliCompressor::balanced(),
+        ),
+    }
+}
+
+/// Run the TUI with a specific compressor type.
+fn run_with_compressor<C: Compressor + Clone + Send + Sync + 'static>(
+    terminal: &mut DefaultTerminal,
+    rt: &tokio::runtime::Runtime,
+    app: Arc<Mutex<App>>,
+    batch_context: Arc<BatchContext>,
+    rpc_url: String,
+    batch_config: BatchSubmissionConfig,
+    derivation_config: DerivationConfig,
+    start_block: u64,
+    compressor: C,
+) -> io::Result<()> {
+    // Create batch submission callback
+    let callback_app = Arc::clone(&app);
+    let callback = TuiCallback::new(callback_app);
+
+    // Create batch submission runner
+    let block_source = RpcBlockSource::new(rpc_url);
+    let sink_wrapper = BatchSinkWrapper::new(batch_context.sink_arc());
+    let batch_runner =
+        BatchSubmissionRunner::new(block_source, compressor.clone(), sink_wrapper, batch_config)
+            .with_callback(callback);
+    let batch_runner = Arc::new(Mutex::new(batch_runner));
+
+    // Create derivation runner
+    let source_adapter = BatchSourceAdapter::new(Arc::clone(&batch_context));
+    let derivation_runner = DerivationRunner::new(source_adapter, compressor, derivation_config);
+    let derivation_runner = Arc::new(Mutex::new(derivation_runner));
+
+    // Spawn batch submission task
+    let batch_task_runner = Arc::clone(&batch_runner);
+    let batch_task_app = Arc::clone(&app);
     rt.spawn(async move {
-        run_batch_submission(batch_app, batch_args, sink_context).await;
+        let mut runner = batch_task_runner.lock().await;
+        if let Err(e) = runner.run(start_block).await {
+            let mut app_guard = batch_task_app.lock().await;
+            app_guard.log_batch(LogEntry::error(format!("Batch runner error: {}", e)));
+        }
     });
 
+    // Spawn derivation task
+    let derivation_task_runner = Arc::clone(&derivation_runner);
+    let derivation_task_app = Arc::clone(&app);
     rt.spawn(async move {
-        run_derivation(derivation_app, source_context).await;
+        loop {
+            let result = {
+                let mut runner = derivation_task_runner.lock().await;
+                runner.tick().await
+            };
+
+            match result {
+                Ok(Some(metrics)) => {
+                    let batch_number = metrics.batches_derived.saturating_sub(1);
+                    let mut app_guard = derivation_task_app.lock().await;
+                    app_guard.stats.batches_derived = metrics.batches_derived;
+                    app_guard.stats.blocks_derived = metrics.blocks_derived;
+                    app_guard.stats.bytes_decompressed = metrics.bytes_decompressed as usize;
+                    app_guard.stats.derivation_healthy = true;
+
+                    // Calculate latency if available
+                    if let Some(submit_time) =
+                        app_guard.batch_submission_times.remove(&batch_number)
+                    {
+                        let latency = std::time::Instant::now().duration_since(submit_time);
+                        app_guard.stats.record_latency(latency.as_millis() as u64);
+                    }
+
+                    app_guard.log_derivation(LogEntry::info(format!(
+                        "Derived batch #{}: decompressed to {} bytes",
+                        batch_number, metrics.bytes_decompressed
+                    )));
+                }
+                Ok(None) => {
+                    // No batch available, continue
+                }
+                Err(e) => {
+                    let mut app_guard = derivation_task_app.lock().await;
+                    app_guard.stats.derivation_healthy = false;
+                    app_guard.log_derivation(LogEntry::error(format!("Derivation error: {}", e)));
+                }
+            }
+        }
     });
 
     // Main UI loop
@@ -190,10 +341,175 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
                     // Toggle pause
                     let mut app_guard = rt.block_on(app.lock());
                     app_guard.toggle_pause();
+
+                    // Update runners
+                    let paused = app_guard.is_paused;
+                    drop(app_guard);
+
+                    let mut batch = rt.block_on(batch_runner.lock());
+                    let mut derivation = rt.block_on(derivation_runner.lock());
+
+                    if paused {
+                        batch.pause();
+                        derivation.pause();
+                    } else {
+                        batch.resume();
+                        derivation.resume();
+                    }
                 }
                 _ => {}
             }
         }
+    }
+}
+
+/// Callback implementation for TUI updates.
+struct TuiCallback {
+    app: Arc<Mutex<App>>,
+}
+
+impl TuiCallback {
+    fn new(app: Arc<Mutex<App>>) -> Self {
+        Self { app }
+    }
+}
+
+#[async_trait::async_trait]
+impl BatchSubmissionCallback for TuiCallback {
+    async fn on_batch_submitted(
+        &self,
+        batch_number: u64,
+        blocks_count: usize,
+        original_size: usize,
+        compressed_size: usize,
+        tx_hash: [u8; 32],
+    ) {
+        let mut app_guard = self.app.lock().await;
+        app_guard.stats.batches_submitted += 1;
+        app_guard.stats.blocks_processed += blocks_count as u64;
+        app_guard.stats.bytes_original += original_size;
+        app_guard.stats.bytes_compressed += compressed_size;
+        app_guard.stats.compression_ratio = if app_guard.stats.bytes_original > 0 {
+            app_guard.stats.bytes_compressed as f64 / app_guard.stats.bytes_original as f64
+        } else {
+            1.0
+        };
+
+        // Record submission timestamp for latency calculation
+        app_guard.batch_submission_times.insert(batch_number, std::time::Instant::now());
+
+        // Log success with tx hash if available
+        let has_tx = tx_hash != [0u8; 32];
+        let ratio =
+            if original_size > 0 { compressed_size as f64 / original_size as f64 } else { 1.0 };
+        let msg = if has_tx {
+            format!(
+                "Batch #{}: {} blocks, {} -> {} bytes ({:.1}%) tx:0x{:02x}{:02x}{:02x}{:02x}...",
+                batch_number,
+                blocks_count,
+                original_size,
+                compressed_size,
+                ratio * 100.0,
+                tx_hash[0],
+                tx_hash[1],
+                tx_hash[2],
+                tx_hash[3]
+            )
+        } else {
+            format!(
+                "Batch #{}: {} blocks, {} -> {} bytes ({:.1}%)",
+                batch_number,
+                blocks_count,
+                original_size,
+                compressed_size,
+                ratio * 100.0
+            )
+        };
+        app_guard.log_batch(LogEntry::info(msg));
+    }
+
+    async fn on_batch_failed(
+        &self,
+        batch_number: u64,
+        error: &montana_batch_runner::BatchSubmissionError,
+    ) {
+        let mut app_guard = self.app.lock().await;
+        app_guard.log_batch(LogEntry::error(format!(
+            "Batch #{} submit failed: {}",
+            batch_number, error
+        )));
+    }
+
+    async fn on_block_processed(&self, block_number: u64, tx_count: usize, size: usize) {
+        let mut app_guard = self.app.lock().await;
+        app_guard.set_current_block(block_number);
+        app_guard.log_batch(LogEntry::info(format!(
+            "Block #{}: {} txs, {} bytes",
+            block_number, tx_count, size
+        )));
+    }
+
+    async fn on_chain_head_updated(&self, head: u64) {
+        let mut app_guard = self.app.lock().await;
+        app_guard.set_chain_head(head);
+    }
+}
+
+/// Adapter that wraps BatchContext source to implement L1BatchSource.
+struct BatchSourceAdapter {
+    context: Arc<BatchContext>,
+}
+
+impl BatchSourceAdapter {
+    fn new(context: Arc<BatchContext>) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait::async_trait]
+impl L1BatchSource for BatchSourceAdapter {
+    async fn next_batch(&mut self) -> Result<Option<CompressedBatch>, PipelineSourceError> {
+        self.context
+            .source()
+            .next_batch()
+            .await
+            .map_err(|e| PipelineSourceError::Connection(e.to_string()))
+    }
+
+    async fn l1_head(&self) -> Result<u64, PipelineSourceError> {
+        Ok(0)
+    }
+}
+
+/// Wrapper that adapts batch::BatchSink to montana_pipeline::BatchSink.
+struct BatchSinkWrapper {
+    inner: Arc<Box<dyn batch::BatchSink>>,
+}
+
+impl BatchSinkWrapper {
+    fn new(inner: Arc<Box<dyn batch::BatchSink>>) -> Self {
+        Self { inner }
+    }
+}
+
+#[async_trait::async_trait]
+impl montana_pipeline::BatchSink for BatchSinkWrapper {
+    async fn submit(
+        &mut self,
+        batch: CompressedBatch,
+    ) -> Result<SubmissionReceipt, montana_pipeline::SinkError> {
+        self.inner
+            .submit(batch)
+            .await
+            .map_err(|e| montana_pipeline::SinkError::TxFailed(e.to_string()))
+    }
+
+    async fn capacity(&self) -> Result<usize, montana_pipeline::SinkError> {
+        Ok(128 * 1024) // 128 KB default capacity
+    }
+
+    async fn health_check(&self) -> Result<(), montana_pipeline::SinkError> {
+        Ok(())
     }
 }
 

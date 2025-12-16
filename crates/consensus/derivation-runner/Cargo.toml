@@ -1,0 +1,23 @@
+[package]
+name = "montana-derivation-runner"
+description = "Derivation pipeline runner for batch decompression and derivation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+montana-pipeline = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

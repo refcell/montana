@@ -15,7 +15,9 @@ workspace = true
 [dependencies]
 # internal crates
 montana-anvil.workspace = true
+montana-batch-runner.workspace = true
 montana-brotli.workspace = true
+montana-derivation-runner.workspace = true
 montana-pipeline.workspace = true
 montana-zlib.workspace = true
 montana-zstd.workspace = true
@@ -24,19 +26,12 @@ montana-zstd.workspace = true
 async-trait.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 
-# http
-reqwest = { workspace = true, features = ["json"] }
-
 # tui
 crossterm = { workspace = true, features = ["event-stream"] }
 ratatui.workspace = true
 
 # cli
 clap = { workspace = true, features = ["derive"] }
-
-# serialization
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
 
 # misc
 thiserror.workspace = true

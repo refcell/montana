@@ -52,6 +52,7 @@ montana-brotli = { path = "crates/brotli" }
 montana-cli = { path = "crates/cli" }
 montana-local = { path = "crates/local" }
 montana-pipeline = { path = "crates/pipeline" }
+montana-txmgr = { path = "crates/txmgr" }
 montana-zlib = { path = "crates/zlib" }
 montana-zstd = { path = "crates/zstd" }
 
@@ -63,6 +64,9 @@ reqwest = "0.12.26"
 brotli = "8.0.2"
 flate2 = "1.1.5"
 zstd = "0.13.3"
+
+# alloy
+alloy = "1.0"
 
 # misc
 clap = "4.5.53"

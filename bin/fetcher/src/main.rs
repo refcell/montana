@@ -145,9 +145,7 @@ fn init_tracing(verbosity: u8) {
         _ => Level::TRACE,
     };
 
-    let filter = EnvFilter::builder()
-        .with_default_directive(level.into())
-        .from_env_lossy();
+    let filter = EnvFilter::builder().with_default_directive(level.into()).from_env_lossy();
 
     tracing_subscriber::registry()
         .with(filter)
@@ -255,9 +253,7 @@ async fn fetch_block(
         return Err(format!("RPC error {}: {}", error.code, error.message).into());
     }
 
-    response
-        .result
-        .ok_or_else(|| format!("Block {} not found", block_num).into())
+    response.result.ok_or_else(|| format!("Block {} not found", block_num).into())
 }
 
 /// Parse a hex string (with 0x prefix) to u64.

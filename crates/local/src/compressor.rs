@@ -32,8 +32,9 @@ impl Compressor for NoopCompressor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     #[test]
     fn noop_compressor_new() {

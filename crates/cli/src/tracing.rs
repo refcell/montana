@@ -20,9 +20,7 @@ pub fn init_tracing(verbosity: u8) {
         _ => Level::TRACE,
     };
 
-    let filter = EnvFilter::builder()
-        .with_default_directive(level.into())
-        .from_env_lossy();
+    let filter = EnvFilter::builder().with_default_directive(level.into()).from_env_lossy();
 
     tracing_subscriber::registry()
         .with(filter)

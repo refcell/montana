@@ -2,9 +2,7 @@
 
 use std::io::{Read, Write};
 
-use flate2::Compression;
-use flate2::read::ZlibDecoder;
-use flate2::write::ZlibEncoder;
+use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use montana_pipeline::{CompressionConfig, CompressionError, Compressor};
 
 /// A compressor using the Zlib (DEFLATE) algorithm.
@@ -18,28 +16,28 @@ pub struct ZlibCompressor {
 
 impl ZlibCompressor {
     /// Create a new Zlib compressor with the given configuration.
-    pub fn new(config: CompressionConfig) -> Self {
+    pub const fn new(config: CompressionConfig) -> Self {
         Self { config }
     }
 
     /// Create a new Zlib compressor with best compression settings.
     ///
     /// Uses compression level 9 for maximum compression.
-    pub fn best() -> Self {
+    pub const fn best() -> Self {
         Self::new(CompressionConfig { level: 9, window_size: 15 })
     }
 
     /// Create a new Zlib compressor optimized for speed.
     ///
     /// Uses compression level 1 for faster compression at the cost of ratio.
-    pub fn fast() -> Self {
+    pub const fn fast() -> Self {
         Self::new(CompressionConfig { level: 1, window_size: 15 })
     }
 
     /// Create a new Zlib compressor with balanced settings.
     ///
     /// Uses compression level 6 for a balance between speed and ratio.
-    pub fn balanced() -> Self {
+    pub const fn balanced() -> Self {
         Self::new(CompressionConfig { level: 6, window_size: 15 })
     }
 
@@ -58,9 +56,7 @@ impl Default for ZlibCompressor {
 impl Compressor for ZlibCompressor {
     fn compress(&self, data: &[u8]) -> Result<Vec<u8>, CompressionError> {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(self.config.level));
-        encoder
-            .write_all(data)
-            .map_err(|e| CompressionError::Failed(e.to_string()))?;
+        encoder.write_all(data).map_err(|e| CompressionError::Failed(e.to_string()))?;
         encoder.finish().map_err(|e| CompressionError::Failed(e.to_string()))
     }
 

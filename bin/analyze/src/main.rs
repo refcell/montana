@@ -160,13 +160,7 @@ async fn run_all_compressions(
 
     for (i, (algo, size, ratio)) in results.iter().enumerate() {
         let rank = if i == 0 { " (BEST)" } else { "" };
-        tracing::info!(
-            "  {}: {} bytes ({:.1}% ratio){}",
-            algo,
-            size,
-            ratio * 100.0,
-            rank
-        );
+        tracing::info!("  {}: {} bytes ({:.1}% ratio){}", algo, size, ratio * 100.0, rank);
     }
 
     // Use the best algorithm for the actual submission
@@ -202,11 +196,7 @@ async fn run_all_compressions(
 
 /// Calculate compression ratio.
 fn compression_ratio(original: usize, compressed: usize) -> f64 {
-    if original == 0 {
-        1.0
-    } else {
-        compressed as f64 / original as f64
-    }
+    if original == 0 { 1.0 } else { compressed as f64 / original as f64 }
 }
 
 /// Helper to format bytes as hex string.

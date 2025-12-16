@@ -55,14 +55,13 @@ impl LocalBatchSource {
     /// Create a new local batch source from a JSON file path.
     pub fn from_file(path: impl Into<PathBuf>) -> Result<Self, LocalError> {
         let path = path.into();
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    LocalError::NotFound(path.display().to_string())
-                } else {
-                    LocalError::Io(e)
-                }
-            })?;
+        let content = std::fs::read_to_string(&path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                LocalError::NotFound(path.display().to_string())
+            } else {
+                LocalError::Io(e)
+            }
+        })?;
         let data: JsonSourceData = serde_json::from_str(&content)?;
         Ok(Self { data, blocks_consumed: false })
     }
@@ -74,7 +73,7 @@ impl LocalBatchSource {
     }
 
     /// Create a new local batch source from data directly.
-    pub fn from_data(data: JsonSourceData) -> Self {
+    pub const fn from_data(data: JsonSourceData) -> Self {
         Self { data, blocks_consumed: false }
     }
 
@@ -94,10 +93,7 @@ impl LocalBatchSource {
     fn hex_to_hash20(hex: &str) -> Result<[u8; 20], SourceError> {
         let bytes = Self::hex_to_bytes(hex)?;
         if bytes.len() != 20 {
-            return Err(SourceError::Connection(format!(
-                "Expected 20 bytes, got {}",
-                bytes.len()
-            )));
+            return Err(SourceError::Connection(format!("Expected 20 bytes, got {}", bytes.len())));
         }
         let mut arr = [0u8; 20];
         arr.copy_from_slice(&bytes);
@@ -120,9 +116,7 @@ impl BatchSource for LocalBatchSource {
                 let transactions = block
                     .transactions
                     .iter()
-                    .map(|tx| {
-                        Self::hex_to_bytes(&tx.data).map(RawTransaction)
-                    })
+                    .map(|tx| Self::hex_to_bytes(&tx.data).map(RawTransaction))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(L2BlockData { timestamp: block.timestamp, transactions })
@@ -145,8 +139,9 @@ impl BatchSource for LocalBatchSource {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     const SAMPLE_JSON: &str = r#"{
         "l1_origin": {

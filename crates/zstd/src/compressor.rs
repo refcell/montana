@@ -13,28 +13,28 @@ pub struct ZstdCompressor {
 
 impl ZstdCompressor {
     /// Create a new Zstandard compressor with the given configuration.
-    pub fn new(config: CompressionConfig) -> Self {
+    pub const fn new(config: CompressionConfig) -> Self {
         Self { config }
     }
 
     /// Create a new Zstandard compressor with best compression settings.
     ///
     /// Uses compression level 19 for maximum compression.
-    pub fn best() -> Self {
+    pub const fn best() -> Self {
         Self::new(CompressionConfig { level: 19, window_size: 0 })
     }
 
     /// Create a new Zstandard compressor optimized for speed.
     ///
     /// Uses compression level 1 for faster compression at the cost of ratio.
-    pub fn fast() -> Self {
+    pub const fn fast() -> Self {
         Self::new(CompressionConfig { level: 1, window_size: 0 })
     }
 
     /// Create a new Zstandard compressor with balanced settings.
     ///
     /// Uses compression level 3 (zstd default) for a balance between speed and ratio.
-    pub fn balanced() -> Self {
+    pub const fn balanced() -> Self {
         Self::new(CompressionConfig { level: 3, window_size: 0 })
     }
 

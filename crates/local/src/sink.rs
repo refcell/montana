@@ -1,7 +1,6 @@
 //! Local file-based batch sink implementation.
 
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::{path::PathBuf, sync::Mutex};
 
 use async_trait::async_trait;
 use montana_pipeline::{BatchSink, CompressedBatch, SinkError, SubmissionReceipt};
@@ -69,7 +68,7 @@ impl LocalBatchSink {
     }
 
     /// Create a new local batch sink with custom capacity.
-    pub fn with_capacity(mut self, capacity: usize) -> Self {
+    pub const fn with_capacity(mut self, capacity: usize) -> Self {
         self.capacity = capacity;
         self
     }
@@ -155,8 +154,9 @@ impl BatchSink for LocalBatchSink {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     #[test]
     fn local_batch_sink_in_memory() {

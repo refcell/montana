@@ -16,7 +16,7 @@ pub struct BrotliCompressor {
 
 impl BrotliCompressor {
     /// Create a new Brotli compressor with the given configuration.
-    pub fn new(config: CompressionConfig) -> Self {
+    pub const fn new(config: CompressionConfig) -> Self {
         Self { config }
     }
 
@@ -30,14 +30,14 @@ impl BrotliCompressor {
     /// Create a new Brotli compressor optimized for speed.
     ///
     /// Uses compression level 1 for faster compression at the cost of ratio.
-    pub fn fast() -> Self {
+    pub const fn fast() -> Self {
         Self::new(CompressionConfig { level: 1, window_size: 22 })
     }
 
     /// Create a new Brotli compressor with balanced settings.
     ///
     /// Uses compression level 6 for a balance between speed and ratio.
-    pub fn balanced() -> Self {
+    pub const fn balanced() -> Self {
         Self::new(CompressionConfig { level: 6, window_size: 22 })
     }
 

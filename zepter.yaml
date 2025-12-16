@@ -1,0 +1,23 @@
+version:
+  format: 1
+  binary: 1.85.0
+
+workflows:
+  check:
+    - [
+        "lint",
+        "duplicate-deps",
+        "--quiet",
+      ]
+  default:
+    - [$check.0]
+
+help:
+  text: |
+    Montana uses the Zepter CLI to detect abnormalities in Cargo features and dependencies.
+
+    It looks like one or more checks failed; please check the console output.
+
+    You can try to automatically address them by installing zepter (`cargo install zepter --locked`) and simply running `zepter` in the workspace root.
+  links:
+    - "https://github.com/ggwpez/zepter"

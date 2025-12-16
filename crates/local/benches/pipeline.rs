@@ -16,11 +16,7 @@ fn generate_source_json(block_count: usize, tx_per_block: usize) -> String {
 
     let blocks: Vec<String> = (0..block_count)
         .map(|i| {
-            format!(
-                r#"{{"timestamp": {}, "transactions": [{}]}}"#,
-                1000 + (i as u64 * 12),
-                tx_json
-            )
+            format!(r#"{{"timestamp": {}, "transactions": [{}]}}"#, 1000 + (i as u64 * 12), tx_json)
         })
         .collect();
     let blocks_json = blocks.join(",");
@@ -69,8 +65,7 @@ fn bench_sink_submit(c: &mut Criterion) {
                 let data = data.clone();
                 async move {
                     let mut sink = LocalBatchSink::in_memory();
-                    let batch =
-                        montana_pipeline::CompressedBatch { batch_number: 1, data };
+                    let batch = montana_pipeline::CompressedBatch { batch_number: 1, data };
                     let receipt = sink.submit(batch).await.unwrap();
                     black_box(receipt)
                 }
@@ -136,10 +131,8 @@ fn bench_full_pipeline(c: &mut Criterion) {
 
                     // Sink: submit batch
                     let mut sink = LocalBatchSink::in_memory();
-                    let batch = montana_pipeline::CompressedBatch {
-                        batch_number: 0,
-                        data: compressed,
-                    };
+                    let batch =
+                        montana_pipeline::CompressedBatch { batch_number: 0, data: compressed };
                     let receipt = sink.submit(batch).await.unwrap();
 
                     black_box(receipt)
@@ -219,10 +212,8 @@ fn bench_full_pipeline_brotli(c: &mut Criterion) {
 
                     // Sink: submit batch
                     let mut sink = LocalBatchSink::in_memory();
-                    let batch = montana_pipeline::CompressedBatch {
-                        batch_number: 0,
-                        data: compressed,
-                    };
+                    let batch =
+                        montana_pipeline::CompressedBatch { batch_number: 0, data: compressed };
                     let receipt = sink.submit(batch).await.unwrap();
 
                     black_box(receipt)
@@ -301,10 +292,8 @@ fn bench_full_pipeline_zlib(c: &mut Criterion) {
 
                     // Sink: submit batch
                     let mut sink = LocalBatchSink::in_memory();
-                    let batch = montana_pipeline::CompressedBatch {
-                        batch_number: 0,
-                        data: compressed,
-                    };
+                    let batch =
+                        montana_pipeline::CompressedBatch { batch_number: 0, data: compressed };
                     let receipt = sink.submit(batch).await.unwrap();
 
                     black_box(receipt)
@@ -383,10 +372,8 @@ fn bench_full_pipeline_zstd(c: &mut Criterion) {
 
                     // Sink: submit batch
                     let mut sink = LocalBatchSink::in_memory();
-                    let batch = montana_pipeline::CompressedBatch {
-                        batch_number: 0,
-                        data: compressed,
-                    };
+                    let batch =
+                        montana_pipeline::CompressedBatch { batch_number: 0, data: compressed };
                     let receipt = sink.submit(batch).await.unwrap();
 
                     black_box(receipt)

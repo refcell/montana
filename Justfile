@@ -105,3 +105,7 @@ bench *ARGS:
 # Runs pipeline benchmarks
 bench-pipeline *ARGS:
     cargo bench -p montana-local --bench pipeline -- {{ARGS}}
+
+# Runs the analyze binary in roundtrip mode
+roundtrip *ARGS:
+    cargo run --bin analyze -- --mode roundtrip {{ARGS}}

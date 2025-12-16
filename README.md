@@ -69,15 +69,15 @@ The inverse pipeline for derivation:
 
 ## Performance
 
-Compression comparison using 10 Base mainnet blocks (1,233 transactions, 616,189 bytes raw):
+Compression comparison using 31 Base mainnet blocks (5,766 transactions, 1,672,680 bytes raw):
 
 | Algorithm | Compressed Size | Ratio |
 |-----------|-----------------|-------|
-| **Brotli** | 69,765 bytes | 11.3% |
-| Zstd | 72,940 bytes | 11.8% |
-| Zlib | 130,116 bytes | 21.1% |
+| **Brotli** | 278,843 bytes | 16.7% |
+| Zstd | 299,801 bytes | 17.9% |
+| Zlib | 429,185 bytes | 25.7% |
 
-Brotli provides the best compression ratio for L2 batch data, reducing the raw batch size by ~88.7%.
+Brotli provides the best compression ratio for L2 batch data, reducing the raw batch size by ~83.3%.
 
 ## Usage
 

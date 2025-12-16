@@ -14,7 +14,6 @@ workspace = true
 
 [dependencies]
 # internal crates
-montana-batcher.workspace = true
 montana-brotli.workspace = true
 montana-pipeline.workspace = true
 montana-zlib.workspace = true
@@ -37,5 +36,3 @@ clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
-# logging
-tracing.workspace = true

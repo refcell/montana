@@ -4073,7 +4073,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "crossterm",
- "montana-batcher",
  "montana-brotli",
  "montana-pipeline",
  "montana-zlib",
@@ -4083,7 +4082,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]

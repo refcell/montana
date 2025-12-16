@@ -1,0 +1,12 @@
+verbose = "debug"
+no_progress = false
+exclude_all_private = false
+# 403 status code is often returned by private repos instead of 404
+accept = [200, 403]
+exclude = [
+    'foo.bar',
+    'localhost',
+    'https://img.shields.io/github/commit-activity/w/base/montana',
+    'https://img.shields.io/github/issues-pr-raw/base/montana',
+    'https://rustup.rs/',
+]

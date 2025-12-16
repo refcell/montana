@@ -1,0 +1,33 @@
+[package]
+name = "montana-local"
+description = "Local file-based data source and sink for Montana"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+montana-pipeline.workspace = true
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+montana-brotli.workspace = true
+montana-zlib.workspace = true
+montana-zstd.workspace = true
+rstest.workspace = true
+tokio.workspace = true
+
+[[bench]]
+name = "pipeline"
+harness = false

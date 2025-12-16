@@ -1,0 +1,25 @@
+[package]
+name = "fetcher"
+description = "Base L2 Block Fetcher"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# async
+reqwest.workspace = true
+tokio.workspace = true
+
+# misc
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

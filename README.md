@@ -22,6 +22,9 @@
   <a href="#license">License</a>
 </p>
 
+> [!CAUTION]
+> Montana is under active development and is not ready for production use.
+
 ## What's Montana?
 
 Montana is a minimal, trait-abstracted compression pipeline for L2 batch submission and derivation. It implements a three-stage data flow architecture where each stage is defined by a Rust trait, enabling independent implementation swapping without modifying the pipeline core.

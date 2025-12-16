@@ -8,6 +8,7 @@ alias h := hack
 alias u := check-udeps
 alias wt := watch-test
 alias wc := watch-check
+alias s := shadow
 
 # Default to display help menu
 default:
@@ -109,3 +110,7 @@ bench-pipeline *ARGS:
 # Runs the analyze binary in roundtrip mode
 roundtrip *ARGS:
     cargo run --bin analyze -- --mode roundtrip {{ARGS}}
+
+# Runs the shadow TUI for chain shadowing simulation
+shadow *ARGS:
+    cargo run --release -p shadow -- {{ARGS}}

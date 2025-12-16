@@ -1,0 +1,41 @@
+[package]
+name = "shadow"
+description = "Montana Chain Shadow TUI - Real-time batch submission and derivation monitoring"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# internal crates
+montana-batcher.workspace = true
+montana-brotli.workspace = true
+montana-pipeline.workspace = true
+montana-zlib.workspace = true
+montana-zstd.workspace = true
+
+# async
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# http
+reqwest = { workspace = true, features = ["json"] }
+
+# tui
+crossterm = { workspace = true, features = ["event-stream"] }
+ratatui.workspace = true
+
+# cli
+clap = { workspace = true, features = ["derive"] }
+
+# serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+# logging
+tracing.workspace = true

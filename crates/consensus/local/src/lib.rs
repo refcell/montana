@@ -4,7 +4,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod source;
-pub use source::{JsonBlock, JsonL1Origin, JsonSourceData, JsonTransaction, LocalBatchSource};
+pub use source::{JsonBlock, JsonSourceData, JsonTransaction, LocalBatchSource};
 
 mod sink;
 pub use sink::{JsonBatch, JsonReceipt, JsonSinkData, LocalBatchSink};

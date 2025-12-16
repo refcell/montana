@@ -146,18 +146,6 @@ mod tests {
         async fn pending_blocks(&mut self) -> Result<Vec<L2BlockData>, SourceError> {
             Ok(vec![])
         }
-
-        async fn l1_origin(&self) -> Result<u64, SourceError> {
-            Ok(0)
-        }
-
-        async fn l1_origin_hash(&self) -> Result<[u8; 20], SourceError> {
-            Ok([0u8; 20])
-        }
-
-        async fn parent_hash(&self) -> Result<[u8; 20], SourceError> {
-            Ok([0u8; 20])
-        }
     }
 
     /// Mock implementation of Compressor for testing.

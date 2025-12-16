@@ -61,7 +61,6 @@ impl From<PipelineSourceError> for SourceError {
         match err {
             PipelineSourceError::Connection(msg) => Self::Connection(msg),
             PipelineSourceError::Empty => Self::Empty,
-            PipelineSourceError::NoOrigin => Self::Connection("No origin".to_string()),
         }
     }
 }

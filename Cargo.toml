@@ -8,7 +8,7 @@ repository = "https://github.com/base/montana"
 
 [workspace]
 resolver = "2"
-members = ["bin/*", "crates/consensus/*", "crates/execution/*"]
+members = ["bin/*", "crates/common/*", "crates/consensus/*", "crates/execution/*"]
 default-members = ["bin/montana", "bin/analyze"]
 
 [workspace.lints.rust]
@@ -58,9 +58,13 @@ montana-txmgr = { version = "0.0.1", path = "crates/consensus/txmgr" }
 montana-zlib = { version = "0.0.1", path = "crates/consensus/zlib" }
 montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
 
+# common crates
+chainspec = { path = "crates/common/chainspec" }
+channel = { path = "crates/common/channel" }
+primitives = { path = "crates/common/primitives" }
+
 # execution crates
 blocksource = { path = "crates/execution/blocksource" }
-chainspec = { path = "crates/execution/chainspec" }
 database = { path = "crates/execution/database" }
 execution = { path = "crates/execution/execution" }
 

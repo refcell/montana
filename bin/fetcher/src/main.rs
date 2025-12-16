@@ -8,9 +8,6 @@
 //! - Converts RPC responses to Montana's LocalBatchSource format
 //! - Supports configurable block ranges, output paths, and RPC endpoints
 //! - Provides verbose logging for debugging
-//!
-//! **Note**: L1 origin data is currently stubbed with placeholder values (block_number: 0).
-//! A complete implementation would require additional L1 block lookups.
 
 #![doc = include_str!("../README.md")]
 #![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
@@ -88,6 +85,7 @@ struct RpcBlock {
     timestamp: String,
     #[allow(dead_code)]
     hash: String,
+    #[allow(dead_code)]
     parent_hash: String,
     transactions: Vec<RpcTransaction>,
 }
@@ -119,22 +117,9 @@ struct JsonBlock {
     transactions: Vec<JsonTransaction>,
 }
 
-/// JSON representation of L1 origin data (Montana format).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct JsonL1Origin {
-    /// L1 block number (placeholder - would need L1 origin lookup).
-    block_number: u64,
-    /// L1 block hash prefix (hex-encoded, 20 bytes).
-    hash_prefix: String,
-}
-
 /// JSON representation of the source data file (Montana format).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct JsonSourceData {
-    /// L1 origin information.
-    l1_origin: JsonL1Origin,
-    /// Parent L2 block hash prefix (hex-encoded, 20 bytes).
-    parent_hash: String,
     /// L2 blocks to process.
     blocks: Vec<JsonBlock>,
 }
@@ -190,17 +175,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 async fn fetch_blocks(cli: &Cli, start: u64, end: u64) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let mut blocks = Vec::new();
-    let mut first_parent_hash = String::new();
 
     for block_num in start..=end {
         tracing::debug!("Fetching block {}", block_num);
 
         let block = fetch_block(&client, &cli.rpc, block_num).await?;
-
-        if block_num == start {
-            // Truncate parent hash to 20 bytes (40 hex chars + 0x prefix = 42 chars)
-            first_parent_hash = truncate_hash(&block.parent_hash);
-        }
 
         // Parse timestamp from hex
         let timestamp = parse_hex_u64(&block.timestamp)?;
@@ -225,15 +204,7 @@ async fn fetch_blocks(cli: &Cli, start: u64, end: u64) -> Result<(), Box<dyn std
     tracing::info!("Fetched {} blocks successfully", blocks.len());
 
     // Create output data
-    // Note: L1 origin would need additional lookups in a real implementation
-    let output = JsonSourceData {
-        l1_origin: JsonL1Origin {
-            block_number: 0, // Placeholder - would need L1 origin lookup
-            hash_prefix: "0x0000000000000000000000000000000000000000".to_string(),
-        },
-        parent_hash: first_parent_hash,
-        blocks,
-    };
+    let output = JsonSourceData { blocks };
 
     // Write to file
     let json = serde_json::to_string_pretty(&output)?;
@@ -274,11 +245,4 @@ async fn fetch_block(
 fn parse_hex_u64(hex: &str) -> Result<u64, Box<dyn std::error::Error>> {
     let hex = hex.strip_prefix("0x").unwrap_or(hex);
     Ok(u64::from_str_radix(hex, 16)?)
-}
-
-/// Truncate a 32-byte hash to 20 bytes (for Montana format).
-fn truncate_hash(hash: &str) -> String {
-    let hash = hash.strip_prefix("0x").unwrap_or(hash);
-    // Take first 40 hex chars (20 bytes)
-    format!("0x{}", &hash[..40.min(hash.len())])
 }

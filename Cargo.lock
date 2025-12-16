@@ -1586,6 +1586,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "channel"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "rstest",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3376,6 +3386,7 @@ name = "montana-pipeline"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "channel",
  "rstest",
  "thiserror",
  "tokio",
@@ -4013,6 +4024,10 @@ dependencies = [
  "impl-codec",
  "uint",
 ]
+
+[[package]]
+name = "primitives"
+version = "0.0.1"
 
 [[package]]
 name = "proc-macro-crate"

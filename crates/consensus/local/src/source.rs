@@ -24,22 +24,9 @@ pub struct JsonBlock {
     pub transactions: Vec<JsonTransaction>,
 }
 
-/// JSON representation of L1 origin data.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JsonL1Origin {
-    /// L1 block number.
-    pub block_number: u64,
-    /// L1 block hash prefix (hex-encoded, 20 bytes).
-    pub hash_prefix: String,
-}
-
 /// JSON representation of the source data file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonSourceData {
-    /// L1 origin information.
-    pub l1_origin: JsonL1Origin,
-    /// Parent L2 block hash prefix (hex-encoded, 20 bytes).
-    pub parent_hash: String,
     /// L2 blocks to process.
     pub blocks: Vec<JsonBlock>,
 }
@@ -88,17 +75,6 @@ impl LocalBatchSource {
             })
             .collect()
     }
-
-    /// Parse a hex string to a 20-byte array.
-    fn hex_to_hash20(hex: &str) -> Result<[u8; 20], SourceError> {
-        let bytes = Self::hex_to_bytes(hex)?;
-        if bytes.len() != 20 {
-            return Err(SourceError::Connection(format!("Expected 20 bytes, got {}", bytes.len())));
-        }
-        let mut arr = [0u8; 20];
-        arr.copy_from_slice(&bytes);
-        Ok(arr)
-    }
 }
 
 #[async_trait]
@@ -123,18 +99,6 @@ impl BatchSource for LocalBatchSource {
             })
             .collect()
     }
-
-    async fn l1_origin(&self) -> Result<u64, SourceError> {
-        Ok(self.data.l1_origin.block_number)
-    }
-
-    async fn l1_origin_hash(&self) -> Result<[u8; 20], SourceError> {
-        Self::hex_to_hash20(&self.data.l1_origin.hash_prefix)
-    }
-
-    async fn parent_hash(&self) -> Result<[u8; 20], SourceError> {
-        Self::hex_to_hash20(&self.data.parent_hash)
-    }
 }
 
 #[cfg(test)]
@@ -144,11 +108,6 @@ mod tests {
     use super::*;
 
     const SAMPLE_JSON: &str = r#"{
-        "l1_origin": {
-            "block_number": 12345,
-            "hash_prefix": "0x0102030405060708091011121314151617181920"
-        },
-        "parent_hash": "0x2122232425262728293031323334353637383940",
         "blocks": [
             {
                 "timestamp": 1000,
@@ -166,7 +125,6 @@ mod tests {
     #[test]
     fn local_batch_source_from_json() {
         let source = LocalBatchSource::from_json(SAMPLE_JSON).unwrap();
-        assert_eq!(source.data.l1_origin.block_number, 12345);
         assert_eq!(source.data.blocks.len(), 2);
     }
 
@@ -184,25 +142,6 @@ mod tests {
         // Second call returns empty
         let blocks = source.pending_blocks().await.unwrap();
         assert!(blocks.is_empty());
-    }
-
-    #[tokio::test]
-    async fn local_batch_source_l1_origin() {
-        let source = LocalBatchSource::from_json(SAMPLE_JSON).unwrap();
-        assert_eq!(source.l1_origin().await.unwrap(), 12345);
-    }
-
-    #[tokio::test]
-    async fn local_batch_source_hashes() {
-        let source = LocalBatchSource::from_json(SAMPLE_JSON).unwrap();
-
-        let l1_hash = source.l1_origin_hash().await.unwrap();
-        assert_eq!(l1_hash[0], 0x01);
-        assert_eq!(l1_hash[19], 0x20);
-
-        let parent_hash = source.parent_hash().await.unwrap();
-        assert_eq!(parent_hash[0], 0x21);
-        assert_eq!(parent_hash[19], 0x40);
     }
 
     #[rstest]

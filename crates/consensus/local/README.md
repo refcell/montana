@@ -31,11 +31,6 @@ let source = LocalBatchSource::from_json(json)?;
 **JSON Format:**
 ```json
 {
-  "l1_origin": {
-    "block_number": 12345,
-    "hash_prefix": "0x0102030405060708091011121314151617181920"
-  },
-  "parent_hash": "0x2122232425262728293031323334353637383940",
   "blocks": [
     {
       "timestamp": 1000,

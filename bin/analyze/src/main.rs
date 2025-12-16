@@ -85,18 +85,11 @@ async fn run_batch_mode(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // 3. Get metadata
-    let l1_origin = source.l1_origin().await?;
-    let l1_origin_hash = source.l1_origin_hash().await?;
-    let parent_hash = source.parent_hash().await?;
-    tracing::debug!("L1 origin: {} ({:?})", l1_origin, hex(&l1_origin_hash));
-    tracing::debug!("Parent hash: {:?}", hex(&parent_hash));
-
-    // 4. Encode blocks (simple concatenation of transaction data)
+    // 3. Encode blocks (simple concatenation of transaction data)
     let raw_batch = encode_blocks(&blocks);
     tracing::info!("Encoded {} bytes of raw batch data", raw_batch.len());
 
-    // 5. Handle compression based on CLI flag
+    // 4. Handle compression based on CLI flag
     match cli.compression {
         CompressionAlgorithm::All => {
             run_all_compressions(&raw_batch, cli).await?;

@@ -92,10 +92,15 @@ The inverse pipeline for derivation:
 - [`montana-zlib`](./crates/consensus/zlib): Zlib compression implementation.
 - [`montana-zstd`](./crates/consensus/zstd): Zstandard compression implementation.
 
+**Common**
+
+- [`chainspec`](./crates/common/chainspec): Chain specification for OP Stack chains.
+- [`channel`](./crates/common/channel): Channel utilities.
+- [`primitives`](./crates/common/primitives): Primitive types.
+
 **Execution**
 
 - [`blocksource`](./crates/execution/blocksource): Block source implementations for fetching OP Stack blocks.
-- [`chainspec`](./crates/execution/chainspec): Chain specification for OP Stack chains.
 - [`database`](./crates/execution/database): Database implementations for EVM state.
 - [`execution`](./crates/execution/execution): Block executor using op-revm.
 

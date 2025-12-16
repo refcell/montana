@@ -2,7 +2,7 @@
 
 use crate::L2BlockData;
 
-/// Batch header: fixed 67 bytes.
+/// Batch header: fixed 19 bytes.
 /// All integers little-endian.
 #[derive(Clone, Debug)]
 pub struct BatchHeader {
@@ -10,12 +10,6 @@ pub struct BatchHeader {
     pub version: u8,
     /// Monotonic sequence number.
     pub batch_number: u64,
-    /// L1 block number (epoch).
-    pub l1_origin: u64,
-    /// L1 block hash prefix (first 20 bytes).
-    pub l1_origin_check: [u8; 20],
-    /// Parent L2 block hash prefix (first 20 bytes).
-    pub parent_check: [u8; 20],
     /// First block timestamp.
     pub timestamp: u64,
     /// Number of L2 blocks.
@@ -24,7 +18,7 @@ pub struct BatchHeader {
 
 impl BatchHeader {
     /// Size of the batch header in bytes.
-    pub const SIZE: usize = 1 + 8 + 8 + 20 + 20 + 8 + 2; // 67 bytes
+    pub const SIZE: usize = 1 + 8 + 8 + 2; // 19 bytes
 }
 
 /// Codec errors.
@@ -57,44 +51,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn batch_header_size_is_67_bytes() {
-        assert_eq!(BatchHeader::SIZE, 67);
+    fn batch_header_size_is_19_bytes() {
+        assert_eq!(BatchHeader::SIZE, 19);
     }
 
     #[rstest]
-    #[case(1, 8, 8, 20, 20, 8, 2, 67)]
+    #[case(1, 8, 8, 2, 19)]
     fn batch_header_size_components(
         #[case] version: usize,
         #[case] batch_number: usize,
-        #[case] l1_origin: usize,
-        #[case] l1_origin_check: usize,
-        #[case] parent_check: usize,
         #[case] timestamp: usize,
         #[case] block_count: usize,
         #[case] expected_total: usize,
     ) {
-        let total = version
-            + batch_number
-            + l1_origin
-            + l1_origin_check
-            + parent_check
-            + timestamp
-            + block_count;
+        let total = version + batch_number + timestamp + block_count;
         assert_eq!(total, expected_total);
         assert_eq!(total, BatchHeader::SIZE);
     }
 
     #[test]
     fn batch_header_default_values() {
-        let header = BatchHeader {
-            version: 0x00,
-            batch_number: 0,
-            l1_origin: 0,
-            l1_origin_check: [0u8; 20],
-            parent_check: [0u8; 20],
-            timestamp: 0,
-            block_count: 0,
-        };
+        let header = BatchHeader { version: 0x00, batch_number: 0, timestamp: 0, block_count: 0 };
         assert_eq!(header.version, 0x00);
         assert_eq!(header.batch_number, 0);
         assert_eq!(header.block_count, 0);
@@ -115,15 +92,7 @@ mod tests {
     #[case(1, "second batch")]
     #[case(u64::MAX, "max batch number")]
     fn batch_header_batch_numbers(#[case] batch_number: u64, #[case] _description: &str) {
-        let header = BatchHeader {
-            version: 0x00,
-            batch_number,
-            l1_origin: 100,
-            l1_origin_check: [1u8; 20],
-            parent_check: [2u8; 20],
-            timestamp: 1000,
-            block_count: 10,
-        };
+        let header = BatchHeader { version: 0x00, batch_number, timestamp: 1000, block_count: 10 };
         assert_eq!(header.batch_number, batch_number);
     }
 
@@ -133,50 +102,25 @@ mod tests {
     #[case(100, "many blocks")]
     #[case(u16::MAX, "max blocks")]
     fn batch_header_block_counts(#[case] block_count: u16, #[case] _description: &str) {
-        let header = BatchHeader {
-            version: 0x00,
-            batch_number: 1,
-            l1_origin: 100,
-            l1_origin_check: [0u8; 20],
-            parent_check: [0u8; 20],
-            timestamp: 1000,
-            block_count,
-        };
+        let header = BatchHeader { version: 0x00, batch_number: 1, timestamp: 1000, block_count };
         assert_eq!(header.block_count, block_count);
     }
 
     #[test]
     fn batch_header_clone() {
-        let header = BatchHeader {
-            version: 0x00,
-            batch_number: 42,
-            l1_origin: 100,
-            l1_origin_check: [1u8; 20],
-            parent_check: [2u8; 20],
-            timestamp: 1234567890,
-            block_count: 50,
-        };
+        let header =
+            BatchHeader { version: 0x00, batch_number: 42, timestamp: 1234567890, block_count: 50 };
         let cloned = header.clone();
         assert_eq!(cloned.version, header.version);
         assert_eq!(cloned.batch_number, header.batch_number);
-        assert_eq!(cloned.l1_origin, header.l1_origin);
-        assert_eq!(cloned.l1_origin_check, header.l1_origin_check);
-        assert_eq!(cloned.parent_check, header.parent_check);
         assert_eq!(cloned.timestamp, header.timestamp);
         assert_eq!(cloned.block_count, header.block_count);
     }
 
     #[test]
     fn batch_header_debug() {
-        let header = BatchHeader {
-            version: 0x00,
-            batch_number: 1,
-            l1_origin: 100,
-            l1_origin_check: [0u8; 20],
-            parent_check: [0u8; 20],
-            timestamp: 1000,
-            block_count: 5,
-        };
+        let header =
+            BatchHeader { version: 0x00, batch_number: 1, timestamp: 1000, block_count: 5 };
         let debug_str = format!("{:?}", header);
         assert!(debug_str.contains("BatchHeader"));
         assert!(debug_str.contains("version"));

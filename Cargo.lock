@@ -2722,7 +2722,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "async-trait",
- "montana-pipeline",
  "rstest",
  "thiserror",
  "tokio",

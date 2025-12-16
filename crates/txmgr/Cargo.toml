@@ -13,9 +13,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-# local
-montana-pipeline.workspace = true
-
 # alloy
 alloy = { version = "1.0", default-features = false, features = [
     "consensus",

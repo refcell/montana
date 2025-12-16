@@ -38,7 +38,7 @@ For detailed documentation on the pipeline architecture, configuration, batching
 
 ## Demo
 
-<https://github.com/user-attachments/assets/a82244cc-4d56-4aad-8d3e-a6ee36b9e416>
+<https://github.com/user-attachments/assets/43573ae5-5ce7-44a8-be40-697e6c719877>
 
 ## Overview
 

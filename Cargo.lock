@@ -43,6 +43,7 @@ dependencies = [
  "montana-pipeline",
  "montana-zlib",
  "montana-zstd",
+ "serde_json",
  "tokio",
  "tracing",
 ]

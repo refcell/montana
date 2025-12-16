@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use crate::CompressionAlgorithm;
+use crate::{CompressionAlgorithm, Mode};
 
 /// Montana CLI.
 #[derive(Debug, Parser)]
@@ -16,6 +16,10 @@ pub struct Cli {
     /// Verbosity level (can be specified multiple times)
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// Operation mode.
+    #[arg(short, long, default_value = "batch")]
+    pub mode: Mode,
 
     /// Input JSON file containing transactions to batch submit.
     #[arg(short, long, default_value = "static/base_mainnet_blocks.json")]

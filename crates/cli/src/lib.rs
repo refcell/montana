@@ -9,5 +9,8 @@ pub use cli::Cli;
 mod compression;
 pub use compression::CompressionAlgorithm;
 
+mod mode;
+pub use mode::Mode;
+
 mod tracing;
 pub use tracing::init_tracing;

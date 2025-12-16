@@ -1,7 +1,7 @@
-//! Chain specification for OP Stack chains
-//!
-//! This module provides chain specifications including hardfork activation timestamps
-//! and helpers for deriving the correct `OpSpecId` from a block timestamp.
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod base;
 
@@ -169,74 +169,67 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
-    fn test_base_mainnet_spec_id() {
-        let chain = BASE_MAINNET;
-
-        // Before Canyon = Bedrock
-        assert_eq!(chain.spec_id_at_timestamp(1_704_992_400), OpSpecId::BEDROCK);
-
-        // At Canyon
-        assert_eq!(chain.spec_id_at_timestamp(chain.hardforks.canyon), OpSpecId::CANYON);
-
-        // At Ecotone
-        assert_eq!(chain.spec_id_at_timestamp(chain.hardforks.ecotone), OpSpecId::ECOTONE);
-
-        // At Fjord
-        assert_eq!(chain.spec_id_at_timestamp(chain.hardforks.fjord), OpSpecId::FJORD);
-
-        // At Granite
-        assert_eq!(chain.spec_id_at_timestamp(chain.hardforks.granite), OpSpecId::GRANITE);
-
-        // At Holocene
-        assert_eq!(chain.spec_id_at_timestamp(chain.hardforks.holocene), OpSpecId::HOLOCENE);
-
-        // At Isthmus
-        assert_eq!(chain.spec_id_at_timestamp(chain.hardforks.isthmus), OpSpecId::ISTHMUS);
-
-        // At Jovian
-        assert_eq!(chain.spec_id_at_timestamp(chain.hardforks.jovian), OpSpecId::JOVIAN);
+    #[rstest]
+    #[case(1_704_992_400, OpSpecId::BEDROCK, "before Canyon")]
+    #[case(BASE_MAINNET.hardforks.canyon, OpSpecId::CANYON, "at Canyon")]
+    #[case(BASE_MAINNET.hardforks.ecotone, OpSpecId::ECOTONE, "at Ecotone")]
+    #[case(BASE_MAINNET.hardforks.fjord, OpSpecId::FJORD, "at Fjord")]
+    #[case(BASE_MAINNET.hardforks.granite, OpSpecId::GRANITE, "at Granite")]
+    #[case(BASE_MAINNET.hardforks.holocene, OpSpecId::HOLOCENE, "at Holocene")]
+    #[case(BASE_MAINNET.hardforks.isthmus, OpSpecId::ISTHMUS, "at Isthmus")]
+    #[case(BASE_MAINNET.hardforks.jovian, OpSpecId::JOVIAN, "at Jovian")]
+    fn base_mainnet_spec_id(
+        #[case] timestamp: u64,
+        #[case] expected: OpSpecId,
+        #[case] _description: &str,
+    ) {
+        assert_eq!(BASE_MAINNET.spec_id_at_timestamp(timestamp), expected);
     }
 
     #[test]
-    fn test_chain_properties() {
-        let chain = BASE_MAINNET;
-        assert_eq!(chain.chain_id(), 8453);
-        assert_eq!(chain.name(), "Base Mainnet");
+    fn chain_properties() {
+        assert_eq!(BASE_MAINNET.chain_id(), 8453);
+        assert_eq!(BASE_MAINNET.name(), "Base Mainnet");
+    }
+
+    #[rstest]
+    #[case(Hardfork::Jovian, Hardfork::Isthmus)]
+    #[case(Hardfork::Isthmus, Hardfork::Holocene)]
+    #[case(Hardfork::Holocene, Hardfork::Granite)]
+    #[case(Hardfork::Granite, Hardfork::Fjord)]
+    #[case(Hardfork::Fjord, Hardfork::Ecotone)]
+    #[case(Hardfork::Ecotone, Hardfork::Delta)]
+    #[case(Hardfork::Delta, Hardfork::Canyon)]
+    #[case(Hardfork::Canyon, Hardfork::Bedrock)]
+    fn hardfork_ordering(#[case] later: Hardfork, #[case] earlier: Hardfork) {
+        assert!(later > earlier);
     }
 
     #[test]
-    fn test_hardfork_ordering() {
-        assert!(Hardfork::Jovian > Hardfork::Isthmus);
-        assert!(Hardfork::Isthmus > Hardfork::Holocene);
-        assert!(Hardfork::Canyon > Hardfork::Bedrock);
+    fn bedrock_always_active() {
+        assert!(BASE_MAINNET.is_active(Hardfork::Bedrock, 0));
     }
 
-    #[test]
-    fn test_is_active() {
-        let chain = BASE_MAINNET;
-
-        // Bedrock is always active
-        assert!(chain.is_active(Hardfork::Bedrock, 0));
-
-        // Canyon not active before activation
-        assert!(!chain.is_active(Hardfork::Canyon, chain.hardforks.canyon - 1));
-
-        // Canyon active at activation
-        assert!(chain.is_active(Hardfork::Canyon, chain.hardforks.canyon));
-
-        // Canyon active after activation
-        assert!(chain.is_active(Hardfork::Canyon, chain.hardforks.canyon + 1));
+    #[rstest]
+    #[case(BASE_MAINNET.hardforks.canyon - 1, false, "before activation")]
+    #[case(BASE_MAINNET.hardforks.canyon, true, "at activation")]
+    #[case(BASE_MAINNET.hardforks.canyon + 1, true, "after activation")]
+    fn canyon_activation(
+        #[case] timestamp: u64,
+        #[case] expected: bool,
+        #[case] _description: &str,
+    ) {
+        assert_eq!(BASE_MAINNET.is_active(Hardfork::Canyon, timestamp), expected);
     }
 
-    #[test]
-    fn test_active_hardfork() {
-        let chain = BASE_MAINNET;
-
-        assert_eq!(chain.active_hardfork(0), Hardfork::Bedrock);
-        assert_eq!(chain.active_hardfork(chain.hardforks.canyon), Hardfork::Canyon);
-        assert_eq!(chain.active_hardfork(chain.hardforks.ecotone), Hardfork::Ecotone);
-        assert_eq!(chain.active_hardfork(chain.hardforks.jovian), Hardfork::Jovian);
+    #[rstest]
+    #[case(0, Hardfork::Bedrock)]
+    #[case(BASE_MAINNET.hardforks.canyon, Hardfork::Canyon)]
+    #[case(BASE_MAINNET.hardforks.ecotone, Hardfork::Ecotone)]
+    #[case(BASE_MAINNET.hardforks.jovian, Hardfork::Jovian)]
+    fn active_hardfork(#[case] timestamp: u64, #[case] expected: Hardfork) {
+        assert_eq!(BASE_MAINNET.active_hardfork(timestamp), expected);
     }
 }

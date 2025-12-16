@@ -17,7 +17,7 @@ local JSON files, useful for testing, debugging, and benchmarking.
 
 Implements the `BatchSource` trait for file-based L2 block data:
 
-```rust
+```rust,ignore
 use montana_local::LocalBatchSource;
 
 // Load from JSON file

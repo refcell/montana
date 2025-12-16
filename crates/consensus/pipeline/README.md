@@ -10,7 +10,7 @@ Montana implements a **three-stage, trait-abstracted duplex pipeline**:
 
 ### Batch Submission (L2 → L1)
 
-```
+```text
 ┌───────────────┐      ┌───────────────┐      ┌───────────────┐
 │  BatchSource  │ ──▶  │  Compressor   │ ──▶  │  BatchSink    │
 │  (L2 Blocks)  │      │  (Brotli 11)  │      │  (L1 Blobs)   │
@@ -19,7 +19,7 @@ Montana implements a **three-stage, trait-abstracted duplex pipeline**:
 
 ### Derivation (L1 → L2)
 
-```
+```text
 ┌───────────────┐      ┌───────────────┐      ┌───────────────┐
 │ L1BatchSource │ ──▶  │ Decompressor  │ ──▶  │ L2BlockSink   │
 │  (L1 Blobs)   │      │  (Brotli)     │      │  (L2 Blocks)  │
@@ -43,7 +43,7 @@ The pipeline configuration is not exported directly from this crate. Configurati
 
 Compression is configured separately:
 
-```rust
+```rust,ignore
 pub struct CompressionConfig {
     pub level: u32,        // 1-11 for Brotli (default: 11, maximum)
     pub window_size: u32,  // Log2 of window size (default: 22 = 4MB)
@@ -88,7 +88,7 @@ The current architecture supports continuous data feeding but uses **batch proce
 1. **Target Size Configuration**: The current design has `min` and `max` but no `target_batch_bytes` to aim for a specific output size.
 
 2. **Predictive Batching**: Logic to estimate when to "cut" a batch before it exceeds limits:
-   ```rust
+   ```rust,ignore
    let estimated_compressed = uncompressed_size as f64 / compressor.estimated_ratio();
    if estimated_compressed >= target_batch_bytes {
        // Cut batch here
@@ -99,7 +99,7 @@ The current architecture supports continuous data feeding but uses **batch proce
 
 #### Proposed Streaming Configuration
 
-```rust
+```rust,ignore
 pub struct StreamingPipelineConfig {
     pub target_batch_bytes: usize,    // Target compressed size (e.g., 100KB)
     pub max_batch_bytes: usize,       // Hard limit (128KB)
@@ -120,7 +120,7 @@ The trait abstractions are well-suited for streaming:
 
 ### Batch Header (67 bytes)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │ version (1B) | batch_number (8B) | l1_origin (8B)           │
 │ l1_origin_check (20B) | parent_check (20B)                  │
@@ -130,7 +130,7 @@ The trait abstractions are well-suited for streaming:
 
 ### Batch Body
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │ Block 0: [timestamp_delta: u16] [tx_count: u16] [txs...]    │
 │ Block 1: [timestamp_delta: u16] [tx_count: u16] [txs...]    │
@@ -142,7 +142,7 @@ Each transaction: `[tx_len: u24] [tx_data: tx_len bytes]`
 
 ### Compressed Wire Format
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │ [version: u8 = 0x00] [brotli_compressed_payload]            │
 └─────────────────────────────────────────────────────────────┘
@@ -164,7 +164,7 @@ Implementations can determine retry strategies based on error types. For example
 
 This crate provides the core traits for building pipelines. Here's an example of implementing a custom source:
 
-```rust
+```rust,ignore
 use montana_pipeline::{BatchSource, L2BlockData, SourceError};
 use async_trait::async_trait;
 

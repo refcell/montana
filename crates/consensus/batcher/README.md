@@ -25,7 +25,7 @@ Batcher service for L2 batch submission orchestration.
 
 ## Usage
 
-```rust
+```rust,ignore
 use montana_batcher::{BatcherConfig, BatcherService};
 use std::time::Duration;
 

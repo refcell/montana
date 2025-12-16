@@ -1,7 +1,7 @@
-//! Block source abstractions for aggregating blocks from multiple data sources.
-//!
-//! This crate provides a unified interface for receiving blocks from various sources
-//! such as RPC polling, P2P gossip, and Engine API.
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod convert;
 pub mod producer;

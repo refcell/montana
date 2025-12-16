@@ -1583,6 +1583,7 @@ name = "chainspec"
 version = "0.0.1"
 dependencies = [
  "op-revm",
+ "rstest",
 ]
 
 [[package]]

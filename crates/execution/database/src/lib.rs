@@ -1,10 +1,7 @@
-//! Database abstractions for EVM execution
-//!
-//! This crate provides database implementations for revm, including:
-//! - `CachedDatabase`: In-memory caching wrapper for any `DatabaseRef`
-//! - `RPCDatabase`: Remote RPC-backed database with file-based caching
-//! - `triedb`: `TrieDB` wrapper for Ethereum state trie operations
-//! - Re-exports of database traits from revm
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod cached;
 pub mod errors;

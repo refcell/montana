@@ -1,7 +1,7 @@
-//! Block execution for OP Stack chains
-//!
-//! This crate provides a `BlockExecutor` that takes a database and chain specification,
-//! then executes blocks and their transactions using op-revm.
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod executor;
 

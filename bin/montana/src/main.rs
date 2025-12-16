@@ -1,40 +1,95 @@
-//! Montana Batch Submitter Execution Extension
+//! Optimism (Base) block executor using op-revm
 //!
-//! An execution extension that submits L2 batches to L1 as part of the OP Stack batcher pipeline.
-//!
-//! **Status:** This is currently a stub implementation. The batch submitter functionality is not yet implemented.
+//! This binary fetches blocks from an Optimism (Base) RPC and executes all transactions
+//! using op-revm with an in-memory database that falls back to RPC for missing state.
 
-#![doc = include_str!("../README.md")]
-#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+mod cli;
 
+use std::time::Duration;
+
+use alloy::{consensus::BlockHeader, network::BlockResponse, providers::ProviderBuilder};
+use blocksource::{
+    BlockProducer, HistoricalRangeProducer, LiveRpcProducer, OpBlock, RpcBlockSource,
+};
+use chainspec::BASE_MAINNET;
 use clap::Parser;
-use montana_cli::init_tracing;
+use cli::{Args, ProducerMode};
+use database::{CachedDatabase, RPCDatabase};
+use execution::BlockExecutor;
+use eyre::Result;
+use op_alloy::network::Optimism;
+use tokio::{runtime::Handle, sync::mpsc};
+use tracing::{error, info};
 
-/// Montana batch submitter CLI arguments.
-#[derive(Parser, Debug)]
-#[command(name = "montana")]
-#[command(about = "Montana batch submitter execution extension")]
-#[command(version)]
-struct Args {
-    /// Increase logging verbosity (-v, -vv, -vvv)
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose: u8,
+const CHANNEL_CAPACITY: usize = 256;
+
+/// Execute a block using the `BlockExecutor`
+async fn execute_block(block: OpBlock, rpc_url: &str) -> Result<()> {
+    let block_number = block.header().number();
+
+    // Create the database backed by RPC (state at block - 1)
+    let state_block = block_number.saturating_sub(1);
+    let block_source = RpcBlockSource::new(rpc_url).await?;
+    let rpc_db = RPCDatabase::new(block_source.provider().clone(), state_block, Handle::current());
+    let db = CachedDatabase::new(rpc_db);
+
+    let mut executor = BlockExecutor::new(db, BASE_MAINNET);
+    let _result = executor.execute_block(block);
+
+    Ok(())
 }
 
-fn main() {
+async fn run(args: Args) -> Result<()> {
+    // Create channel for producer -> consumer communication
+    let (tx, mut rx) = mpsc::channel::<OpBlock>(CHANNEL_CAPACITY);
+
+    let provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .network::<Optimism>()
+        .connect(args.rpc_url.as_str())
+        .await?;
+
+    let producer: Box<dyn BlockProducer> = match args.mode {
+        ProducerMode::Live { poll_interval_ms, start_block } => {
+            let poll_interval = Duration::from_millis(poll_interval_ms);
+            Box::new(LiveRpcProducer::new(provider.clone(), poll_interval, start_block))
+        }
+        ProducerMode::Historical { start, end } => {
+            Box::new(HistoricalRangeProducer::new(provider.clone(), start, end))
+        }
+    };
+
+    let producer_handle = tokio::spawn(async move {
+        if let Err(e) = producer.produce(tx).await {
+            error!("Producer error: {e}");
+        }
+    });
+
+    // Consumer loop: process blocks as they arrive
+    let rpc_url = args.rpc_url.clone();
+
+    while let Some(block) = rx.recv().await {
+        if let Err(e) = execute_block(block, &rpc_url).await {
+            error!("Block execution error: {e}");
+        }
+    }
+
+    // Wait for producer to finish
+    producer_handle.await?;
+
+    info!("All blocks processed");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::level_filters::LevelFilter::INFO.into()),
+        )
+        .init();
+
     let args = Args::parse();
-
-    // Initialize tracing
-    init_tracing(args.verbose);
-
-    tracing::info!("Montana batch submitter starting...");
-    tracing::warn!("Batch submitter not yet implemented - this is a stub");
-
-    // TODO: Implement execution extension logic
-    // - Connect to L2 node
-    // - Subscribe to new blocks
-    // - Compress and batch transactions
-    // - Submit to L1
+    run(args).await
 }

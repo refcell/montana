@@ -1,0 +1,162 @@
+//! Block executor implementation
+
+use alloy::{consensus::BlockHeader, network::BlockResponse};
+use blocksource::{OpBlock, block_to_env, tx_to_op_tx};
+use chainspec::Chain;
+use database::{CachedDatabase, DatabaseCommit, DbError};
+use op_alloy::consensus::OpTxEnvelope;
+use op_revm::{DefaultOp, L1BlockInfo, OpBuilder};
+use revm::{
+    ExecuteEvm,
+    context::CfgEnv,
+    context_interface::result::{ExecutionResult, Output},
+    database_interface::DatabaseRef,
+};
+use tracing::{error, info, warn};
+
+/// Result of executing a single transaction
+#[derive(Debug, Clone)]
+pub struct TxResult {
+    /// Whether the transaction succeeded
+    pub success: bool,
+    /// Gas used by the transaction
+    pub gas_used: u64,
+    /// Output data (for successful calls/creates)
+    pub output: Option<Vec<u8>>,
+}
+
+/// Result of executing a block
+#[derive(Debug)]
+pub struct BlockResult {
+    /// Block number
+    pub block_number: u64,
+    /// Number of successful transactions
+    pub success_count: usize,
+    /// Number of failed transactions
+    pub fail_count: usize,
+    /// Individual transaction results
+    pub tx_results: Vec<TxResult>,
+}
+
+/// Block executor that uses op-revm to execute OP Stack blocks
+#[derive(Debug)]
+pub struct BlockExecutor<DB> {
+    db: CachedDatabase<DB>,
+    chain: Chain,
+}
+
+impl<DB> BlockExecutor<DB>
+where
+    DB: DatabaseRef<Error = DbError> + Clone,
+{
+    /// Create a new block executor
+    pub const fn new(db: CachedDatabase<DB>, chain: Chain) -> Self {
+        Self { db, chain }
+    }
+
+    /// Execute all transactions in a block
+    pub fn execute_block(&mut self, block: OpBlock) -> BlockResult {
+        let block_number = block.header().number();
+        let tx_count = block.transactions.len();
+        let timestamp = block.header().timestamp();
+
+        info!(
+            "Executing block {} with {} transactions, timestamp: {}",
+            block_number, tx_count, timestamp
+        );
+
+        let spec_id = self.chain.spec_id_at_timestamp(timestamp);
+        info!("Using spec: {spec_id:?}");
+
+        let block_env = block_to_env(&block);
+
+        let mut cfg = CfgEnv::default();
+        cfg.spec = spec_id;
+        cfg.chain_id = self.chain.chain_id();
+
+        let transactions = block.transactions.into_transactions();
+        let mut tx_results = Vec::with_capacity(tx_count);
+        let mut success_count = 0;
+        let mut fail_count = 0;
+
+        for (idx, tx) in transactions.enumerate() {
+            let result = self.execute_tx(&tx, idx, tx_count, &block_env, &cfg);
+
+            if result.success {
+                success_count += 1;
+            } else {
+                fail_count += 1;
+            }
+
+            tx_results.push(result);
+        }
+
+        info!(
+            "Block {} execution complete: {} succeeded, {} failed",
+            block_number, success_count, fail_count
+        );
+
+        BlockResult { block_number, success_count, fail_count, tx_results }
+    }
+
+    fn execute_tx(
+        &mut self,
+        tx: &op_alloy::rpc_types::Transaction,
+        idx: usize,
+        tx_count: usize,
+        block_env: &revm::context::BlockEnv,
+        cfg: &CfgEnv<op_revm::OpSpecId>,
+    ) -> TxResult {
+        let envelope: &OpTxEnvelope = tx.inner.inner.inner();
+        let tx_hash = envelope.tx_hash();
+        let sender = tx.inner.inner.signer();
+        info!("Executing tx {}/{}: {}", idx + 1, tx_count, tx_hash);
+
+        let op_tx = tx_to_op_tx(tx, sender);
+
+        let ctx = revm::Context::op()
+            .with_db(self.db.clone())
+            .with_block(block_env.clone())
+            .with_tx(op_tx)
+            .with_cfg(cfg.clone())
+            .with_chain(L1BlockInfo::default());
+
+        let mut evm = ctx.build_op();
+
+        match evm.replay() {
+            Ok(result) => {
+                self.db.commit(result.state);
+
+                match result.result {
+                    ExecutionResult::Success { ref output, gas_used, .. } => {
+                        let output_bytes = match output {
+                            Output::Call(data) | Output::Create(data, _) => data.to_vec(),
+                        };
+                        info!(
+                            "  Success: gas_used={}, output_size={}",
+                            gas_used,
+                            output_bytes.len()
+                        );
+                        TxResult { success: true, gas_used, output: Some(output_bytes) }
+                    }
+                    ExecutionResult::Revert { ref output, gas_used } => {
+                        warn!(
+                            "  Reverted: gas_used={}, output={}",
+                            gas_used,
+                            alloy::primitives::hex::encode(output)
+                        );
+                        TxResult { success: false, gas_used, output: Some(output.to_vec()) }
+                    }
+                    ExecutionResult::Halt { reason, gas_used } => {
+                        warn!("  Halted: reason={reason:?}, gas_used={gas_used}");
+                        TxResult { success: false, gas_used, output: None }
+                    }
+                }
+            }
+            Err(e) => {
+                error!("  Execution error: {e}");
+                TxResult { success: false, gas_used: 0, output: None }
+            }
+        }
+    }
+}

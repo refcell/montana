@@ -8,7 +8,7 @@ repository = "https://github.com/base/montana"
 
 [workspace]
 resolver = "2"
-members = ["bin/*", "crates/*"]
+members = ["bin/*", "crates/consensus/*", "crates/execution/*"]
 default-members = ["bin/montana", "bin/analyze"]
 
 [workspace.lints.rust]
@@ -47,16 +47,22 @@ lto = "fat"
 codegen-units = 1
 
 [workspace.dependencies]
-# local
-montana-anvil = { version = "0.0.1", path = "crates/anvil" }
-montana-batcher = { version = "0.0.1", path = "crates/batcher" }
-montana-brotli = { version = "0.0.1", path = "crates/brotli" }
-montana-cli = { version = "0.0.1", path = "crates/cli" }
-montana-local = { version = "0.0.1", path = "crates/local" }
-montana-pipeline = { version = "0.0.1", path = "crates/pipeline" }
-montana-txmgr = { version = "0.0.1", path = "crates/txmgr" }
-montana-zlib = { version = "0.0.1", path = "crates/zlib" }
-montana-zstd = { version = "0.0.1", path = "crates/zstd" }
+# consensus crates
+montana-anvil = { version = "0.0.1", path = "crates/consensus/anvil" }
+montana-batcher = { version = "0.0.1", path = "crates/consensus/batcher" }
+montana-brotli = { version = "0.0.1", path = "crates/consensus/brotli" }
+montana-cli = { version = "0.0.1", path = "crates/consensus/cli" }
+montana-local = { version = "0.0.1", path = "crates/consensus/local" }
+montana-pipeline = { version = "0.0.1", path = "crates/consensus/pipeline" }
+montana-txmgr = { version = "0.0.1", path = "crates/consensus/txmgr" }
+montana-zlib = { version = "0.0.1", path = "crates/consensus/zlib" }
+montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
+
+# execution crates
+blocksource = { path = "crates/execution/blocksource" }
+chainspec = { path = "crates/execution/chainspec" }
+database = { path = "crates/execution/database" }
+execution = { path = "crates/execution/execution" }
 
 # async
 async-trait = "0.1.89"
@@ -68,15 +74,28 @@ flate2 = "1.1.5"
 zstd = "0.13.3"
 
 # alloy
-alloy = "1.0"
+alloy = { version = "1.1.3", features = ["full", "rpc-types-trace"] }
+alloy-primitives = { version = "1.5.0", features = ["rlp", "serde"] }
+alloy-rlp = { version = "0.3.12", features = ["derive"] }
+alloy-trie = "0.9"
+alloy-op-hardforks = "0.4.5"
+alloy-chains = "0.2.1"
+
+# OP Stack types
+op-alloy = { version = "0.23.1", features = ["consensus", "network", "rpc-types"] }
+
+# REVM dependencies
+revm = { version = "33.1.0", default-features = false, features = ["std", "secp256k1", "c-kzg", "blst", "serde"] }
+op-revm = { version = "14.1.0" }
 
 # misc
-clap = "4.5.53"
-serde = "1.0.228"
+clap = { version = "4.5.53", features = ["derive", "env"] }
+eyre = "0.6.12"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 thiserror = "2.0.17"
 tracing = "0.1.43"
-tracing-subscriber = "0.3.22"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 # tui
 crossterm = "0.28.1"
@@ -85,4 +104,8 @@ ratatui = "0.29.0"
 # testing
 criterion = "0.8.1"
 rstest = "0.26.1"
-tokio = "1.48.0"
+tempfile = "3"
+tokio = { version = "1.48.0", features = ["full"] }
+
+# TrieDB - Ethereum state trie database
+triedb = { git = "https://github.com/base/triedb" }

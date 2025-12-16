@@ -39,7 +39,7 @@ The derivation direction inverts this flow. An `L1BatchSource` fetches compresse
 
 Configuration constants define operational boundaries. Maximum compressed batch size is 128KB to fit within a single blob. Minimum batch size is 1KB to avoid dust submissions. The default submission interval aligns with L1 block time at 12 seconds. The sequencing window spans 3600 L1 blocks, and safe head confirmation requires 12 blocks.
 
-For detailed documentation on the pipeline architecture, configuration, batching model, and streaming considerations, see the [pipeline crate README](./crates/pipeline/README.md).
+For detailed documentation on the pipeline architecture, configuration, batching model, and streaming considerations, see the [pipeline crate README](./crates/consensus/pipeline/README.md).
 
 ## Demo
 
@@ -81,16 +81,23 @@ The inverse pipeline for derivation:
 - [`shadow`](./bin/shadow): Real-time batch submission and derivation monitoring TUI.
 - [`fetcher`](./bin/fetcher): Base L2 block fetcher.
 
-**Pipeline**
+**Consensus**
 
-- [`montana-pipeline`](./crates/pipeline): Core pipeline types and traits.
-- [`montana-batcher`](./crates/batcher): Batcher service for L2 batch submission orchestration.
-- [`montana-txmgr`](./crates/txmgr): Transaction manager for L1 batch submission with blob and calldata support.
-- [`montana-local`](./crates/local): Local file-based source and sink implementations.
-- [`montana-cli`](./crates/cli): CLI utilities and argument parsing.
-- [`montana-brotli`](./crates/brotli): Brotli compression implementation.
-- [`montana-zlib`](./crates/zlib): Zlib compression implementation.
-- [`montana-zstd`](./crates/zstd): Zstandard compression implementation.
+- [`montana-pipeline`](./crates/consensus/pipeline): Core pipeline types and traits.
+- [`montana-batcher`](./crates/consensus/batcher): Batcher service for L2 batch submission orchestration.
+- [`montana-txmgr`](./crates/consensus/txmgr): Transaction manager for L1 batch submission with blob and calldata support.
+- [`montana-local`](./crates/consensus/local): Local file-based source and sink implementations.
+- [`montana-cli`](./crates/consensus/cli): CLI utilities and argument parsing.
+- [`montana-brotli`](./crates/consensus/brotli): Brotli compression implementation.
+- [`montana-zlib`](./crates/consensus/zlib): Zlib compression implementation.
+- [`montana-zstd`](./crates/consensus/zstd): Zstandard compression implementation.
+
+**Execution**
+
+- [`blocksource`](./crates/execution/blocksource): Block source implementations for fetching OP Stack blocks.
+- [`chainspec`](./crates/execution/chainspec): Chain specification for OP Stack chains.
+- [`database`](./crates/execution/database): Database implementations for EVM state.
+- [`execution`](./crates/execution/execution): Block executor using op-revm.
 
 ## Performance
 

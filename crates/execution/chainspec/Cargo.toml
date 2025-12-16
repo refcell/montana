@@ -1,0 +1,12 @@
+[package]
+name = "chainspec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+op-revm.workspace = true
+
+[lints]
+workspace = true

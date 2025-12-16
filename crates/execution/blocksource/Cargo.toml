@@ -1,0 +1,19 @@
+[package]
+name = "blocksource"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alloy.workspace = true
+op-alloy.workspace = true
+revm.workspace = true
+op-revm.workspace = true
+eyre.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

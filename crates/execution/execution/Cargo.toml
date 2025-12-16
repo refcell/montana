@@ -1,0 +1,21 @@
+[package]
+name = "execution"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blocksource.workspace = true
+chainspec.workspace = true
+database.workspace = true
+
+alloy.workspace = true
+op-alloy.workspace = true
+op-revm.workspace = true
+revm.workspace = true
+
+tracing.workspace = true
+
+[lints]
+workspace = true

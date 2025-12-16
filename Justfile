@@ -114,3 +114,7 @@ roundtrip *ARGS:
 # Runs the shadow TUI for chain shadowing simulation
 shadow *ARGS:
     cargo run --release -p shadow -- {{ARGS}}
+
+# Run the montana node against Base mainnet
+run-montana:
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 historical --start 39554271 --end 39554273

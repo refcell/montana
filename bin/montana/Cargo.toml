@@ -1,6 +1,6 @@
 [package]
 name = "montana"
-description = "Montana Batch Submitter Execution Extension"
+description = "Montana Block Executor"
 
 version.workspace = true
 edition.workspace = true
@@ -13,9 +13,25 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-# internal
-montana-cli.workspace = true
+# execution crates
+blocksource.workspace = true
+chainspec.workspace = true
+database.workspace = true
+execution.workspace = true
+
+# alloy
+alloy.workspace = true
+op-alloy.workspace = true
+
+# revm
+revm.workspace = true
+op-revm.workspace = true
+
+# async
+tokio.workspace = true
 
 # misc
-clap = { workspace = true, features = ["derive"] }
+clap.workspace = true
+eyre.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true

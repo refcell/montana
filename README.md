@@ -3,7 +3,7 @@
 </h1>
 
 <h4 align="center">
-    A modular and extensible duplex pipeline for L2 batch submission and derivation. Built in Rust.
+    An experimental, performant suite of Base stack components. Built in Rust.
 </h4>
 
 <p align="center">
@@ -85,8 +85,11 @@ The inverse pipeline for derivation:
 
 - [`montana-pipeline`](./crates/consensus/pipeline): Core pipeline types and traits.
 - [`montana-batcher`](./crates/consensus/batcher): Batcher service for L2 batch submission orchestration.
+- [`montana-batch-runner`](./crates/consensus/batch-runner): Batch submission runner.
+- [`montana-derivation-runner`](./crates/consensus/derivation-runner): Derivation pipeline runner.
 - [`montana-txmgr`](./crates/consensus/txmgr): Transaction manager for L1 batch submission with blob and calldata support.
 - [`montana-local`](./crates/consensus/local): Local file-based source and sink implementations.
+- [`montana-anvil`](./crates/consensus/anvil): Anvil-based testing utilities.
 - [`montana-brotli`](./crates/consensus/brotli): Brotli compression implementation.
 - [`montana-zlib`](./crates/consensus/zlib): Zlib compression implementation.
 - [`montana-zstd`](./crates/consensus/zstd): Zstandard compression implementation.
@@ -105,6 +108,7 @@ The inverse pipeline for derivation:
 
 - [`blocksource`](./crates/execution/blocksource): Block source implementations for fetching OP Stack blocks.
 - [`database`](./crates/execution/database): Database implementations for EVM state.
+- [`runner`](./crates/execution/runner): Block execution runner.
 - [`vm`](./crates/execution/vm): Block executor using op-revm.
 
 ## Performance

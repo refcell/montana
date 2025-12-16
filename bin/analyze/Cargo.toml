@@ -1,6 +1,6 @@
 [package]
-name = "montana"
-description = "Montana Batch Submitter Execution Extension"
+name = "analyze"
+description = "Montana Compression Analyzer Binary"
 
 version.workspace = true
 edition.workspace = true
@@ -14,7 +14,15 @@ workspace = true
 
 [dependencies]
 # internal
+montana-brotli.workspace = true
 montana-cli.workspace = true
+montana-local.workspace = true
+montana-pipeline.workspace = true
+montana-zlib.workspace = true
+montana-zstd.workspace = true
+
+# async
+tokio.workspace = true
 
 # misc
 clap.workspace = true

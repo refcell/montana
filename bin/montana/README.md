@@ -1,5 +1,5 @@
 # montana
 
-The Montana binary.
+The Montana batch submitter execution extension.
 
-A modular and extensible duplex pipeline for L2 batch submission and derivation.
+An execution extension that submits L2 batches to L1 as part of the OP Stack batcher pipeline.

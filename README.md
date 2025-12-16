@@ -51,7 +51,8 @@ The inverse pipeline for derivation:
 
 **Binaries**
 
-- [`montana`](./bin/montana): The CLI for running the batch submission pipeline.
+- [`montana`](./bin/montana): The batch submitter execution extension.
+- [`analyze`](./bin/analyze): Compression analyzer for comparing algorithm performance.
 
 **Pipeline**
 
@@ -78,7 +79,10 @@ Brotli provides the best compression ratio for L2 batch data, reducing the raw b
 # Build the project
 cargo build --release
 
-# Run the CLI
+# Run the compression analyzer
+cargo run -p analyze -- --help
+
+# Run the batch submitter
 cargo run -p montana -- --help
 ```
 

@@ -2659,6 +2659,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-batcher"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "montana-pipeline",
+ "montana-txmgr",
+ "rstest",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "montana-brotli"
 version = "0.1.0"
 dependencies = [

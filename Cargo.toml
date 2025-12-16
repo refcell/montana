@@ -48,6 +48,7 @@ codegen-units = 1
 
 [workspace.dependencies]
 # local
+montana-batcher = { path = "crates/batcher" }
 montana-brotli = { path = "crates/brotli" }
 montana-cli = { path = "crates/cli" }
 montana-local = { path = "crates/local" }

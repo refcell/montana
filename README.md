@@ -40,6 +40,9 @@ For detailed documentation on the pipeline architecture, configuration, batching
 
 <https://github.com/user-attachments/assets/43573ae5-5ce7-44a8-be40-697e6c719877>
 
+> [!NOTE]
+> The demo runs `just s` which is aliased to run the shadow binary. It shows pausing batch submission and resuming it by pressing "p".
+
 ## Overview
 
 Montana is a unidirectional data pipeline:

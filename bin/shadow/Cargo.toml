@@ -14,12 +14,14 @@ workspace = true
 
 [dependencies]
 # internal crates
+montana-anvil.workspace = true
 montana-brotli.workspace = true
 montana-pipeline.workspace = true
 montana-zlib.workspace = true
 montana-zstd.workspace = true
 
 # async
+async-trait.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 # http
@@ -36,3 +38,5 @@ clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
+# misc
+thiserror.workspace = true

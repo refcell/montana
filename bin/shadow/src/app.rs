@@ -3,7 +3,7 @@
 //! This module contains the shared state between the TUI and the
 //! background batch submission and derivation tasks.
 
-use montana_pipeline::CompressedBatch;
+use crate::mode::BatchSubmissionMode;
 
 /// Log level for display.
 #[derive(Clone, Debug, Default)]
@@ -77,6 +77,10 @@ pub(crate) struct App {
     pub(crate) rpc_url: String,
     /// Compression algorithm name.
     pub(crate) compression: String,
+    /// Batch submission mode.
+    pub(crate) submission_mode: BatchSubmissionMode,
+    /// Anvil endpoint URL (if in Anvil mode).
+    pub(crate) anvil_endpoint: Option<String>,
     /// Whether the simulation is paused.
     pub(crate) is_paused: bool,
     /// Statistics for the header.
@@ -85,28 +89,49 @@ pub(crate) struct App {
     pub(crate) batch_logs: Vec<LogEntry>,
     /// Derivation log entries.
     pub(crate) derivation_logs: Vec<LogEntry>,
-    /// Pending batches for derivation (passed from batch submission).
-    pub(crate) pending_batches: Vec<CompressedBatch>,
     /// Maximum log entries to keep per pane.
     max_logs: usize,
 }
 
 impl App {
     /// Create a new application state.
-    pub(crate) fn new(rpc_url: String, compression: String) -> Self {
+    pub(crate) fn new(
+        rpc_url: String,
+        compression: String,
+        submission_mode: BatchSubmissionMode,
+        anvil_endpoint: Option<String>,
+    ) -> Self {
         let mut app = Self {
             rpc_url,
             compression,
+            submission_mode,
+            anvil_endpoint: anvil_endpoint.clone(),
             is_paused: false,
             stats: Stats { derivation_healthy: true, ..Default::default() },
             batch_logs: Vec::new(),
             derivation_logs: Vec::new(),
-            pending_batches: Vec::new(),
             max_logs: 1000,
         };
 
         app.batch_logs.push(LogEntry::info("Connecting to RPC..."));
-        app.derivation_logs.push(LogEntry::info("Waiting for batches..."));
+
+        // Log the submission mode
+        match submission_mode {
+            BatchSubmissionMode::InMemory => {
+                app.batch_logs.push(LogEntry::info("Using in-memory batch queue"));
+                app.derivation_logs.push(LogEntry::info("Waiting for batches (in-memory)..."));
+            }
+            BatchSubmissionMode::Anvil => {
+                if let Some(ref endpoint) = anvil_endpoint {
+                    app.batch_logs.push(LogEntry::info(format!("Anvil started at {}", endpoint)));
+                }
+                app.derivation_logs.push(LogEntry::info("Waiting for batches (anvil)..."));
+            }
+            BatchSubmissionMode::Remote => {
+                app.batch_logs.push(LogEntry::warn("Remote mode is not yet supported"));
+                app.derivation_logs.push(LogEntry::warn("Remote mode is not yet supported"));
+            }
+        }
 
         app
     }
@@ -116,7 +141,6 @@ impl App {
         self.stats = Stats { derivation_healthy: true, ..Default::default() };
         self.batch_logs.clear();
         self.derivation_logs.clear();
-        self.pending_batches.clear();
         self.is_paused = false;
 
         self.batch_logs.push(LogEntry::info("Reset - reconnecting to RPC..."));
@@ -147,23 +171,13 @@ impl App {
         }
     }
 
-    /// Queue a batch for derivation.
-    pub(crate) fn queue_batch(&mut self, batch: CompressedBatch) {
-        self.pending_batches.push(batch);
-    }
-
-    /// Take the next pending batch for derivation.
-    pub(crate) fn take_batch(&mut self) -> Option<CompressedBatch> {
-        if self.pending_batches.is_empty() { None } else { Some(self.pending_batches.remove(0)) }
-    }
-
     /// Update the chain head.
-    pub(crate) fn set_chain_head(&mut self, head: u64) {
+    pub(crate) const fn set_chain_head(&mut self, head: u64) {
         self.stats.chain_head = head;
     }
 
     /// Update the current block being processed.
-    pub(crate) fn set_current_block(&mut self, block: u64) {
+    pub(crate) const fn set_current_block(&mut self, block: u64) {
         self.stats.current_block = block;
     }
 }

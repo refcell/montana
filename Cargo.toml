@@ -48,6 +48,7 @@ codegen-units = 1
 
 [workspace.dependencies]
 # local
+montana-anvil = { version = "0.0.1", path = "crates/anvil" }
 montana-batcher = { version = "0.0.1", path = "crates/batcher" }
 montana-brotli = { version = "0.0.1", path = "crates/brotli" }
 montana-cli = { version = "0.0.1", path = "crates/cli" }

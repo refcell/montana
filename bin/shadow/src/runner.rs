@@ -15,6 +15,7 @@ use tokio::{sync::Mutex, time::sleep};
 use crate::{
     Args,
     app::{App, LogEntry},
+    batch::BatchContext,
     rpc::RpcClient,
 };
 
@@ -39,7 +40,14 @@ fn encode_blocks(blocks: &[L2BlockData]) -> Vec<u8> {
 }
 
 /// Run the batch submission simulation, streaming blocks from RPC.
-pub(crate) async fn run_batch_submission(app: Arc<Mutex<App>>, args: Args) {
+///
+/// This function fetches blocks from the L2 RPC, compresses them, and submits
+/// them through the batch context's sink (either in-memory, anvil, or remote).
+pub(crate) async fn run_batch_submission(
+    app: Arc<Mutex<App>>,
+    args: Args,
+    batch_context: Arc<BatchContext>,
+) {
     // Small delay to let UI initialize
     sleep(Duration::from_millis(100)).await;
 
@@ -134,33 +142,61 @@ pub(crate) async fn run_batch_submission(app: Arc<Mutex<App>>, args: Args) {
                                 1.0
                             };
 
-                            // Update app state
-                            {
-                                let mut app_guard = app.lock().await;
-                                app_guard.stats.batches_submitted += 1;
-                                app_guard.stats.blocks_processed += blocks_in_batch as u64;
-                                app_guard.stats.bytes_original += original_size;
-                                app_guard.stats.bytes_compressed += compressed_size;
-                                app_guard.stats.compression_ratio =
-                                    if app_guard.stats.bytes_original > 0 {
-                                        app_guard.stats.bytes_compressed as f64
-                                            / app_guard.stats.bytes_original as f64
+                            // Create the batch
+                            let batch = CompressedBatch { batch_number, data: compressed.clone() };
+
+                            // Submit through the batch context sink
+                            match batch_context.sink().submit(batch).await {
+                                Ok(receipt) => {
+                                    // Update app state
+                                    let mut app_guard = app.lock().await;
+                                    app_guard.stats.batches_submitted += 1;
+                                    app_guard.stats.blocks_processed += blocks_in_batch as u64;
+                                    app_guard.stats.bytes_original += original_size;
+                                    app_guard.stats.bytes_compressed += compressed_size;
+                                    app_guard.stats.compression_ratio =
+                                        if app_guard.stats.bytes_original > 0 {
+                                            app_guard.stats.bytes_compressed as f64
+                                                / app_guard.stats.bytes_original as f64
+                                        } else {
+                                            1.0
+                                        };
+
+                                    // Log success with tx hash if available
+                                    let tx_hash = receipt.tx_hash;
+                                    let has_tx = tx_hash != [0u8; 32];
+                                    let msg = if has_tx {
+                                        format!(
+                                            "Batch #{}: {} blocks, {} -> {} bytes ({:.1}%) tx:0x{:02x}{:02x}{:02x}{:02x}...",
+                                            batch_number,
+                                            blocks_in_batch,
+                                            original_size,
+                                            compressed_size,
+                                            ratio * 100.0,
+                                            tx_hash[0],
+                                            tx_hash[1],
+                                            tx_hash[2],
+                                            tx_hash[3]
+                                        )
                                     } else {
-                                        1.0
+                                        format!(
+                                            "Batch #{}: {} blocks, {} -> {} bytes ({:.1}%)",
+                                            batch_number,
+                                            blocks_in_batch,
+                                            original_size,
+                                            compressed_size,
+                                            ratio * 100.0
+                                        )
                                     };
-
-                                app_guard.log_batch(LogEntry::info(format!(
-                                    "Batch #{}: {} blocks, {} -> {} bytes ({:.1}%)",
-                                    batch_number,
-                                    blocks_in_batch,
-                                    original_size,
-                                    compressed_size,
-                                    ratio * 100.0
-                                )));
-
-                                // Queue batch for derivation
-                                let batch = CompressedBatch { batch_number, data: compressed };
-                                app_guard.queue_batch(batch);
+                                    app_guard.log_batch(LogEntry::info(msg));
+                                }
+                                Err(e) => {
+                                    let mut app_guard = app.lock().await;
+                                    app_guard.log_batch(LogEntry::error(format!(
+                                        "Batch #{} submit failed: {}",
+                                        batch_number, e
+                                    )));
+                                }
                             }
 
                             batch_number += 1;
@@ -194,7 +230,10 @@ pub(crate) async fn run_batch_submission(app: Arc<Mutex<App>>, args: Args) {
 }
 
 /// Run the derivation simulation.
-pub(crate) async fn run_derivation(app: Arc<Mutex<App>>) {
+///
+/// This function reads batches from the batch context's source (either in-memory,
+/// anvil chain, or remote) and decompresses them to simulate derivation.
+pub(crate) async fn run_derivation(app: Arc<Mutex<App>>, batch_context: Arc<BatchContext>) {
     // Small delay to let batch submission start first
     sleep(Duration::from_millis(200)).await;
 
@@ -216,16 +255,20 @@ pub(crate) async fn run_derivation(app: Arc<Mutex<App>>) {
             }
         }
 
-        // Try to get a batch
-        let batch = {
-            let mut app_guard = app.lock().await;
-            app_guard.take_batch()
-        };
-
-        let Some(batch) = batch else {
-            // No batch available, wait and try again
-            sleep(Duration::from_millis(50)).await;
-            continue;
+        // Try to get a batch from the source
+        let batch = match batch_context.source().next_batch().await {
+            Ok(Some(batch)) => batch,
+            Ok(None) => {
+                // No batch available, wait and try again
+                sleep(Duration::from_millis(50)).await;
+                continue;
+            }
+            Err(e) => {
+                let mut app_guard = app.lock().await;
+                app_guard.log_derivation(LogEntry::error(format!("Source error: {}", e)));
+                sleep(Duration::from_millis(100)).await;
+                continue;
+            }
         };
 
         // Decompress

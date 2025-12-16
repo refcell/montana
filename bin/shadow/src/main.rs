@@ -28,10 +28,15 @@ use ratatui::{
 use tokio::sync::Mutex;
 
 mod app;
+mod batch;
+mod mode;
 mod rpc;
 mod runner;
 
 use app::{App, LogEntry, LogLevel};
+use batch::BatchContext;
+use mode::BatchSubmissionMode;
+use montana_anvil::Address;
 use runner::{run_batch_submission, run_derivation};
 
 /// Default Base mainnet RPC URL.
@@ -70,6 +75,21 @@ pub(crate) struct Args {
     /// Target batch size in bytes before submitting.
     #[arg(long, default_value = "131072")]
     pub(crate) target_batch_size: usize,
+
+    /// Batch submission mode (in-memory, anvil, remote).
+    ///
+    /// - anvil (default): Spawns a local Anvil chain and submits batches as transactions
+    /// - in-memory: Passes batches directly between tasks (fast, no chain simulation)
+    /// - remote: Submit to a remote L1 chain (currently unsupported)
+    #[arg(long, default_value = "anvil", value_enum)]
+    pub(crate) submission_mode: BatchSubmissionMode,
+
+    /// Batch inbox address for batch submission (hex string, e.g., 0x4242...4242).
+    ///
+    /// This is the address where batches are sent to on the L1/Anvil chain.
+    /// Both batch submission and derivation use this address.
+    #[arg(long, default_value = "0x4242424242424242424242424242424242424242")]
+    pub(crate) batch_inbox: String,
 }
 
 fn main() -> io::Result<()> {
@@ -93,23 +113,56 @@ fn main() -> io::Result<()> {
 }
 
 fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
-    // Create shared app state
-    let app = Arc::new(Mutex::new(App::new(args.rpc.clone(), args.compression.clone())));
-
     // Create tokio runtime
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+
+    // Parse batch inbox address
+    let batch_inbox = parse_address(&args.batch_inbox).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Invalid batch inbox address '{}': {}", args.batch_inbox, e),
+        )
+    })?;
+
+    // Create batch context (spawns Anvil if needed)
+    let batch_context =
+        rt.block_on(async { BatchContext::new(args.submission_mode, batch_inbox).await });
+
+    let batch_context = match batch_context {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            eprintln!("Error: Failed to create batch context: {}", e);
+            return Err(io::Error::other(e.to_string()));
+        }
+    };
+
+    let anvil_endpoint = batch_context.anvil_endpoint();
+    let submission_mode = batch_context.mode();
+
+    // Create shared app state
+    let app = Arc::new(Mutex::new(App::new(
+        args.rpc.clone(),
+        args.compression.clone(),
+        submission_mode,
+        anvil_endpoint,
+    )));
+
+    // Wrap the batch context in an Arc for sharing
+    let batch_context = Arc::new(batch_context);
 
     // Spawn background tasks
     let batch_app = Arc::clone(&app);
     let derivation_app = Arc::clone(&app);
-    let batch_args = args.clone();
+    let batch_args = args;
+    let sink_context = Arc::clone(&batch_context);
+    let source_context = Arc::clone(&batch_context);
 
     rt.spawn(async move {
-        run_batch_submission(batch_app, batch_args).await;
+        run_batch_submission(batch_app, batch_args, sink_context).await;
     });
 
     rt.spawn(async move {
-        run_derivation(derivation_app).await;
+        run_derivation(derivation_app, source_context).await;
     });
 
     // Main UI loop
@@ -120,26 +173,25 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
         drop(app_guard);
 
         // Handle input (non-blocking)
-        if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            return Ok(());
-                        }
-                        KeyCode::Char('r') => {
-                            // Reset/restart
-                            let mut app_guard = rt.block_on(app.lock());
-                            app_guard.reset();
-                        }
-                        KeyCode::Char('p') => {
-                            // Toggle pause
-                            let mut app_guard = rt.block_on(app.lock());
-                            app_guard.toggle_pause();
-                        }
-                        _ => {}
-                    }
+        if event::poll(std::time::Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    return Ok(());
                 }
+                KeyCode::Char('r') => {
+                    // Reset/restart
+                    let mut app_guard = rt.block_on(app.lock());
+                    app_guard.reset();
+                }
+                KeyCode::Char('p') => {
+                    // Toggle pause
+                    let mut app_guard = rt.block_on(app.lock());
+                    app_guard.toggle_pause();
+                }
+                _ => {}
             }
         }
     }
@@ -149,10 +201,10 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
 fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
     let area = frame.area();
 
-    // Main layout: header (1/4 height) and body (3/4 height)
+    // Main layout: header (1/4 height), body (flexible), and footer (1 line)
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Ratio(1, 4), Constraint::Ratio(3, 4)])
+        .constraints([Constraint::Ratio(1, 4), Constraint::Min(5), Constraint::Length(3)])
         .split(area);
 
     // Draw header
@@ -169,6 +221,9 @@ fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
 
     // Draw derivation pane (right)
     draw_derivation_pane(frame, app, body_chunks[1]);
+
+    // Draw footer with DA provider info
+    draw_footer(frame, app, main_chunks[2]);
 }
 
 /// Draw the header with stats and metrics.
@@ -241,6 +296,8 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             Span::raw(" Reset  "),
             Span::raw("  |  "),
             Span::raw(format!("Compression: {}", app.compression)),
+            Span::raw("  |  "),
+            Span::raw(format!("Mode: {}", app.submission_mode)),
         ]),
     ];
 
@@ -288,6 +345,61 @@ fn draw_derivation_pane(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(derivation_pane, area);
 }
 
+/// Draw the footer with DA provider and sink/source info.
+fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let stats = &app.stats;
+
+    // Build DA provider info
+    let (da_icon, da_name, da_color) = match app.submission_mode {
+        BatchSubmissionMode::InMemory => ("MEM", "In-Memory", Color::Cyan),
+        BatchSubmissionMode::Anvil => ("ANV", "Anvil", Color::Green),
+        BatchSubmissionMode::Remote => ("RPC", "Remote", Color::Yellow),
+    };
+
+    // Build endpoint info for Anvil mode
+    let endpoint_info = app
+        .anvil_endpoint
+        .as_ref()
+        .map_or_else(String::new, |endpoint| format!(" @ {}", truncate_url(endpoint, 25)));
+
+    let footer_text = Line::from(vec![
+        Span::styled(" DA Provider: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("[{}] ", da_icon), Style::default().fg(da_color).bold()),
+        Span::styled(da_name, Style::default().fg(da_color)),
+        Span::styled(endpoint_info, Style::default().fg(Color::DarkGray)),
+        Span::raw("  |  "),
+        Span::styled("Sink: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            format!("{} batches", stats.batches_submitted),
+            Style::default().fg(Color::Blue),
+        ),
+        Span::raw("  |  "),
+        Span::styled("Source: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            format!("{} batches", stats.batches_derived),
+            Style::default().fg(Color::Magenta),
+        ),
+        Span::raw("  |  "),
+        Span::styled(
+            if stats.batches_submitted == stats.batches_derived { "IN SYNC" } else { "SYNCING" },
+            Style::default().fg(if stats.batches_submitted == stats.batches_derived {
+                Color::Green
+            } else {
+                Color::Yellow
+            }),
+        ),
+    ]);
+
+    let footer = Paragraph::new(footer_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Data Availability ")
+            .title_style(Style::default().fg(Color::Gray)),
+    );
+
+    frame.render_widget(footer, area);
+}
+
 /// Render log entries as styled lines.
 fn render_logs(logs: &[LogEntry], max_lines: usize) -> Vec<Line<'static>> {
     let start = logs.len().saturating_sub(max_lines);
@@ -324,5 +436,39 @@ fn truncate_url(url: &str, max_len: usize) -> String {
         url.to_string()
     } else {
         format!("{}...", &url[..max_len.saturating_sub(3)])
+    }
+}
+
+/// Parse a hex address string into an Address.
+fn parse_address(s: &str) -> Result<Address, String> {
+    let s = s.strip_prefix("0x").unwrap_or(s);
+    if s.len() != 40 {
+        return Err(format!("Expected 40 hex characters, got {}", s.len()));
+    }
+    let bytes: [u8; 20] = hex_decode(s)?;
+    Ok(Address::from(bytes))
+}
+
+/// Decode a hex string into bytes.
+fn hex_decode(s: &str) -> Result<[u8; 20], String> {
+    let mut bytes = [0u8; 20];
+    for (i, chunk) in s.as_bytes().chunks(2).enumerate() {
+        if i >= 20 {
+            return Err("Too many bytes".to_string());
+        }
+        let high = hex_char_to_nibble(chunk[0])?;
+        let low = hex_char_to_nibble(chunk[1])?;
+        bytes[i] = (high << 4) | low;
+    }
+    Ok(bytes)
+}
+
+/// Convert a hex character to its nibble value.
+fn hex_char_to_nibble(c: u8) -> Result<u8, String> {
+    match c {
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        _ => Err(format!("Invalid hex character: {}", c as char)),
     }
 }

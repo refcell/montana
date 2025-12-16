@@ -2787,6 +2787,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-anvil"
+version = "0.0.1"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "montana-pipeline",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "montana-batcher"
 version = "0.0.1"
 dependencies = [
@@ -4071,8 +4082,10 @@ dependencies = [
 name = "shadow"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "clap",
  "crossterm",
+ "montana-anvil",
  "montana-brotli",
  "montana-pipeline",
  "montana-zlib",
@@ -4081,6 +4094,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
 ]
 

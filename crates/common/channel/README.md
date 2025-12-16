@@ -1,6 +1,6 @@
-# channel
+# channels
 
-Channel abstractions for batch source data flow.
+Channels abstractions for batch source data flow.
 
 ## Overview
 
@@ -18,7 +18,7 @@ This crate provides the core abstractions for sourcing L2 block data that will b
 ## Usage
 
 ```rust,ignore
-use channel::{BatchSource, L2BlockData, SourceError};
+use channels::{BatchSource, L2BlockData, SourceError};
 use async_trait::async_trait;
 
 struct MyBlockSource;

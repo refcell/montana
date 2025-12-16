@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 async-trait.workspace = true
-channel.workspace = true
+channels.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

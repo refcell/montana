@@ -1,8 +1,8 @@
 //! Data source traits and types.
 
 use async_trait::async_trait;
-// Re-export types from channel crate
-pub use channel::{BatchSource, L2BlockData, RawTransaction, SourceError};
+// Re-export types from channels crate
+pub use channels::{BatchSource, L2BlockData, RawTransaction, SourceError};
 
 /// Source of compressed batches from L1.
 #[async_trait]

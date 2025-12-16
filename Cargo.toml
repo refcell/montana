@@ -62,7 +62,7 @@ montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
 
 # common crates
 chainspec = { path = "crates/common/chainspec" }
-channel = { path = "crates/common/channel" }
+channels = { path = "crates/common/channel" }
 primitives = { path = "crates/common/primitives" }
 
 # execution crates

@@ -1,6 +1,6 @@
 [package]
-name = "montana"
-description = "Montana Block Executor"
+name = "runner"
+description = "Block execution runner"
 
 version.workspace = true
 edition.workspace = true
@@ -14,13 +14,18 @@ workspace = true
 
 [dependencies]
 # execution crates
-runner.workspace = true
+blocksource.workspace = true
+chainspec.workspace = true
+database.workspace = true
+vm.workspace = true
+
+# alloy
+alloy.workspace = true
+op-alloy.workspace = true
 
 # async
 tokio.workspace = true
 
 # misc
-clap.workspace = true
 eyre.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true

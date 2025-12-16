@@ -66,6 +66,7 @@ primitives = { path = "crates/common/primitives" }
 # execution crates
 blocksource = { path = "crates/execution/blocksource" }
 database = { path = "crates/execution/database" }
+runner = { path = "crates/execution/runner" }
 vm = { path = "crates/execution/vm" }
 
 # async

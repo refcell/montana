@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="#whats-montana">What's Montana?</a> •
+  <a href="#demo">Demo</a> •
   <a href="#overview">Overview</a> •
   <a href="#crates">Crates</a> •
   <a href="#performance">Performance</a> •
@@ -34,6 +35,10 @@ The derivation direction inverts this flow. An `L1BatchSource` fetches compresse
 Configuration constants define operational boundaries. Maximum compressed batch size is 128KB to fit within a single blob. Minimum batch size is 1KB to avoid dust submissions. The default submission interval aligns with L1 block time at 12 seconds. The sequencing window spans 3600 L1 blocks, and safe head confirmation requires 12 blocks.
 
 For detailed documentation on the pipeline architecture, configuration, batching model, and streaming considerations, see the [pipeline crate README](./crates/pipeline/README.md).
+
+## Demo
+
+https://github.com/user-attachments/assets/shadow.mov
 
 ## Overview
 

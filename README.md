@@ -38,7 +38,7 @@ For detailed documentation on the pipeline architecture, configuration, batching
 
 ## Demo
 
-https://github.com/user-attachments/assets/shadow.mov
+![Demo](./assets/shadow.gif)
 
 ## Overview
 

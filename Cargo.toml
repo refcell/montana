@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -48,14 +48,14 @@ codegen-units = 1
 
 [workspace.dependencies]
 # local
-montana-batcher = { path = "crates/batcher" }
-montana-brotli = { path = "crates/brotli" }
-montana-cli = { path = "crates/cli" }
-montana-local = { path = "crates/local" }
-montana-pipeline = { path = "crates/pipeline" }
-montana-txmgr = { path = "crates/txmgr" }
-montana-zlib = { path = "crates/zlib" }
-montana-zstd = { path = "crates/zstd" }
+montana-batcher = { version = "0.0.1", path = "crates/batcher" }
+montana-brotli = { version = "0.0.1", path = "crates/brotli" }
+montana-cli = { version = "0.0.1", path = "crates/cli" }
+montana-local = { version = "0.0.1", path = "crates/local" }
+montana-pipeline = { version = "0.0.1", path = "crates/pipeline" }
+montana-txmgr = { version = "0.0.1", path = "crates/txmgr" }
+montana-zlib = { version = "0.0.1", path = "crates/zlib" }
+montana-zstd = { version = "0.0.1", path = "crates/zstd" }
 
 # async
 async-trait = "0.1.89"

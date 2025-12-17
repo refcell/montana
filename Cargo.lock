@@ -4142,7 +4142,6 @@ name = "primitives"
 version = "0.0.1"
 dependencies = [
  "alloy-primitives",
- "rstest",
 ]
 
 [[package]]

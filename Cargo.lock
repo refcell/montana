@@ -1595,7 +1595,6 @@ dependencies = [
  "derive_more",
  "primitives",
  "rstest",
- "thiserror",
  "tokio",
 ]
 

@@ -21,7 +21,7 @@ impl<P> TxSubmitter<P> {
     ///
     /// * `provider` - RPC provider for transaction submission
     /// * `config` - Transaction manager configuration
-    pub fn new(provider: Arc<P>, config: TxManagerConfig) -> Self {
+    pub const fn new(provider: Arc<P>, config: TxManagerConfig) -> Self {
         Self { provider, config }
     }
 
@@ -48,7 +48,7 @@ impl<P> TxSubmitter<P> {
     /// # Returns
     ///
     /// true if we should give up and abort, false if we should retry
-    pub fn should_abort(&self, error: &TxError, state: &SendState) -> bool {
+    pub const fn should_abort(&self, error: &TxError, state: &SendState) -> bool {
         match error {
             // Always abort on these errors
             TxError::AlreadyReserved | TxError::InsufficientFunds => true,

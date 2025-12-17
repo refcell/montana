@@ -37,7 +37,7 @@ impl SendState {
     }
 
     /// Records a successful transaction publish to the mempool.
-    pub fn tx_published(&mut self) {
+    pub const fn tx_published(&mut self) {
         self.successful_publish_count += 1;
     }
 
@@ -57,7 +57,7 @@ impl SendState {
     }
 
     /// Records a "nonce too low" error.
-    pub fn nonce_too_low(&mut self) {
+    pub const fn nonce_too_low(&mut self) {
         self.nonce_too_low_count += 1;
     }
 
@@ -78,7 +78,7 @@ impl SendState {
     }
 
     /// Sets the bump fees flag and increments the bump count.
-    pub fn set_bump_fees(&mut self) {
+    pub const fn set_bump_fees(&mut self) {
         self.bump_fees = true;
         self.bump_count += 1;
     }
@@ -86,7 +86,7 @@ impl SendState {
     /// Takes and clears the bump fees flag.
     ///
     /// Returns the previous value of the flag.
-    pub fn take_bump_fees(&mut self) -> bool {
+    pub const fn take_bump_fees(&mut self) -> bool {
         let prev = self.bump_fees;
         self.bump_fees = false;
         prev

@@ -108,85 +108,85 @@ impl Default for BatcherConfigBuilder {
 
 impl BatcherConfigBuilder {
     /// Sets the maximum batch size in bytes.
-    pub fn max_batch_size(mut self, max_batch_size: usize) -> Self {
+    pub const fn max_batch_size(mut self, max_batch_size: usize) -> Self {
         self.max_batch_size = max_batch_size;
         self
     }
 
     /// Sets the maximum blocks per batch.
-    pub fn max_blocks_per_batch(mut self, max_blocks_per_batch: u16) -> Self {
+    pub const fn max_blocks_per_batch(mut self, max_blocks_per_batch: u16) -> Self {
         self.max_blocks_per_batch = max_blocks_per_batch;
         self
     }
 
     /// Sets the batch submission interval.
-    pub fn batch_interval(mut self, batch_interval: Duration) -> Self {
+    pub const fn batch_interval(mut self, batch_interval: Duration) -> Self {
         self.batch_interval = batch_interval;
         self
     }
 
     /// Sets the minimum batch size in bytes.
-    pub fn min_batch_size(mut self, min_batch_size: usize) -> Self {
+    pub const fn min_batch_size(mut self, min_batch_size: usize) -> Self {
         self.min_batch_size = min_batch_size;
         self
     }
 
     /// Sets whether to use EIP-4844 blobs for submission.
-    pub fn use_blobs(mut self, use_blobs: bool) -> Self {
+    pub const fn use_blobs(mut self, use_blobs: bool) -> Self {
         self.use_blobs = use_blobs;
         self
     }
 
     /// Sets the maximum blob fee per gas.
-    pub fn max_blob_fee_per_gas(mut self, max_blob_fee_per_gas: u128) -> Self {
+    pub const fn max_blob_fee_per_gas(mut self, max_blob_fee_per_gas: u128) -> Self {
         self.max_blob_fee_per_gas = max_blob_fee_per_gas;
         self
     }
 
     /// Sets the maximum blobs per transaction.
-    pub fn max_blobs_per_tx(mut self, max_blobs_per_tx: usize) -> Self {
+    pub const fn max_blobs_per_tx(mut self, max_blobs_per_tx: usize) -> Self {
         self.max_blobs_per_tx = max_blobs_per_tx;
         self
     }
 
     /// Sets the number of confirmations required.
-    pub fn num_confirmations(mut self, num_confirmations: u64) -> Self {
+    pub const fn num_confirmations(mut self, num_confirmations: u64) -> Self {
         self.num_confirmations = num_confirmations;
         self
     }
 
     /// Sets the interval before resubmitting transactions.
-    pub fn resubmission_timeout(mut self, resubmission_timeout: Duration) -> Self {
+    pub const fn resubmission_timeout(mut self, resubmission_timeout: Duration) -> Self {
         self.resubmission_timeout = resubmission_timeout;
         self
     }
 
     /// Sets the network timeout for RPC calls.
-    pub fn network_timeout(mut self, network_timeout: Duration) -> Self {
+    pub const fn network_timeout(mut self, network_timeout: Duration) -> Self {
         self.network_timeout = network_timeout;
         self
     }
 
     /// Sets the maximum L1 block drift.
-    pub fn max_l1_drift(mut self, max_l1_drift: u64) -> Self {
+    pub const fn max_l1_drift(mut self, max_l1_drift: u64) -> Self {
         self.max_l1_drift = max_l1_drift;
         self
     }
 
     /// Sets the sequencing window in blocks.
-    pub fn sequencing_window(mut self, sequencing_window: u64) -> Self {
+    pub const fn sequencing_window(mut self, sequencing_window: u64) -> Self {
         self.sequencing_window = sequencing_window;
         self
     }
 
     /// Sets the safe confirmations threshold.
-    pub fn safe_confirmations(mut self, safe_confirmations: u64) -> Self {
+    pub const fn safe_confirmations(mut self, safe_confirmations: u64) -> Self {
         self.safe_confirmations = safe_confirmations;
         self
     }
 
     /// Builds the [`BatcherConfig`].
-    pub fn build(self) -> BatcherConfig {
+    pub const fn build(self) -> BatcherConfig {
         BatcherConfig {
             max_batch_size: self.max_batch_size,
             max_blocks_per_batch: self.max_blocks_per_batch,

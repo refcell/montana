@@ -48,7 +48,7 @@ impl BatcherMetrics {
     }
 
     /// Record a successful batch submission.
-    pub fn record_submission(&mut self, uncompressed: u64, compressed: u64, gas_used: u64) {
+    pub const fn record_submission(&mut self, uncompressed: u64, compressed: u64, gas_used: u64) {
         self.batches_submitted += 1;
         self.total_uncompressed_bytes += uncompressed;
         self.total_compressed_bytes += compressed;
@@ -56,17 +56,17 @@ impl BatcherMetrics {
     }
 
     /// Record a failed batch submission.
-    pub fn record_failure(&mut self) {
+    pub const fn record_failure(&mut self) {
         self.batches_failed += 1;
     }
 
     /// Record blocks processed.
-    pub fn record_blocks(&mut self, count: u64) {
+    pub const fn record_blocks(&mut self, count: u64) {
         self.blocks_processed += count;
     }
 
     /// Update pending blocks count.
-    pub fn set_pending_blocks(&mut self, count: u64) {
+    pub const fn set_pending_blocks(&mut self, count: u64) {
         self.pending_blocks = count;
     }
 

@@ -107,7 +107,6 @@ where
         self.provider
             .estimate_gas(request.clone())
             .await
-            .map(|gas| gas as u64)
             .map_err(|e| TxError::GasEstimation(e.to_string()))
     }
 }

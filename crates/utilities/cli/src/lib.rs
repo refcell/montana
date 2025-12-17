@@ -25,6 +25,13 @@ pub use compression::CompressionAlgorithm;
 mod mode;
 pub use mode::Mode;
 
+/// Montana binary operating mode.
+///
+/// The [`MontanaMode`] enum defines how the Montana binary operates: as a pure executor,
+/// a full sequencer, or a validator.
+mod montana_mode;
+pub use montana_mode::MontanaMode;
+
 /// Tracing initialization utilities.
 ///
 /// The [`init_tracing`] function configures the tracing subscriber with a verbosity-based

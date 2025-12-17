@@ -1,6 +1,7 @@
 //! CLI argument definitions for the node binary
 
 use clap::{Parser, Subcommand};
+use montana_cli::MontanaMode;
 
 /// CLI arguments
 #[derive(Parser, Debug)]
@@ -10,9 +11,13 @@ pub(crate) struct Args {
     #[arg(short, long, env = "BASE_RPC_URL")]
     pub rpc_url: String,
 
-    /// Producer mode
+    /// Operating mode: executor (default), sequencer, or validator
+    #[arg(long, default_value = "executor")]
+    pub mode: MontanaMode,
+
+    /// Block producer mode (live or historical)
     #[command(subcommand)]
-    pub mode: ProducerMode,
+    pub producer: ProducerMode,
 }
 
 #[derive(Subcommand, Debug)]

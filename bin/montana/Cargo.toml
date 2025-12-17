@@ -13,10 +13,22 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+# common crates
+sequencer.workspace = true
+
 # execution crates
 runner.workspace = true
 
+# consensus crates
+montana-batcher.workspace = true
+montana-brotli.workspace = true
+montana-pipeline.workspace = true
+
+# utilities
+montana-cli.workspace = true
+
 # async
+async-trait.workspace = true
 tokio.workspace = true
 
 # misc

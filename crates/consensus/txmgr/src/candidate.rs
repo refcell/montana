@@ -45,7 +45,7 @@ impl TxCandidate {
     /// # Returns
     ///
     /// A new [`TxCandidate`] configured for blob mode with zero value and empty calldata.
-    pub fn blob(to: Address, sidecar: BlobTransactionSidecar) -> Self {
+    pub const fn blob(to: Address, sidecar: BlobTransactionSidecar) -> Self {
         Self {
             to,
             value: U256::ZERO,

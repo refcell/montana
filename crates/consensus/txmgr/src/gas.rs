@@ -85,7 +85,7 @@ where
     ///
     /// * `provider` - The RPC provider to fetch gas prices from
     /// * `config` - Transaction manager configuration containing fee limits and bump percentages
-    pub fn new(provider: Arc<P>, config: TxManagerConfig) -> Self {
+    pub const fn new(provider: Arc<P>, config: TxManagerConfig) -> Self {
         Self { provider, config }
     }
 
@@ -127,12 +127,10 @@ where
         let gas_fee_cap = U256::from(base_fee) + gas_tip_cap;
 
         // Calculate blob fee cap if excess blob gas is present
-        let blob_fee_cap = if let Some(excess_blob_gas) = header.excess_blob_gas {
+        let blob_fee_cap = header.excess_blob_gas.map(|excess_blob_gas| {
             let blob_fee = self.calc_blob_fee(excess_blob_gas);
-            Some(U256::from(blob_fee))
-        } else {
-            None
-        };
+            U256::from(blob_fee)
+        });
 
         Ok(GasCaps { gas_tip_cap, gas_fee_cap, blob_fee_cap })
     }
@@ -185,7 +183,7 @@ where
     /// # Returns
     ///
     /// The calculated blob fee in wei
-    fn calc_blob_fee(&self, excess_blob_gas: u64) -> u128 {
+    const fn calc_blob_fee(&self, excess_blob_gas: u64) -> u128 {
         const MIN_BLOB_GASPRICE: u128 = 1;
         const BLOB_GASPRICE_UPDATE_FRACTION: u64 = 3338477;
 
@@ -212,7 +210,7 @@ where
 /// # Returns
 ///
 /// The calculated value approximating the exponential function
-fn fake_exponential(factor: u128, numerator: u64, denominator: u64) -> u128 {
+const fn fake_exponential(factor: u128, numerator: u64, denominator: u64) -> u128 {
     let mut output = 0u128;
     let mut numerator_accum = factor.saturating_mul(denominator as u128);
     let mut i = 1u128;

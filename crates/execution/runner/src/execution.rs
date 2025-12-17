@@ -12,7 +12,7 @@ use database::{CachedDatabase, RPCDatabase};
 use eyre::Result;
 use op_alloy::network::Optimism;
 use tokio::{runtime::Handle, sync::mpsc};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 use vm::BlockExecutor;
 
 use crate::ProducerMode;
@@ -24,12 +24,23 @@ const CHANNEL_CAPACITY: usize = 256;
 pub struct Execution {
     rpc_url: String,
     mode: ProducerMode,
+    /// Optional channel to send verified blocks downstream (e.g., to sequencer buffer).
+    output_tx: Option<mpsc::Sender<OpBlock>>,
 }
 
 impl Execution {
     /// Create a new execution client
     pub const fn new(rpc_url: String, mode: ProducerMode) -> Self {
-        Self { rpc_url, mode }
+        Self { rpc_url, mode, output_tx: None }
+    }
+
+    /// Configure the execution client with an output channel.
+    ///
+    /// When configured, verified blocks will be sent to this channel
+    /// for downstream processing (e.g., batch submission in sequencer mode).
+    pub fn with_output(mut self, tx: mpsc::Sender<OpBlock>) -> Self {
+        self.output_tx = Some(tx);
+        self
     }
 
     /// Start the execution client
@@ -60,8 +71,25 @@ impl Execution {
 
         // Consumer loop: process blocks as they arrive
         while let Some(block) = rx.recv().await {
-            if let Err(e) = Self::execute_block(block, &provider).await {
-                error!("Block execution error: {e}");
+            // Clone block before execution if we need to forward it downstream
+            let block_to_forward = self.output_tx.as_ref().map(|_| block.clone());
+
+            match Self::execute_block(block, &provider).await {
+                Ok(()) => {
+                    // Forward verified block to downstream consumer if configured
+                    if let (Some(output_tx), Some(forward_block)) =
+                        (&self.output_tx, block_to_forward)
+                    {
+                        if output_tx.send(forward_block).await.is_err() {
+                            warn!("Downstream consumer dropped, stopping output forwarding");
+                        } else {
+                            trace!("Forwarded verified block to downstream consumer");
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Block execution error: {e}");
+                }
             }
         }
 

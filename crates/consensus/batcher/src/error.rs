@@ -76,7 +76,7 @@ pub enum BatcherError {
 
 impl BatcherError {
     /// Classifies whether an error is retryable.
-    pub fn is_retryable(&self) -> bool {
+    pub const fn is_retryable(&self) -> bool {
         matches!(
             self,
             Self::SourceUnavailable(_)
@@ -87,7 +87,7 @@ impl BatcherError {
     }
 
     /// Classifies whether an error is fatal.
-    pub fn is_fatal(&self) -> bool {
+    pub const fn is_fatal(&self) -> bool {
         matches!(self, Self::SequencingWindowExpired | Self::L1DriftExceeded { .. })
     }
 }

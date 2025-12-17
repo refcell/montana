@@ -65,17 +65,17 @@ where
     }
 
     /// Returns a reference to the current service state.
-    pub fn state(&self) -> &BatcherState {
+    pub const fn state(&self) -> &BatcherState {
         &self.state
     }
 
     /// Returns a reference to the service metrics.
-    pub fn metrics(&self) -> &BatcherMetrics {
+    pub const fn metrics(&self) -> &BatcherMetrics {
         &self.metrics
     }
 
     /// Returns a reference to the service configuration.
-    pub fn config(&self) -> &BatcherConfig {
+    pub const fn config(&self) -> &BatcherConfig {
         &self.config
     }
 

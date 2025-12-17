@@ -105,79 +105,82 @@ impl Default for TxManagerConfigBuilder {
 
 impl TxManagerConfigBuilder {
     /// Sets the number of confirmations required.
-    pub fn num_confirmations(mut self, num_confirmations: u64) -> Self {
+    pub const fn num_confirmations(mut self, num_confirmations: u64) -> Self {
         self.num_confirmations = num_confirmations;
         self
     }
 
     /// Sets the receipt polling interval.
-    pub fn receipt_query_interval(mut self, receipt_query_interval: Duration) -> Self {
+    pub const fn receipt_query_interval(mut self, receipt_query_interval: Duration) -> Self {
         self.receipt_query_interval = receipt_query_interval;
         self
     }
 
     /// Sets the network timeout for RPC calls.
-    pub fn network_timeout(mut self, network_timeout: Duration) -> Self {
+    pub const fn network_timeout(mut self, network_timeout: Duration) -> Self {
         self.network_timeout = network_timeout;
         self
     }
 
     /// Sets the interval before bumping gas price.
-    pub fn resubmission_timeout(mut self, resubmission_timeout: Duration) -> Self {
+    pub const fn resubmission_timeout(mut self, resubmission_timeout: Duration) -> Self {
         self.resubmission_timeout = resubmission_timeout;
         self
     }
 
     /// Sets the maximum time to wait for mempool inclusion.
-    pub fn not_in_mempool_timeout(mut self, not_in_mempool_timeout: Duration) -> Self {
+    pub const fn not_in_mempool_timeout(mut self, not_in_mempool_timeout: Duration) -> Self {
         self.not_in_mempool_timeout = not_in_mempool_timeout;
         self
     }
 
     /// Sets the "nonce too low" error count before abort.
-    pub fn safe_abort_nonce_too_low_count(mut self, safe_abort_nonce_too_low_count: u32) -> Self {
+    pub const fn safe_abort_nonce_too_low_count(
+        mut self,
+        safe_abort_nonce_too_low_count: u32,
+    ) -> Self {
         self.safe_abort_nonce_too_low_count = safe_abort_nonce_too_low_count;
         self
     }
 
     /// Sets the multiplier for fee cap limit.
-    pub fn fee_limit_multiplier(mut self, fee_limit_multiplier: u64) -> Self {
+    pub const fn fee_limit_multiplier(mut self, fee_limit_multiplier: u64) -> Self {
         self.fee_limit_multiplier = fee_limit_multiplier;
         self
     }
 
     /// Sets the minimum base fee in gwei.
-    pub fn min_base_fee_gwei(mut self, min_base_fee_gwei: f64) -> Self {
+    pub const fn min_base_fee_gwei(mut self, min_base_fee_gwei: f64) -> Self {
         self.min_base_fee_gwei = min_base_fee_gwei;
         self
     }
 
     /// Sets the minimum tip cap in gwei.
-    pub fn min_tip_cap_gwei(mut self, min_tip_cap_gwei: f64) -> Self {
+    pub const fn min_tip_cap_gwei(mut self, min_tip_cap_gwei: f64) -> Self {
         self.min_tip_cap_gwei = min_tip_cap_gwei;
         self
     }
 
     /// Sets the maximum blob fee per gas.
-    pub fn max_blob_fee_per_gas(mut self, max_blob_fee_per_gas: Option<U256>) -> Self {
+    pub const fn max_blob_fee_per_gas(mut self, max_blob_fee_per_gas: Option<U256>) -> Self {
         self.max_blob_fee_per_gas = max_blob_fee_per_gas;
         self
     }
 
     /// Sets the minimum percentage bump for regular transactions.
-    pub fn price_bump_percent(mut self, price_bump_percent: u64) -> Self {
+    pub const fn price_bump_percent(mut self, price_bump_percent: u64) -> Self {
         self.price_bump_percent = price_bump_percent;
         self
     }
 
     /// Sets the minimum percentage bump for blob transactions.
-    pub fn blob_price_bump_percent(mut self, blob_price_bump_percent: u64) -> Self {
+    pub const fn blob_price_bump_percent(mut self, blob_price_bump_percent: u64) -> Self {
         self.blob_price_bump_percent = blob_price_bump_percent;
         self
     }
 
     /// Builds the [`TxManagerConfig`].
-    pub fn build(self) -> TxManagerConfig {
+    pub const fn build(self) -> TxManagerConfig {
         TxManagerConfig {
             num_confirmations: self.num_confirmations,
             receipt_query_interval: self.receipt_query_interval,

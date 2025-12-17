@@ -28,7 +28,7 @@ where
     /// # Returns
     ///
     /// A new [`TxMonitor`] instance.
-    pub fn new(provider: Arc<P>, config: TxManagerConfig) -> Self {
+    pub const fn new(provider: Arc<P>, config: TxManagerConfig) -> Self {
         Self { provider, config }
     }
 

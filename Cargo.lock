@@ -3294,9 +3294,15 @@ dependencies = [
 name = "montana"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "clap",
  "eyre",
+ "montana-batcher",
+ "montana-brotli",
+ "montana-cli",
+ "montana-pipeline",
  "runner",
+ "sequencer",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.22",
@@ -5034,6 +5040,21 @@ name = "send_wrapper"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
+
+[[package]]
+name = "sequencer"
+version = "0.0.1"
+dependencies = [
+ "alloy-rlp",
+ "async-trait",
+ "blocksource",
+ "channels",
+ "op-alloy",
+ "rstest",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "serde"

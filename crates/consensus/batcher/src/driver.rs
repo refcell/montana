@@ -107,12 +107,12 @@ impl BatchDriver {
     }
 
     /// Returns the current accumulated size in bytes.
-    pub fn current_size(&self) -> usize {
+    pub const fn current_size(&self) -> usize {
         self.current_size
     }
 
     /// Checks if the batch size threshold has been reached.
-    fn size_ready(&self) -> bool {
+    const fn size_ready(&self) -> bool {
         self.current_size >= self.config.min_batch_size
     }
 

@@ -66,6 +66,7 @@ montana-cli = { version = "0.0.1", path = "crates/utilities/cli" }
 chainspec = { path = "crates/common/chainspec" }
 channels = { path = "crates/common/channel" }
 primitives = { path = "crates/common/primitives" }
+sequencer = { path = "crates/common/sequencer" }
 
 # execution crates
 blocksource = { path = "crates/execution/blocksource" }

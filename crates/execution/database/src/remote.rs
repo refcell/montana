@@ -303,6 +303,10 @@ impl<P: Provider<Optimism> + Clone> DatabaseCommit for RPCDatabase<P> {
 
 impl<P: Provider<Optimism> + Clone> Database for RPCDatabase<P> {
     fn commit_block(&mut self) {
+        // Save current block's cache to disk
+        self.save_file_cache();
+
+        // Increment block number and load cache for new block
         let new_block = self.state_block.fetch_add(1, Ordering::AcqRel) + 1;
         let file_cache = Self::load_cache_for_block(new_block);
         *self.file_cache.write().unwrap() = file_cache;

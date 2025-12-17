@@ -109,9 +109,8 @@ The consensus layer handles data availability via a duplex pipeline:
 **Binaries**
 
 - [`montana`](./bin/montana): The batch submitter execution extension.
-- [`analyze`](./bin/analyze): Compression analyzer for comparing algorithm performance.
-- [`shadow`](./bin/shadow): Real-time batch submission and derivation monitoring TUI.
-- [`fetcher`](./bin/fetcher): Base L2 block fetcher.
+
+See the [`examples/`](./examples) directory for additional example binaries and tools.
 
 **Consensus**
 

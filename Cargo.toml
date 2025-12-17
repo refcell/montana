@@ -8,8 +8,8 @@ repository = "https://github.com/base/montana"
 
 [workspace]
 resolver = "2"
-members = ["bin/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/utilities/*"]
-default-members = ["bin/montana", "bin/analyze"]
+members = ["bin/*", "examples/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/utilities/*"]
+default-members = ["bin/montana"]
 
 [workspace.lints.rust]
 missing-debug-implementations = "warn"

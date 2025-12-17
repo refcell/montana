@@ -63,8 +63,7 @@ mod tests {
         #[case] tx_count: usize,
         #[case] _description: &str,
     ) {
-        let transactions: Vec<Bytes> =
-            (0..tx_count).map(|i| Bytes::from(vec![i as u8])).collect();
+        let transactions: Vec<Bytes> = (0..tx_count).map(|i| Bytes::from(vec![i as u8])).collect();
         let block = L2BlockData { block_number, timestamp, transactions };
         assert_eq!(block.block_number, block_number);
         assert_eq!(block.timestamp, timestamp);

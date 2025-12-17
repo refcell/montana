@@ -26,6 +26,14 @@ Montana implements a **three-stage, trait-abstracted duplex pipeline**:
 └───────────────┘      └───────────────┘      └───────────────┘
 ```
 
+## Detailed Pipeline Flow
+
+The batch submission direction collects L2 blocks from a `BatchSource`, which polls an execution client for pending transactions and block metadata. Each block carries a timestamp and a vector of `RawTransaction` values containing opaque RLP-encoded bytes. The source also provides the current L1 origin block number and truncated hashes for chain validation. These blocks accumulate until the pipeline determines a batch should be formed, at which point it constructs a 67-byte `BatchHeader` containing the wire format version, monotonically increasing batch sequence number, L1 epoch reference, 20-byte hash prefixes for both L1 origin and parent L2 block, the first block timestamp, and a block count. The `BatchCodec` trait serializes the header followed by block data using little-endian encoding, with each block containing a 2-byte timestamp delta, 2-byte transaction count, and transactions prefixed by 3-byte length fields.
+
+The serialized batch passes through a `Compressor` trait implementation. Montana defaults to Brotli at level 11 with a 4MB sliding window, which achieves roughly 88% size reduction on typical L2 transaction data. The compressor must be deterministic since the same input must always produce identical output for consensus verification during derivation. The compressed payload is wrapped with a version byte and handed to a `BatchSink`, which submits the data to L1 via EIP-4844 blob transactions. The sink abstracts submission details including gas price limits, retry logic with exponential backoff, and confirmation waiting. A `FallbackSink` combinator enables automatic degradation to calldata submission when blob gas becomes prohibitively expensive.
+
+The derivation direction inverts this flow. An `L1BatchSource` fetches compressed batches from L1 blob or calldata, the same compressor decompresses the payload, and the codec decodes blocks which are fed to an `L2BlockSink` for execution. The pipeline validates batch sequence numbers to detect gaps and verifies header version compatibility.
+
 ## Core Traits
 
 | Trait | Purpose | Key Methods |

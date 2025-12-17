@@ -144,6 +144,44 @@ pub enum TuiEvent {
     /// re-derived and executed from L1 data, providing full consensus guarantees.
     FinalizedUpdated(u64),
 
+    /// Block execution progress update.
+    ///
+    /// This event is triggered when a block is executed by the sequencer. It allows
+    /// the TUI to track execution progress separately from block fetching/building.
+    BlockExecuted {
+        /// Block number that was executed
+        block_number: u64,
+        /// Execution time in milliseconds
+        execution_time_ms: u64,
+    },
+
+    /// Backlog update (blocks fetched vs executed).
+    ///
+    /// This event tracks the number of blocks fetched from RPC that are waiting
+    /// to be executed. Helps visualize the pipeline depth between fetching and execution.
+    BacklogUpdated {
+        /// Total number of blocks fetched since start
+        blocks_fetched: u64,
+        /// The last block number that was fetched
+        last_fetched_block: u64,
+    },
+
+    /// Node mode information.
+    ///
+    /// This event provides information about the node's operational configuration,
+    /// including the node role (Sequencer/Validator/Dual), producer mode (Live/Historical),
+    /// whether sync was skipped, and the block range for historical mode.
+    ModeInfo {
+        /// Node role (Sequencer, Validator, or Dual)
+        node_role: String,
+        /// Producer mode (Live or Historical)
+        producer_mode: String,
+        /// Whether sync stage was skipped
+        skip_sync: bool,
+        /// Optional block range for historical mode (start, end)
+        historical_range: Option<(u64, u64)>,
+    },
+
     /// Pause/Resume toggle.
     ///
     /// This event pauses or resumes the TUI display updates. Useful for inspecting

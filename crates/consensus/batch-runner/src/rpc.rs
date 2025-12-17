@@ -123,7 +123,7 @@ impl BlockSource for RpcBlockSource {
             .filter_map(|tx| hex_to_bytes(&tx.input).ok().map(Bytes::from))
             .collect();
 
-        Ok(L2BlockData { timestamp, transactions })
+        Ok(L2BlockData { block_number, timestamp, transactions })
     }
 
     async fn get_head(&self) -> Result<u64, BlockSourceError> {

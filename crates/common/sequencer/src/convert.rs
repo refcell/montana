@@ -32,7 +32,11 @@ pub fn op_block_to_l2_data(block: &OpBlock) -> L2BlockData {
         })
         .collect();
 
-    L2BlockData { timestamp: block.header.timestamp, transactions }
+    L2BlockData {
+        block_number: block.header.number,
+        timestamp: block.header.timestamp,
+        transactions,
+    }
 }
 
 /// Convert a single transaction envelope to raw bytes.

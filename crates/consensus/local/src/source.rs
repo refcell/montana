@@ -18,6 +18,9 @@ pub struct JsonTransaction {
 /// JSON representation of an L2 block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonBlock {
+    /// Block number.
+    #[serde(default)]
+    pub block_number: u64,
     /// Block timestamp.
     pub timestamp: u64,
     /// Block transactions.
@@ -95,7 +98,11 @@ impl BatchSource for LocalBatchSource {
                     .map(|tx| Self::hex_to_bytes(&tx.data).map(Bytes::from))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                Ok(L2BlockData { timestamp: block.timestamp, transactions })
+                Ok(L2BlockData {
+                    block_number: block.block_number,
+                    timestamp: block.timestamp,
+                    transactions,
+                })
             })
             .collect()
     }
@@ -110,12 +117,14 @@ mod tests {
     const SAMPLE_JSON: &str = r#"{
         "blocks": [
             {
+                "block_number": 1,
                 "timestamp": 1000,
                 "transactions": [
                     {"data": "0xf86c0a8502540be400825208"}
                 ]
             },
             {
+                "block_number": 2,
                 "timestamp": 1012,
                 "transactions": []
             }
@@ -134,8 +143,10 @@ mod tests {
 
         let blocks = source.pending_blocks().await.unwrap();
         assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].block_number, 1);
         assert_eq!(blocks[0].timestamp, 1000);
         assert_eq!(blocks[0].transactions.len(), 1);
+        assert_eq!(blocks[1].block_number, 2);
         assert_eq!(blocks[1].timestamp, 1012);
         assert!(blocks[1].transactions.is_empty());
 

@@ -277,6 +277,21 @@ fn process_event(app: &mut App, event: TuiEvent) {
         TuiEvent::FinalizedUpdated(head) => {
             app.set_finalized_head(head);
         }
+        TuiEvent::ModeInfo { node_role, producer_mode, skip_sync, historical_range } => {
+            app.set_mode_info(node_role, producer_mode, skip_sync, historical_range);
+        }
+        TuiEvent::BlockExecuted { block_number, execution_time_ms } => {
+            app.record_block_executed(block_number, execution_time_ms);
+            let backlog = app.backlog_size();
+            let rate = app.execution_rate();
+            app.log_execution(LogEntry::info(format!(
+                "Block #{}: {}ms, {:.1} blks/s, {} in backlog",
+                block_number, execution_time_ms, rate, backlog
+            )));
+        }
+        TuiEvent::BacklogUpdated { blocks_fetched, last_fetched_block } => {
+            app.update_backlog(blocks_fetched, last_fetched_block);
+        }
         TuiEvent::TogglePause => {
             app.toggle_pause();
         }
@@ -569,7 +584,8 @@ fn draw_body(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
     draw_sync_updates(frame, app, body_chunks[0]);
     draw_block_builder(frame, app, body_chunks[1]);
-    draw_batch_submissions(frame, app, body_chunks[2]);
+    // Third column is split: Execution on top, Batch Submissions below
+    draw_execution_and_batches(frame, app, body_chunks[2]);
     draw_derived_blocks(frame, app, body_chunks[3]);
 }
 
@@ -612,6 +628,126 @@ fn draw_block_builder(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(widget, area);
 }
 
+/// Draw execution and batch submissions in a vertically split column.
+/// Execution section is on top, batch submissions below.
+fn draw_execution_and_batches(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Split vertically: execution (top half) and batch submissions (bottom half)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    draw_execution(frame, app, chunks[0]);
+    draw_batch_submissions(frame, app, chunks[1]);
+}
+
+/// Draw execution section with metrics and logs.
+fn draw_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let backlog = app.backlog_size();
+    let rate = app.execution_rate();
+    let avg_time = app.avg_execution_time_ms();
+
+    // Determine execution status
+    let (status_text, status_color) = if app.blocks_executed == 0 && app.blocks_fetched == 0 {
+        ("WAITING FOR BLOCKS", Color::DarkGray)
+    } else if app.blocks_executed == 0 && app.blocks_fetched > 0 {
+        ("STARTING...", Color::Yellow)
+    } else if let Some(elapsed) = app.time_since_last_execution() {
+        if elapsed.as_secs() > 30 {
+            ("STALLED", Color::Red)
+        } else if elapsed.as_secs() > 5 {
+            ("PROCESSING (slow)", Color::Yellow)
+        } else {
+            ("RUNNING", Color::Green)
+        }
+    } else {
+        ("IDLE", Color::DarkGray)
+    };
+
+    // Format elapsed time since last execution
+    let elapsed_str = app.time_since_last_execution().map_or_else(
+        || "--".to_string(),
+        |d| {
+            if d.as_secs() < 60 {
+                format!("{}s ago", d.as_secs())
+            } else {
+                format!("{}m {}s ago", d.as_secs() / 60, d.as_secs() % 60)
+            }
+        },
+    );
+
+    // Build header with metrics and status
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("Status:  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(status_text, Style::default().fg(status_color).bold()),
+            Span::raw("  "),
+            Span::styled("Last: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(elapsed_str, Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("Block:   ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("#{}", app.last_executed_block),
+                Style::default().fg(Color::White).bold(),
+            ),
+            Span::raw("  "),
+            Span::styled("Fetched: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("#{}", app.last_fetched_block), Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::styled("Rate:    ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{:.1} blks/s", rate), Style::default().fg(Color::Cyan)),
+            Span::raw("  "),
+            Span::styled("Backlog: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{}", backlog),
+                if backlog > 100 {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::Green)
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Avg:     ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                if avg_time > 0.0 { format!("{:.1}ms/block", avg_time) } else { "--".to_string() },
+                Style::default().fg(Color::White),
+            ),
+            Span::raw("  "),
+            Span::styled("Total:   ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{}/{}", app.blocks_executed, app.blocks_fetched),
+                Style::default().fg(Color::Magenta),
+            ),
+        ]),
+        Line::from(""),
+    ];
+
+    // Add recent execution logs
+    let log_lines = render_logs(&app.execution_logs);
+    lines.extend(log_lines);
+
+    let title_color = match status_color {
+        Color::Red => Color::Red,
+        Color::Yellow => Color::Yellow,
+        _ if backlog > 100 => Color::Yellow,
+        _ => Color::LightGreen,
+    };
+
+    let widget = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Execution ")
+                .title_style(Style::default().fg(title_color).add_modifier(Modifier::BOLD)),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(widget, area);
+}
+
 /// Draw batch submission logs.
 fn draw_batch_submissions(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let logs = render_logs(&app.batch_logs);
@@ -646,6 +782,30 @@ fn draw_derived_blocks(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
 /// Draw the footer with controls and status.
 fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Build producer mode display string
+    let producer_display = if let Some((start, end)) = app.historical_range {
+        format!("{} ({}-{})", app.producer_mode, start, end)
+    } else {
+        app.producer_mode.clone()
+    };
+
+    // Build sync status display
+    let sync_display = if app.skip_sync {
+        "SKIPPED"
+    } else if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
+        "IN SYNC ✓"
+    } else {
+        "SYNCING"
+    };
+
+    let sync_color = if app.skip_sync {
+        Color::Magenta
+    } else if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
+        Color::Green
+    } else {
+        Color::Yellow
+    };
+
     let footer_line = Line::from(vec![
         Span::styled("[q]", Style::default().fg(Color::Yellow)),
         Span::raw(" Quit  "),
@@ -655,7 +815,10 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Span::raw(" Reset  "),
         Span::raw("  |  "),
         Span::styled("Mode: ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Dual", Style::default().fg(Color::Cyan)),
+        Span::styled(&app.node_role, Style::default().fg(Color::Cyan)),
+        Span::raw("  |  "),
+        Span::styled("Producer: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(producer_display, Style::default().fg(Color::Blue)),
         Span::raw("  |  "),
         Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
         Span::styled(
@@ -663,18 +826,8 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             Style::default().fg(if app.is_paused { Color::Yellow } else { Color::Green }),
         ),
         Span::raw("  |  "),
-        Span::styled(
-            if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
-                "IN SYNC ✓"
-            } else {
-                "SYNCING"
-            },
-            Style::default().fg(if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
-                Color::Green
-            } else {
-                Color::Yellow
-            }),
-        ),
+        Span::styled("Sync: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(sync_display, Style::default().fg(sync_color)),
     ]);
 
     let widget = Paragraph::new(footer_line).block(

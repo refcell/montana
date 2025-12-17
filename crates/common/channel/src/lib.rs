@@ -8,7 +8,7 @@ pub use errors::ExecutePayloadError;
 
 mod execute;
 pub use execute::{ChannelExecutor, ExecutePayload, NoopExecutor};
-pub use primitives::{Bytes, L2BlockData};
+pub use primitives::Bytes;
 
 mod source;
-pub use source::{BatchSource, SourceError};
+pub use source::{BatchSource, L2BlockData, SourceError};

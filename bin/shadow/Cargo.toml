@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 # internal crates
-montana-anvil.workspace = true
+montana-batch-context.workspace = true
 montana-batch-runner.workspace = true
 montana-brotli.workspace = true
 montana-derivation-runner.workspace = true
@@ -33,5 +33,3 @@ ratatui.workspace = true
 # cli
 clap = { workspace = true, features = ["derive"] }
 
-# misc
-thiserror.workspace = true

@@ -39,13 +39,9 @@ use ratatui::{
 use tokio::sync::Mutex;
 
 mod app;
-mod batch;
-mod mode;
 
 use app::{App, LogEntry, LogLevel};
-use batch::BatchContext;
-use mode::BatchSubmissionMode;
-use montana_anvil::Address;
+use montana_batch_context::{Address, BatchContext, BatchSink, BatchSubmissionMode};
 use montana_batch_runner::BlockSource;
 
 /// Default Base mainnet RPC URL.
@@ -483,13 +479,13 @@ impl L1BatchSource for BatchSourceAdapter {
     }
 }
 
-/// Wrapper that adapts batch::BatchSink to montana_pipeline::BatchSink.
+/// Wrapper that adapts BatchSink to montana_pipeline::BatchSink.
 struct BatchSinkWrapper {
-    inner: Arc<Box<dyn batch::BatchSink>>,
+    inner: Arc<Box<dyn BatchSink>>,
 }
 
 impl BatchSinkWrapper {
-    fn new(inner: Arc<Box<dyn batch::BatchSink>>) -> Self {
+    fn new(inner: Arc<Box<dyn BatchSink>>) -> Self {
         Self { inner }
     }
 }

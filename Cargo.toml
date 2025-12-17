@@ -49,6 +49,7 @@ codegen-units = 1
 [workspace.dependencies]
 # consensus crates
 montana-anvil = { version = "0.0.1", path = "crates/consensus/anvil" }
+montana-batch-context = { version = "0.0.1", path = "crates/consensus/batch-context" }
 montana-batch-runner = { version = "0.0.1", path = "crates/consensus/batch-runner" }
 montana-batcher = { version = "0.0.1", path = "crates/consensus/batcher" }
 montana-brotli = { version = "0.0.1", path = "crates/consensus/brotli" }

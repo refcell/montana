@@ -3310,7 +3310,7 @@ dependencies = [
  "clap",
  "database",
  "eyre",
- "montana-anvil",
+ "montana-batch-context",
  "montana-batcher",
  "montana-brotli",
  "montana-cli",
@@ -3331,6 +3331,18 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "async-trait",
+ "montana-pipeline",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "montana-batch-context"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "montana-anvil",
+ "montana-batcher",
  "montana-pipeline",
  "thiserror",
  "tokio",
@@ -5230,7 +5242,7 @@ dependencies = [
  "async-trait",
  "clap",
  "crossterm",
- "montana-anvil",
+ "montana-batch-context",
  "montana-batch-runner",
  "montana-brotli",
  "montana-derivation-runner",
@@ -5238,7 +5250,6 @@ dependencies = [
  "montana-zlib",
  "montana-zstd",
  "ratatui",
- "thiserror",
  "tokio",
 ]
 

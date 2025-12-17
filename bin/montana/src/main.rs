@@ -10,13 +10,12 @@
 //! - **Validator**: Derive and validate blocks from L1
 //! - **Dual** (default): Run both sequencer and validator concurrently
 
-mod batch;
 mod cli;
 
 use std::{sync::Arc, time::Duration};
 
 use alloy::providers::{Provider, ProviderBuilder};
-use batch::{BatchContext, BatchSubmissionMode, L1BatchSourceAdapter};
+use montana_batch_context::{BatchContext, BatchSubmissionMode, L1BatchSourceAdapter};
 use blocksource::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer};
 use clap::Parser;
 use cli::{Args, ProducerMode};

@@ -5,7 +5,7 @@
 
 use std::{collections::HashMap, time::Instant};
 
-use crate::mode::BatchSubmissionMode;
+use montana_batch_context::BatchSubmissionMode;
 
 /// Log level for display.
 #[derive(Clone, Debug, Default)]

@@ -43,7 +43,7 @@ impl DerivationMetrics {
     }
 
     /// Get the number of latency samples.
-    pub fn latency_samples(&self) -> usize {
+    pub const fn latency_samples(&self) -> usize {
         self.latencies_ms.len()
     }
 }

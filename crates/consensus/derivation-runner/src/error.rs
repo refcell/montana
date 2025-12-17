@@ -29,12 +29,12 @@ pub enum DerivationError {
 
 impl DerivationError {
     /// Classifies whether an error is retryable.
-    pub fn is_retryable(&self) -> bool {
+    pub const fn is_retryable(&self) -> bool {
         matches!(self, Self::SourceError(_) | Self::EmptyBatch)
     }
 
     /// Classifies whether an error is fatal.
-    pub fn is_fatal(&self) -> bool {
+    pub const fn is_fatal(&self) -> bool {
         matches!(self, Self::DecompressionFailed(_) | Self::ExecutionFailed(_))
     }
 }

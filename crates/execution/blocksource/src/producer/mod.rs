@@ -3,10 +3,12 @@
 //! This module provides a trait-based abstraction for block producers,
 //! with implementations for both live RPC polling and historical range fetching.
 
+mod channel;
 mod historical;
 mod live;
 
 use async_trait::async_trait;
+pub use channel::ChannelBlockProducer;
 pub use historical::HistoricalRangeProducer;
 pub use live::LiveRpcProducer;
 use tokio::sync::mpsc::Sender;

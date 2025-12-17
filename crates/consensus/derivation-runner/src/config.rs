@@ -35,13 +35,13 @@ impl Default for DerivationConfigBuilder {
 
 impl DerivationConfigBuilder {
     /// Sets the poll interval in milliseconds.
-    pub fn poll_interval_ms(mut self, poll_interval_ms: u64) -> Self {
+    pub const fn poll_interval_ms(mut self, poll_interval_ms: u64) -> Self {
         self.poll_interval_ms = poll_interval_ms;
         self
     }
 
     /// Builds the [`DerivationConfig`].
-    pub fn build(self) -> DerivationConfig {
+    pub const fn build(self) -> DerivationConfig {
         DerivationConfig { poll_interval_ms: self.poll_interval_ms }
     }
 }

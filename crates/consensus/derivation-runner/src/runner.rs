@@ -57,12 +57,12 @@ where
     }
 
     /// Pause the runner.
-    pub fn pause(&mut self) {
+    pub const fn pause(&mut self) {
         self.paused = true;
     }
 
     /// Resume the runner.
-    pub fn resume(&mut self) {
+    pub const fn resume(&mut self) {
         self.paused = false;
     }
 
@@ -72,7 +72,7 @@ where
     }
 
     /// Toggle pause state.
-    pub fn toggle_pause(&mut self) {
+    pub const fn toggle_pause(&mut self) {
         self.paused = !self.paused;
     }
 
@@ -89,7 +89,7 @@ where
     }
 
     /// Get a mutable reference to the accumulated metrics.
-    pub fn metrics_mut(&mut self) -> &mut DerivationMetrics {
+    pub const fn metrics_mut(&mut self) -> &mut DerivationMetrics {
         &mut self.metrics
     }
 

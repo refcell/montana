@@ -26,8 +26,10 @@ alloy.workspace = true
 op-alloy.workspace = true
 
 # consensus crates
+montana-anvil.workspace = true
 montana-batcher.workspace = true
 montana-brotli.workspace = true
+montana-derivation-runner.workspace = true
 montana-pipeline.workspace = true
 
 # utilities
@@ -40,5 +42,6 @@ tokio.workspace = true
 # misc
 clap.workspace = true
 eyre.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

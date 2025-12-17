@@ -9,6 +9,7 @@ alias u := check-udeps
 alias wt := watch-test
 alias wc := watch-check
 alias s := shadow
+alias m := montana
 
 # Default to display help menu
 default:
@@ -123,6 +124,10 @@ run-montana-executor:
 run-montana-inmemory:
     cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --batch-mode in-memory historical --start 39554271 --end 39554273
 
-# Run the montana node in sequencer mode (default) with Anvil batch submission against Base mainnet
+# Run the montana node in dual mode (default: sequencer + validator) with Anvil batch submission against Base mainnet
 run-montana:
     cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 historical --start 39554271 --end 39554273
+
+# Alias for running montana
+montana *ARGS:
+    cargo run --release -p montana -- {{ARGS}}

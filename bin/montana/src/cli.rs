@@ -12,8 +12,8 @@ pub(crate) struct Args {
     #[arg(short, long, env = "BASE_RPC_URL")]
     pub rpc_url: String,
 
-    /// Operating mode: executor, sequencer (default), or validator
-    #[arg(long, default_value = "sequencer")]
+    /// Operating mode: executor, sequencer, validator, or dual (default)
+    #[arg(long, default_value = "dual")]
     pub mode: MontanaMode,
 
     /// Batch submission mode (only used in sequencer mode)

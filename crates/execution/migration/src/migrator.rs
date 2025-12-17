@@ -27,10 +27,10 @@ use triedb::{
 use crate::reth::{RethAccount, decode_storage_entry};
 
 /// Default batch size for commits.
-pub const DEFAULT_BATCH_SIZE: u64 = 100_000;
+pub const DEFAULT_BATCH_SIZE: u64 = 1_000_000;
 
 /// Default interval for progress logging (number of entries between logs).
-pub const DEFAULT_LOG_INTERVAL: u64 = 100_000;
+pub const DEFAULT_LOG_INTERVAL: u64 = 1_000_000;
 
 /// Interval between checkpoint saves (in seconds).
 const CHECKPOINT_INTERVAL_SECS: u64 = 30;

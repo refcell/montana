@@ -375,11 +375,7 @@ async fn run_block_feeder<P: Provider<Optimism> + Clone>(
 ) -> Result<()> {
     use alloy::eips::eip2718::Encodable2718;
 
-    tracing::info!(
-        start,
-        has_tui_handle = tui_handle.is_some(),
-        "Block feeder started"
-    );
+    tracing::info!(start, has_tui_handle = tui_handle.is_some(), "Block feeder started");
 
     let mut current = start;
     let mut blocks_fetched: u64 = 0;

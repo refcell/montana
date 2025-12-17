@@ -32,6 +32,16 @@ pub use mode::Mode;
 mod montana_mode;
 pub use montana_mode::MontanaMode;
 
+/// Montana CLI argument parsing.
+///
+/// The [`MontanaCli`] struct provides the main interface for parsing command-line arguments
+/// for the Montana node binary. It includes options for RPC URLs, operating mode, headless
+/// mode, sync behavior, checkpointing, logging, and batch submission.
+mod montana_cli;
+pub use montana_cli::{MontanaCli, ProducerMode};
+// Re-export BatchSubmissionMode from montana_batcher
+pub use montana_batcher::BatchSubmissionMode;
+
 /// Tracing initialization utilities.
 ///
 /// The [`init_tracing`] function configures the tracing subscriber with a verbosity-based

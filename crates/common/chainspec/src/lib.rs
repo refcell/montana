@@ -8,10 +8,10 @@ mod base;
 pub use base::BASE_MAINNET;
 use op_revm::OpSpecId;
 
-/// OP Stack hardforks in chronological order
+/// Base stack hardforks in chronological order
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Hardfork {
-    /// Bedrock - initial OP Stack launch
+    /// Bedrock - initial Base stack launch
     Bedrock,
     /// Canyon hardfork
     Canyon,
@@ -93,7 +93,7 @@ impl Hardforks {
     }
 }
 
-/// Chain specification for an OP Stack chain
+/// Chain specification for a Base stack chain
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Chain {
     /// Chain ID

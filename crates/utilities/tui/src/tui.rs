@@ -15,7 +15,7 @@ use ratatui::{
 use tokio::sync::mpsc;
 use montana_tui_common::{LogEntry, format_bytes, render_logs};
 
-use crate::{App, TuiEvent, TuiHandle};
+use crate::{App, SyncState, TuiEvent, TuiHandle};
 
 /// The main Montana TUI.
 ///
@@ -169,16 +169,51 @@ pub fn create_tui() -> (MontanaTui, TuiHandle) {
     (MontanaTui::new(rx), TuiHandle::new(tx))
 }
 
+/// Format a duration nicely for display.
+fn format_duration(d: std::time::Duration) -> String {
+    let total_secs = d.as_secs();
+    if total_secs < 60 {
+        format!("{}s", total_secs)
+    } else if total_secs < 3600 {
+        format!("{}m {}s", total_secs / 60, total_secs % 60)
+    } else {
+        format!("{}h {}m", total_secs / 3600, (total_secs % 3600) / 60)
+    }
+}
+
 /// Process a TUI event and update the app state.
 fn process_event(app: &mut App, event: TuiEvent) {
     match event {
-        TuiEvent::Transaction { hash, from, to, gas_limit } => {
-            let to_str =
-                to.map_or_else(|| "Contract Creation".to_string(), |addr| format!("{:?}", addr));
-            app.log_tx(LogEntry::info(format!(
-                "Tx 0x{:02x}{:02x}...: {} -> {} (gas: {})",
-                hash[0], hash[1], from, to_str, gas_limit
+        TuiEvent::SyncStarted { start_block, target_block } => {
+            app.start_sync(start_block, target_block);
+            app.log_sync(LogEntry::info(format!(
+                "Sync started: #{} -> #{} ({} blocks)",
+                start_block,
+                target_block,
+                target_block.saturating_sub(start_block)
             )));
+        }
+        TuiEvent::SyncProgress { current_block, target_block, blocks_per_second, eta } => {
+            app.update_sync_progress(current_block, target_block, blocks_per_second, eta);
+            let eta_str = eta.map_or_else(|| "calculating...".to_string(), format_duration);
+            let remaining = target_block.saturating_sub(current_block);
+            app.log_sync(LogEntry::info(format!(
+                "Block #{}: {:.1} blks/s, {} remaining, ETA {}",
+                current_block, blocks_per_second, remaining, eta_str
+            )));
+        }
+        TuiEvent::SyncCompleted { blocks_synced, duration_secs } => {
+            app.complete_sync(blocks_synced, duration_secs);
+            let speed =
+                if duration_secs > 0.0 { blocks_synced as f64 / duration_secs } else { 0.0 };
+            app.log_sync(LogEntry::info(format!(
+                "SYNC COMPLETE: {} blocks in {:.1}s ({:.1} blks/s)",
+                blocks_synced, duration_secs, speed
+            )));
+        }
+        TuiEvent::Transaction { .. } => {
+            // Transaction events are no longer displayed in the TUI
+            // The sync panel replaced the transaction pool panel
         }
         TuiEvent::BlockBuilt { number, tx_count, size_bytes, gas_used } => {
             app.set_unsafe_head(number);
@@ -271,16 +306,21 @@ fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
     draw_footer(frame, app, main_chunks[2]);
 }
 
-/// Draw the header with chain state and metrics.
+/// Draw the header with chain state, sync stats, and metrics.
 fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    // Split header into chain state (30%) and metrics (70%)
+    // Split header into chain state (30%), sync stats (35%), and metrics (35%)
     let header_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+        .constraints([
+            Constraint::Percentage(30),
+            Constraint::Percentage(35),
+            Constraint::Percentage(35),
+        ])
         .split(area);
 
     draw_chain_state(frame, app, header_chunks[0]);
-    draw_metrics(frame, app, header_chunks[1]);
+    draw_sync_stats(frame, app, header_chunks[1]);
+    draw_metrics(frame, app, header_chunks[2]);
 }
 
 /// Draw chain state panel (unsafe/safe/finalized heads).
@@ -311,6 +351,132 @@ fn draw_chain_state(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 .borders(Borders::ALL)
                 .title(" Chain State ")
                 .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(widget, area);
+}
+
+/// Draw sync stats panel with progress, speed, and completion status.
+fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Determine sync status and build content
+    let (status_line, details) = match app.sync_state {
+        SyncState::Idle => {
+            let status = Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+                Span::styled("IDLE", Style::default().fg(Color::DarkGray)),
+            ]);
+            let details = vec![
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Waiting for sync...",
+                    Style::default().fg(Color::DarkGray),
+                )]),
+            ];
+            (status, details)
+        }
+        SyncState::Syncing { current_block, target_block, blocks_per_second, eta, .. } => {
+            let progress = app.sync_progress_percent();
+            let remaining = target_block.saturating_sub(current_block);
+            let eta_str = eta.map_or_else(|| "calculating...".to_string(), format_duration);
+
+            let status = Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("SYNCING {:.1}%", progress),
+                    Style::default().fg(Color::Yellow).bold(),
+                ),
+            ]);
+
+            let details = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("Block:   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("#{}", current_block), Style::default().fg(Color::White)),
+                    Span::styled(
+                        format!(" / #{}", target_block),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("Speed:   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{:.1} blks/s", blocks_per_second),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("ETA:     ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(eta_str, Style::default().fg(Color::White)),
+                    Span::styled(
+                        format!(" ({} left)", remaining),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+            ];
+            (status, details)
+        }
+        SyncState::Completed { blocks_synced, duration_secs } => {
+            let speed =
+                if duration_secs > 0.0 { blocks_synced as f64 / duration_secs } else { 0.0 };
+
+            let status = Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+                Span::styled("SYNC COMPLETE ✓", Style::default().fg(Color::Green).bold()),
+            ]);
+
+            let details = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("Synced:  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{} blocks", blocks_synced),
+                        Style::default().fg(Color::Green),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("Time:    ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{:.1}s", duration_secs),
+                        Style::default().fg(Color::White),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("Avg:     ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("{:.1} blks/s", speed), Style::default().fg(Color::Cyan)),
+                ]),
+            ];
+            (status, details)
+        }
+    };
+
+    // Build the full text content
+    let mut text = vec![status_line];
+    text.extend(details);
+
+    // Add syncs completed counter
+    if app.syncs_completed > 0 {
+        text.push(Line::from(vec![
+            Span::styled("Syncs:   ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{} completed", app.syncs_completed),
+                Style::default().fg(Color::Magenta),
+            ),
+        ]));
+    }
+
+    let title_color = match app.sync_state {
+        SyncState::Completed { .. } => Color::Green,
+        SyncState::Syncing { .. } => Color::Yellow,
+        SyncState::Idle => Color::Magenta,
+    };
+
+    let widget = Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Sync Stats ")
+                .title_style(Style::default().fg(title_color).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -401,22 +567,29 @@ fn draw_body(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         ])
         .split(area);
 
-    draw_tx_pool(frame, app, body_chunks[0]);
+    draw_sync_updates(frame, app, body_chunks[0]);
     draw_block_builder(frame, app, body_chunks[1]);
     draw_batch_submissions(frame, app, body_chunks[2]);
     draw_derived_blocks(frame, app, body_chunks[3]);
 }
 
-/// Draw transaction pool logs.
-fn draw_tx_pool(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let logs = render_logs(&app.tx_pool_logs);
+/// Draw sync updates stream.
+fn draw_sync_updates(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let logs = render_logs(&app.sync_logs);
+
+    // Determine title color based on sync state
+    let title_color = match app.sync_state {
+        SyncState::Completed { .. } => Color::Green,
+        SyncState::Syncing { .. } => Color::Yellow,
+        SyncState::Idle => Color::Cyan,
+    };
 
     let widget = Paragraph::new(logs)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Tx Pool ")
-                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                .title(" Sync Updates ")
+                .title_style(Style::default().fg(title_color).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 

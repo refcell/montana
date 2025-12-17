@@ -14,6 +14,7 @@ workspace = true
 
 [dependencies]
 # internal crates
+montana-node = { workspace = true }
 montana-tui-common = { version = "0.0.1", path = "../tui-common" }
 
 # async

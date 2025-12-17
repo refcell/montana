@@ -54,7 +54,7 @@ Montana is an experimental, high-performance implementation of Base stack compon
 └─────────────────────────────────────┴───────────────────────────────────────┘
 ```
 
-**Execution** handles block processing using op-revm, providing state transitions for OP Stack chains. The execution layer fetches blocks, executes transactions, and manages state via an in-memory database with RPC fallback.
+**Execution** handles block processing using op-revm, providing state transitions for Base stack chains. The execution layer fetches blocks, executes transactions, and manages state via an in-memory database with RPC fallback.
 
 **Consensus** manages the data availability layer through a trait-abstracted compression pipeline. For sequencers, this means batch submission to L1 via EIP-4844 blobs or calldata. For validators, this means derivation—fetching batches from L1, decompressing, and feeding blocks to execution.
 
@@ -131,13 +131,13 @@ See the [`examples/`](./examples) directory for additional example binaries and 
 
 **Common**
 
-- [`chainspec`](./crates/common/chainspec): Chain specification for OP Stack chains.
+- [`chainspec`](./crates/common/chainspec): Chain specification for Base stack chains.
 - [`channel`](./crates/common/channel): Channel utilities.
 - [`primitives`](./crates/common/primitives): Primitive types.
 
 **Execution**
 
-- [`blocksource`](./crates/execution/blocksource): Block source implementations for fetching OP Stack blocks.
+- [`blocksource`](./crates/execution/blocksource): Block source implementations for fetching Base stack blocks.
 - [`database`](./crates/execution/database): Database implementations for EVM state.
 - [`runner`](./crates/execution/runner): Block execution runner.
 - [`vm`](./crates/execution/vm): Block executor using op-revm.

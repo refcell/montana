@@ -13,13 +13,8 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-# common crates
-sequencer.workspace = true
-
 # execution crates
 blocksource.workspace = true
-database.workspace = true
-runner.workspace = true
 
 # alloy
 alloy.workspace = true
@@ -28,9 +23,13 @@ op-alloy.workspace = true
 # consensus crates
 montana-batch-context.workspace = true
 montana-batcher.workspace = true
+montana-checkpoint = { workspace = true }
 montana-brotli.workspace = true
-montana-derivation-runner.workspace = true
 montana-pipeline.workspace = true
+
+# node crates
+montana-node.workspace = true
+montana-roles.workspace = true
 
 # utilities
 montana-cli.workspace = true

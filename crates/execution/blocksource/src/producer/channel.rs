@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use eyre::Result;
 use tokio::sync::{
     Mutex,
     mpsc::{Receiver, Sender},
@@ -35,7 +36,7 @@ impl std::fmt::Debug for ChannelBlockProducer {
 
 #[async_trait]
 impl BlockProducer for ChannelBlockProducer {
-    async fn produce(&self, tx: Sender<OpBlock>) -> eyre::Result<()> {
+    async fn produce(&self, tx: Sender<OpBlock>) -> Result<()> {
         let mut rx = self.rx.lock().await;
         while let Some(block) = rx.recv().await {
             if tx.send(block).await.is_err() {
@@ -44,6 +45,14 @@ impl BlockProducer for ChannelBlockProducer {
             }
         }
         Ok(())
+    }
+
+    async fn get_chain_tip(&self) -> Result<u64> {
+        Err(eyre::eyre!("Channel producer does not support get_chain_tip"))
+    }
+
+    async fn get_block(&self, _number: u64) -> Result<Option<OpBlock>> {
+        Err(eyre::eyre!("Channel producer does not support get_block"))
     }
 }
 

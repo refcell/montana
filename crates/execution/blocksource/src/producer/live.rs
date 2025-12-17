@@ -76,4 +76,16 @@ impl<P: Provider<Optimism> + Sync> BlockProducer for LiveRpcProducer<P> {
             tokio::time::sleep(self.poll_interval).await;
         }
     }
+
+    async fn get_chain_tip(&self) -> Result<u64> {
+        self.provider.get_block_number().await.map_err(Into::into)
+    }
+
+    async fn get_block(&self, number: u64) -> Result<Option<OpBlock>> {
+        self.provider
+            .get_block_by_number(BlockNumberOrTag::Number(number))
+            .full()
+            .await
+            .map_err(Into::into)
+    }
 }

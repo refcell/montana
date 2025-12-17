@@ -8,7 +8,7 @@ repository = "https://github.com/base/montana"
 
 [workspace]
 resolver = "2"
-members = ["bin/*", "examples/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/utilities/*"]
+members = ["bin/*", "examples/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/node/*", "crates/utilities/*"]
 default-members = ["bin/montana"]
 
 [workspace.lints.rust]
@@ -60,6 +60,11 @@ montana-txmgr = { version = "0.0.1", path = "crates/consensus/txmgr" }
 montana-zlib = { version = "0.0.1", path = "crates/consensus/zlib" }
 montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
 
+# node crates
+montana-checkpoint = { version = "0.0.1", path = "crates/node/checkpoint" }
+montana-node = { version = "0.0.1", path = "crates/node/node" }
+montana-roles = { version = "0.0.1", path = "crates/node/roles" }
+
 # utilities crates
 montana-cli = { version = "0.0.1", path = "crates/utilities/cli" }
 montana-tui = { version = "0.0.1", path = "crates/utilities/tui" }
@@ -94,7 +99,7 @@ alloy-trie = "0.9"
 alloy-op-hardforks = "0.4.5"
 alloy-chains = "0.2.1"
 
-# OP Stack types
+# Base stack types
 op-alloy = { version = "0.23.1", features = ["consensus", "network", "rpc-types"] }
 
 # REVM dependencies

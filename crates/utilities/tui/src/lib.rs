@@ -26,10 +26,10 @@ pub use handle::TuiHandle;
 /// Application state.
 ///
 /// The [`App`] struct maintains all state for the Montana TUI, including chain
-/// head progression, statistics, latency metrics, and log buffers for each
-/// component.
+/// head progression, sync state, statistics, latency metrics, and log buffers
+/// for each component. The [`SyncState`] enum tracks the current sync status.
 mod app;
-pub use app::App;
+pub use app::{App, SyncState};
 
 /// TUI implementation.
 ///
@@ -38,3 +38,10 @@ pub use app::App;
 /// events.
 mod tui;
 pub use tui::{MontanaTui, create_tui};
+
+/// TUI observer for node events.
+///
+/// The [`TuiObserver`] implements the [`NodeObserver`] trait and converts
+/// [`NodeEvent`]s to [`TuiEvent`]s, forwarding them to the TUI via a [`TuiHandle`].
+mod observer;
+pub use observer::TuiObserver;

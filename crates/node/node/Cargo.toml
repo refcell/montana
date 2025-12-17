@@ -1,6 +1,7 @@
 [package]
-name = "montana-derivation-runner"
-description = "Derivation pipeline runner for batch decompression and derivation"
+name = "montana-node"
+description = "Core node abstractions for Montana"
+
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,13 +13,12 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-montana-pipeline = { workspace = true }
 montana-checkpoint = { workspace = true }
-async-trait = { workspace = true }
+montana-roles = { workspace = true }
+blocksource = { workspace = true }
+eyre = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
-thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-rstest = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+async-trait = { workspace = true }

@@ -24,3 +24,4 @@ pub use metrics::DerivationMetrics;
 
 mod error;
 pub use error::DerivationError;
+pub use montana_checkpoint::{Checkpoint, CheckpointError};

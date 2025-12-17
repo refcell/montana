@@ -3,7 +3,7 @@
 //! This module contains the `BatchDriver` which coordinates when batches should be
 //! submitted based on size, time, and block count criteria.
 
-use std::{collections::VecDeque, time::Instant};
+use std::{collections::VecDeque, path::PathBuf, time::Instant};
 
 /// A batch ready for submission.
 #[derive(Clone, Debug)]
@@ -29,6 +29,10 @@ pub struct BatchDriver {
     last_submission: Instant,
     /// Next batch number.
     batch_number: u64,
+    /// The checkpoint state.
+    checkpoint: montana_checkpoint::Checkpoint,
+    /// Path to save checkpoints (None means no persistence).
+    checkpoint_path: Option<PathBuf>,
 }
 
 impl BatchDriver {
@@ -40,6 +44,8 @@ impl BatchDriver {
             current_size: 0,
             last_submission: Instant::now(),
             batch_number: 0,
+            checkpoint: montana_checkpoint::Checkpoint::default(),
+            checkpoint_path: None,
         }
     }
 
@@ -124,6 +130,86 @@ impl BatchDriver {
     /// Checks if the maximum blocks per batch threshold has been reached.
     fn blocks_ready(&self) -> bool {
         self.pending_blocks.len() >= self.config.max_blocks_per_batch as usize
+    }
+
+    /// Loads a checkpoint from the specified path and sets the checkpoint path.
+    ///
+    /// If a checkpoint exists at the path, it will be loaded and the batch driver will
+    /// resume from that state. If no checkpoint exists, a new one will be created.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the checkpoint file
+    ///
+    /// # Errors
+    ///
+    /// Returns [`montana_checkpoint::CheckpointError`] if there's an error loading the checkpoint.
+    pub fn with_checkpoint(
+        mut self,
+        path: PathBuf,
+    ) -> Result<Self, montana_checkpoint::CheckpointError> {
+        match montana_checkpoint::Checkpoint::load(&path)? {
+            Some(checkpoint) => {
+                tracing::info!(
+                    "Resuming from checkpoint at {:?}, last batch submitted: {}",
+                    path,
+                    checkpoint.last_batch_submitted
+                );
+                self.checkpoint = checkpoint;
+            }
+            None => {
+                tracing::info!("No checkpoint found at {:?}, starting fresh", path);
+            }
+        }
+        self.checkpoint_path = Some(path);
+        Ok(self)
+    }
+
+    /// Checks if a batch should be skipped based on the checkpoint state.
+    ///
+    /// Returns `true` if the batch has already been submitted according to the checkpoint.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch_number` - The batch number to check
+    pub const fn should_skip_batch(&self, batch_number: u64) -> bool {
+        self.checkpoint.should_skip_batch(batch_number)
+    }
+
+    /// Records that a batch has been successfully submitted.
+    ///
+    /// Updates the checkpoint state, touches the timestamp, and saves to disk if a
+    /// checkpoint path is configured.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch_number` - The batch number that was submitted
+    ///
+    /// # Errors
+    ///
+    /// Returns [`montana_checkpoint::CheckpointError`] if there's an error saving the checkpoint.
+    pub fn record_batch_submitted(
+        &mut self,
+        batch_number: u64,
+    ) -> Result<(), montana_checkpoint::CheckpointError> {
+        self.checkpoint.record_batch_submitted(batch_number);
+        self.checkpoint.touch();
+
+        if let Some(path) = &self.checkpoint_path {
+            self.checkpoint.save(path)?;
+            tracing::info!(
+                "Recorded batch {} as submitted, checkpoint saved to {:?}",
+                batch_number,
+                path
+            );
+        } else {
+            tracing::info!(
+                "Recorded batch {} as submitted (no checkpoint persistence)",
+                batch_number
+            );
+        }
+
+        Ok(())
     }
 }
 

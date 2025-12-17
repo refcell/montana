@@ -3312,20 +3312,19 @@ dependencies = [
  "blocksource",
  "clap",
  "crossterm",
- "database",
  "derive_more",
  "eyre",
  "montana-batch-context",
  "montana-batcher",
  "montana-brotli",
+ "montana-checkpoint",
  "montana-cli",
- "montana-derivation-runner",
+ "montana-node",
  "montana-pipeline",
+ "montana-roles",
  "montana-tui",
  "op-alloy",
  "ratatui",
- "runner",
- "sequencer",
  "thiserror",
  "tokio",
  "tracing",
@@ -3377,6 +3376,7 @@ dependencies = [
  "async-trait",
  "clap",
  "montana-anvil",
+ "montana-checkpoint",
  "montana-pipeline",
  "montana-txmgr",
  "rstest",
@@ -3395,11 +3395,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-checkpoint"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "montana-cli"
 version = "0.0.1"
 dependencies = [
  "clap",
  "derive_more",
+ "montana-batcher",
  "tracing",
  "tracing-subscriber 0.3.22",
 ]
@@ -3409,6 +3420,7 @@ name = "montana-derivation-runner"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "montana-checkpoint",
  "montana-pipeline",
  "rstest",
  "thiserror",
@@ -3434,6 +3446,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-node"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "blocksource",
+ "eyre",
+ "montana-checkpoint",
+ "montana-roles",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "montana-pipeline"
 version = "0.0.1"
 dependencies = [
@@ -3446,12 +3471,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-roles"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "eyre",
+ "hex",
+ "montana-batcher",
+ "montana-checkpoint",
+ "montana-pipeline",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "montana-tui"
 version = "0.0.1"
 dependencies = [
  "alloy-primitives",
  "crossterm",
  "derive_more",
+ "montana-node",
  "montana-tui-common",
  "ratatui",
  "tokio",

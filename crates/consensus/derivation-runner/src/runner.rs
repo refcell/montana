@@ -1,6 +1,9 @@
 //! Derivation runner implementation.
 
-use std::time::{Duration, Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use montana_pipeline::{CompressedBatch, Compressor, ExecutePayload, L1BatchSource};
 use tokio::time::sleep;
@@ -40,6 +43,10 @@ where
     last_finalized_block: u64,
     /// Whether the runner is paused.
     paused: bool,
+    /// The checkpoint state.
+    checkpoint: montana_checkpoint::Checkpoint,
+    /// Path to save checkpoints (None means no persistence).
+    checkpoint_path: Option<PathBuf>,
 }
 
 impl<S, C, E> DerivationRunner<S, C, E>
@@ -60,6 +67,8 @@ where
             batch_block_counts: std::collections::HashMap::new(),
             last_finalized_block: 0,
             paused: false,
+            checkpoint: montana_checkpoint::Checkpoint::default(),
+            checkpoint_path: None,
         }
     }
 
@@ -83,6 +92,8 @@ where
             batch_block_counts: std::collections::HashMap::new(),
             last_finalized_block: start_block,
             paused: false,
+            checkpoint: montana_checkpoint::Checkpoint::default(),
+            checkpoint_path: None,
         }
     }
 
@@ -104,6 +115,53 @@ where
     /// Toggle pause state.
     pub const fn toggle_pause(&mut self) {
         self.paused = !self.paused;
+    }
+
+    /// Configures the runner to use checkpointing at the specified path.
+    ///
+    /// Loads existing checkpoint state from the path and configures automatic
+    /// checkpoint saving after each batch derivation.
+    pub fn with_checkpoint(
+        mut self,
+        path: PathBuf,
+    ) -> Result<Self, montana_checkpoint::CheckpointError> {
+        let checkpoint = montana_checkpoint::Checkpoint::load(&path)?.unwrap_or_default();
+        tracing::info!(
+            "Resuming from checkpoint at {:?}, last_batch_derived={}",
+            path,
+            checkpoint.last_batch_derived
+        );
+        self.checkpoint = checkpoint;
+        self.checkpoint_path = Some(path);
+        Ok(self)
+    }
+
+    /// Checks if a batch should be skipped because it was already derived.
+    pub const fn should_skip_batch(&self, batch_number: u64) -> bool {
+        // Skip if the checkpoint shows we've already processed a batch >= this one
+        // A checkpoint with last_batch_derived = N means batch N was successfully derived
+        // So we should skip any batch with number <= N
+        // But the default value is 0, which means "no batches derived yet"
+        // So we need to handle the special case where last_batch_derived is 0
+        if self.checkpoint.last_batch_derived == 0 {
+            false
+        } else {
+            batch_number <= self.checkpoint.last_batch_derived
+        }
+    }
+
+    /// Records that a batch was derived and saves the checkpoint to disk if configured.
+    pub fn record_batch_derived(
+        &mut self,
+        batch_number: u64,
+    ) -> Result<(), montana_checkpoint::CheckpointError> {
+        self.checkpoint.record_batch_derived(batch_number);
+        self.checkpoint.touch();
+        if let Some(path) = &self.checkpoint_path {
+            self.checkpoint.save(path)?;
+            tracing::debug!("Checkpoint saved to {:?}, batch={}", path, batch_number);
+        }
+        Ok(())
     }
 
     /// Record a batch submission time for latency tracking.
@@ -176,6 +234,16 @@ where
         let _compressed_size = batch.data.len();
         let batch_number = batch.batch_number;
 
+        // Check if we should skip this batch
+        if self.should_skip_batch(batch_number) {
+            tracing::info!(
+                "Skipping batch #{} as it was already derived (checkpoint: {})",
+                batch_number,
+                self.checkpoint.last_batch_derived
+            );
+            return Ok(None);
+        }
+
         // Decompress the batch
         let decompressed = self.compressor.decompress(&batch.data).map_err(|e| {
             DerivationError::DecompressionFailed(format!(
@@ -193,6 +261,10 @@ where
                 batch_number, e
             ))
         })?;
+
+        // Record the batch derivation in checkpoint
+        self.record_batch_derived(batch_number)
+            .map_err(|e| DerivationError::ExecutionFailed(format!("Checkpoint error: {}", e)))?;
 
         // Get the block count for this batch (if recorded by sequencer)
         // Default to 1 if not recorded (e.g., validator-only mode)

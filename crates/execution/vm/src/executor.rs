@@ -44,7 +44,7 @@ pub struct BlockResult {
     pub tx_results: Vec<TxResult>,
 }
 
-/// Block executor that uses op-revm to execute OP Stack blocks
+/// Block executor that uses op-revm to execute Base stack blocks
 #[derive(Debug)]
 pub struct BlockExecutor<DB> {
     db: DB,

@@ -39,7 +39,7 @@ pub fn op_block_to_l2_data(block: &OpBlock) -> L2BlockData {
 ///
 /// # Arguments
 ///
-/// * `tx` - The OP Stack transaction envelope to encode
+/// * `tx` - The Base stack transaction envelope to encode
 ///
 /// # Returns
 ///

@@ -17,6 +17,7 @@ use eyre::Result;
 use montana_batch_context::BatchContext;
 use montana_batcher::{Address, BatchDriver, BatcherConfig};
 use montana_brotli::BrotliCompressor;
+use montana_checkpoint::Checkpoint;
 use montana_cli::{MontanaCli, MontanaMode, init_tracing_with_level};
 use montana_node::{Node, NodeBuilder, NodeConfig, NodeRole, SyncConfig, SyncStage};
 use montana_pipeline::{Bytes, L2BlockData, NoopExecutor};
@@ -113,11 +114,25 @@ async fn build_node(
         .connect(&cli.rpc_url)
         .await?;
 
-    // Determine start block
+    // Determine start block:
+    // 1. Use explicit --start if provided
+    // 2. Otherwise, try loading from checkpoint file
+    // 3. Fall back to chain tip if no checkpoint exists
     let start_block = if let Some(start) = cli.start {
         start
+    } else if let Some(checkpoint) = Checkpoint::load(&cli.checkpoint_path)
+        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
+    {
+        // Resume from checkpoint: use synced_to_block + 1 (next block to process)
+        let resume_block = checkpoint.synced_to_block.saturating_add(1);
+        tracing::info!(
+            checkpoint_block = checkpoint.synced_to_block,
+            resume_block,
+            "Resuming from checkpoint"
+        );
+        resume_block
     } else {
-        // If no start specified, get current block for following tip
+        // No checkpoint found, start from chain tip
         provider.get_block_number().await?
     };
 

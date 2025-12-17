@@ -86,3 +86,45 @@ impl<P: Provider<Optimism> + Sync> BlockProducer for RpcBlockProducer<P> {
             .map_err(Into::into)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::RpcBlockProducer;
+
+    #[derive(Debug)]
+    struct DummyProvider;
+
+    #[test]
+    fn test_new_creates_producer_with_correct_config() {
+        let poll_interval = Duration::from_millis(500);
+        let start_block = 12345;
+
+        let producer = RpcBlockProducer::new(DummyProvider, poll_interval, start_block);
+
+        // Verify the producer was created (we can't access private fields,
+        // but the Debug impl lets us verify construction succeeded)
+        let debug_str = format!("{:?}", producer);
+        assert!(debug_str.contains("RpcBlockProducer"));
+        assert!(debug_str.contains("500"));
+        assert!(debug_str.contains("12345"));
+    }
+
+    #[test]
+    fn test_new_with_zero_start_block() {
+        let producer = RpcBlockProducer::new(DummyProvider, Duration::from_secs(1), 0);
+
+        let debug_str = format!("{:?}", producer);
+        assert!(debug_str.contains("start_block: 0"));
+    }
+
+    #[test]
+    fn test_new_with_large_start_block() {
+        let large_block = u64::MAX;
+        let producer = RpcBlockProducer::new(DummyProvider, Duration::from_secs(1), large_block);
+
+        let debug_str = format!("{:?}", producer);
+        assert!(debug_str.contains(&large_block.to_string()));
+    }
+}

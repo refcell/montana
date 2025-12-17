@@ -70,11 +70,3 @@ pub struct MontanaCli {
     #[arg(long, env = "L1_RPC_URL")]
     pub l1_rpc_url: Option<String>,
 }
-
-impl MontanaCli {
-    /// Returns the block range description for display.
-    #[must_use]
-    pub fn range_description(&self) -> String {
-        self.start.map_or_else(|| "checkpoint->tip".to_string(), |start| format!("{start}->tip"))
-    }
-}

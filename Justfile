@@ -156,3 +156,12 @@ harness-sync BLOCKS='100' *ARGS:
 # Run montana with test harness and fast block time
 harness-fast *ARGS:
     cargo run --release -p montana -- --with-harness --harness-block-time-ms 500 {{ARGS}}
+
+# Run the migration tool to migrate a Reth MDBX database to TrieDB
+migrate SOURCE DEST *ARGS:
+    cargo run --release -p migrate -- --source {{SOURCE}} --dest {{DEST}} {{ARGS}}
+
+# Initialize reth static files for migration testing
+init-reth:
+    @command -v op-reth >/dev/null 2>&1 || cargo install op-reth
+    op-reth init --datadir ./static/reth --chain base

@@ -4,5 +4,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod execution;
+pub mod verification;
 
 pub use execution::{ExecutedBlock, Execution};

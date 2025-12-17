@@ -4770,10 +4770,12 @@ checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
 name = "runner"
 version = "0.0.1"
 dependencies = [
+ "alloy",
  "blocksource",
  "chainspec",
  "database",
  "eyre",
+ "op-alloy",
  "tokio",
  "tracing",
  "vm",

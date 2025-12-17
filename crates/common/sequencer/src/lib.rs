@@ -4,11 +4,12 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod buffer;
-mod convert;
-mod errors;
-
 pub use buffer::ExecutedBlockBuffer;
+
+mod convert;
 pub use convert::{op_block_to_l2_data, tx_to_raw};
+
+mod errors;
 pub use errors::BufferError;
 // Re-export key types from dependencies for convenience
 pub use blocksource::OpBlock;

@@ -4,11 +4,13 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod convert;
-pub mod producer;
-pub mod rpc;
-pub mod types;
-
 pub use convert::{block_to_env, tx_to_op_tx};
+
+pub mod producer;
 pub use producer::{BlockProducer, ChannelBlockProducer, HistoricalRangeProducer, LiveRpcProducer};
+
+pub mod rpc;
 pub use rpc::{BlockSource, RpcBlockSource};
+
+pub mod types;
 pub use types::OpBlock;

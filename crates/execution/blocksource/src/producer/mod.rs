@@ -4,13 +4,14 @@
 //! with implementations for both live RPC polling and historical range fetching.
 
 mod channel;
-mod historical;
-mod live;
-
-use async_trait::async_trait;
 pub use channel::ChannelBlockProducer;
+
+mod historical;
 pub use historical::HistoricalRangeProducer;
+
+mod live;
 pub use live::LiveRpcProducer;
+use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
 use crate::OpBlock;

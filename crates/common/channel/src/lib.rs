@@ -4,9 +4,10 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod errors;
-mod execute;
-mod source;
-
 pub use errors::ExecutePayloadError;
+
+mod execute;
 pub use execute::{ChannelExecutor, ExecutePayload, NoopExecutor};
+
+mod source;
 pub use source::{BatchSource, L2BlockData, RawTransaction, SourceError};

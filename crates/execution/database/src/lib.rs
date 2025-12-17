@@ -4,11 +4,14 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod cached;
-pub mod errors;
-pub mod remote;
-pub mod traits;
-pub mod triedb;
-
 pub use cached::CachedDatabase;
+
+pub mod errors;
+
+pub mod remote;
 pub use remote::RPCDatabase;
+
+pub mod traits;
 pub use traits::{Database, DatabaseCommit};
+
+pub mod triedb;

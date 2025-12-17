@@ -124,9 +124,13 @@ run-montana-executor:
 run-montana-inmemory:
     cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --batch-mode in-memory historical --start 39554271 --end 39554273
 
-# Run the montana node in dual mode (default: sequencer + validator) with Anvil batch submission against Base mainnet
+# Run the montana node in dual mode (default: sequencer + validator) with Anvil batch submission against Base mainnet (full history)
 run-montana:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 historical --start 39554271 --end 39554273
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 historical --start 1 --end 40000000
+
+# Run the montana node in dual mode with live block streaming (continuously processes new blocks)
+run-montana-live:
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 live
 
 # Alias for running montana
 montana *ARGS:

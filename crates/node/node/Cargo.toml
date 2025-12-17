@@ -13,3 +13,11 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+montana-checkpoint = { workspace = true }
+blocksource = { workspace = true }
+eyre = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }

@@ -3448,6 +3448,14 @@ dependencies = [
 [[package]]
 name = "montana-node"
 version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "blocksource",
+ "eyre",
+ "montana-checkpoint",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "montana-pipeline"
@@ -3466,7 +3474,12 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "eyre",
+ "hex",
+ "montana-batcher",
  "montana-checkpoint",
+ "montana-pipeline",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

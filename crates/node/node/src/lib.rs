@@ -11,3 +11,6 @@ pub use stage::{NodeStage, SyncProgress};
 
 mod config;
 pub use config::NodeConfig;
+
+mod sync;
+pub use sync::{SyncConfig, SyncEvent, SyncStage, SyncStatus};

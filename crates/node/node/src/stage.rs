@@ -16,6 +16,10 @@ pub struct SyncProgress {
     pub current_block: u64,
     /// The target block number to reach
     pub target_block: u64,
+    /// Blocks synced per second (rolling average)
+    pub blocks_per_second: f64,
+    /// Estimated time remaining
+    pub eta: Option<std::time::Duration>,
 }
 
 impl SyncProgress {

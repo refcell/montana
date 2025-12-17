@@ -14,5 +14,10 @@ workspace = true
 
 [dependencies]
 montana-checkpoint = { workspace = true }
+montana-batcher = { workspace = true }
+montana-pipeline = { workspace = true }
 async-trait.workspace = true
 eyre.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+hex = "0.4"

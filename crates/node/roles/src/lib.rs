@@ -3,6 +3,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+pub mod sequencer;
+pub use sequencer::{Sequencer, SequencerEvent};
+
+pub mod validator;
+pub use validator::{Validator, ValidatorEvent};
+
 /// Result of a single role tick.
 ///
 /// Indicates what happened during a role's tick operation, allowing the

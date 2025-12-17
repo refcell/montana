@@ -139,3 +139,7 @@ run-montana-reexec START='1':
 # Alias for running montana
 montana *ARGS:
     cargo run --release -p montana -- {{ARGS}}
+
+# Run the migration tool to migrate a Reth MDBX database to TrieDB
+migrate SOURCE DEST *ARGS:
+    cargo run --release -p migrate -- --source {{SOURCE}} --dest {{DEST}} {{ARGS}}

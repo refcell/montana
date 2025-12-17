@@ -1,0 +1,28 @@
+[package]
+name = "migration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+eyre.workspace = true
+tracing.workspace = true
+
+# NOTE: libmdbx is ONLY to be used in this crate for database migration purposes.
+# Do NOT add reth or libmdbx dependencies to any other crates in this workspace.
+libmdbx.workspace = true
+
+# For deserialization
+alloy-primitives.workspace = true
+hex-literal = "0.4"
+revm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+triedb.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

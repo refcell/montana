@@ -79,6 +79,7 @@ sequencer = { path = "crates/common/sequencer" }
 # execution crates
 blocksource = { path = "crates/execution/blocksource" }
 database = { path = "crates/execution/database" }
+migration = { path = "crates/execution/migration" }
 runner = { path = "crates/execution/runner" }
 vm = { path = "crates/execution/vm" }
 
@@ -128,3 +129,6 @@ tokio = { version = "1.48.0", features = ["full"] }
 
 # TrieDB - Ethereum state trie database
 triedb = { git = "https://github.com/base/triedb" }
+
+# libmdbx - ONLY for use in the migration crate
+libmdbx = "0.6.4"

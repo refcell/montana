@@ -20,6 +20,10 @@ target
 
 # Binary output files
 output.json
+triedb-out/
 
 # Planning documents
 random/
+
+# Reth data directory
+static/reth/

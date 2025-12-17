@@ -29,11 +29,6 @@ struct Args {
     #[arg(short, long)]
     dest: PathBuf,
 
-    /// Path to checkpoint file for resume capability.
-    /// If not specified, defaults to <dest>.checkpoint
-    #[arg(short, long)]
-    checkpoint: Option<PathBuf>,
-
     /// Batch size for commits (number of entries per transaction).
     #[arg(long, default_value_t = migration::DEFAULT_BATCH_SIZE)]
     batch_size: u64,
@@ -55,17 +50,9 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    // Determine checkpoint path
-    let checkpoint_path = args.checkpoint.unwrap_or_else(|| {
-        let mut path = args.dest.clone();
-        path.set_extension("checkpoint");
-        path
-    });
-
     info!(
         source = %args.source.display(),
         dest = %args.dest.display(),
-        checkpoint = %checkpoint_path.display(),
         batch_size = args.batch_size,
         log_interval = args.log_interval,
         "starting migration"
@@ -74,8 +61,7 @@ fn main() -> Result<()> {
     // Build configuration
     let config = MigratorConfig::default()
         .with_batch_size(args.batch_size)
-        .with_log_interval(args.log_interval)
-        .with_checkpoint_path(&checkpoint_path);
+        .with_log_interval(args.log_interval);
 
     // Create migrator
     let migrator = Migrator::with_config(&args.source, &args.dest, config)?;

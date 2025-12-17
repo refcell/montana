@@ -42,7 +42,7 @@ zepter-fix:
   zepter format features --fix
 
 # Runs tests across workspace with all features enabled
-test: init-reth
+test:
     @command -v cargo-nextest >/dev/null 2>&1 || cargo install cargo-nextest
     RUSTFLAGS="-D warnings" cargo nextest run --workspace --all-features
 

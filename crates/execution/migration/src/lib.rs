@@ -8,7 +8,7 @@ mod migrator;
 pub mod reth;
 
 pub use migrator::{
-    Checkpoint, DEFAULT_BATCH_SIZE, DEFAULT_LOG_INTERVAL, MigrationError, MigrationStats, Migrator,
+    DEFAULT_BATCH_SIZE, DEFAULT_LOG_INTERVAL, MigrationError, MigrationStats, Migrator,
     MigratorConfig,
 };
 pub use libmdbx;

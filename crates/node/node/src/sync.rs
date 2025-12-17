@@ -172,7 +172,7 @@ impl<P: BlockProducer> SyncStage<P> {
     /// Check if sync is complete.
     ///
     /// Returns true if the current block is within the sync threshold of the target.
-    pub fn is_synced(&self) -> bool {
+    pub const fn is_synced(&self) -> bool {
         self.current_block + self.config.sync_threshold >= self.target_block
     }
 
@@ -245,12 +245,10 @@ impl<P: BlockProducer> SyncStage<P> {
 
     /// Get the current sync progress.
     pub fn progress(&self) -> SyncProgress {
-        let blocks_per_second = if let Some(start) = self.sync_start_time {
+        let blocks_per_second = self.sync_start_time.map_or(0.0, |start| {
             let elapsed = start.elapsed().as_secs_f64();
             if elapsed > 0.0 { self.blocks_synced as f64 / elapsed } else { 0.0 }
-        } else {
-            0.0
-        };
+        });
 
         let eta = if blocks_per_second > 0.0 {
             let remaining = self.blocks_remaining();
@@ -271,11 +269,11 @@ impl<P: BlockProducer> SyncStage<P> {
 
     /// Get the current checkpoint for the sync state.
     pub fn checkpoint(&self) -> Checkpoint {
-        let mut cp = Checkpoint::default();
-        cp.synced_to_block = self.current_block;
-        cp.last_block_executed = self.current_block;
-        cp.touch();
-        cp
+        Checkpoint {
+            synced_to_block: self.current_block,
+            last_block_executed: self.current_block,
+            ..Checkpoint::default()
+        }
     }
 
     /// Emit an event to observers.
@@ -286,7 +284,7 @@ impl<P: BlockProducer> SyncStage<P> {
     }
 
     /// Get the number of blocks remaining to sync.
-    fn blocks_remaining(&self) -> u64 {
+    const fn blocks_remaining(&self) -> u64 {
         self.target_block.saturating_sub(self.current_block)
     }
 }

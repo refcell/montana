@@ -92,20 +92,20 @@ where
         checkpoint_path: PathBuf,
         block_rx: mpsc::Receiver<L2BlockData>,
     ) -> eyre::Result<Self> {
-        let checkpoint = match Checkpoint::load(&checkpoint_path)? {
-            Some(cp) => {
+        let checkpoint = Checkpoint::load(&checkpoint_path)?.map_or_else(
+            || {
+                tracing::info!("No checkpoint found at {:?}, starting fresh", checkpoint_path);
+                Checkpoint::default()
+            },
+            |cp| {
                 tracing::info!(
                     "Loaded checkpoint from {:?}, last batch submitted: {}",
                     checkpoint_path,
                     cp.last_batch_submitted
                 );
                 cp
-            }
-            None => {
-                tracing::info!("No checkpoint found at {:?}, starting fresh", checkpoint_path);
-                Checkpoint::default()
-            }
-        };
+            },
+        );
 
         Ok(Self {
             batch_sink,

@@ -7,6 +7,7 @@
 use std::{
     fmt::Debug,
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -15,7 +16,9 @@ use montana_checkpoint::Checkpoint;
 use montana_roles::Role;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::{NodeConfig, NodeEvent, NodeRole, NodeState, SyncStage, SyncStatus};
+use crate::{
+    NodeConfig, NodeEvent, NodeRole, NodeState, SyncStage, SyncStatus, observer::NodeObserver,
+};
 
 /// Builder for constructing a fully-configured Node.
 ///
@@ -56,6 +59,8 @@ pub struct NodeBuilder<P: BlockProducer> {
     sequencer: Option<Box<dyn Role>>,
     /// Optional validator component
     validator: Option<Box<dyn Role>>,
+    /// Observers for node events
+    observers: Vec<Arc<dyn NodeObserver>>,
 }
 
 impl<P: BlockProducer + Debug> Debug for NodeBuilder<P> {
@@ -65,6 +70,7 @@ impl<P: BlockProducer + Debug> Debug for NodeBuilder<P> {
             .field("sync_stage", &self.sync_stage)
             .field("sequencer", &self.sequencer.as_ref().map(|s| s.name()))
             .field("validator", &self.validator.as_ref().map(|v| v.name()))
+            .field("observers", &self.observers.len())
             .finish()
     }
 }
@@ -72,7 +78,13 @@ impl<P: BlockProducer + Debug> Debug for NodeBuilder<P> {
 impl<P: BlockProducer + 'static> NodeBuilder<P> {
     /// Create a new NodeBuilder with default configuration.
     pub fn new() -> Self {
-        Self { config: NodeConfig::default(), sync_stage: None, sequencer: None, validator: None }
+        Self {
+            config: NodeConfig::default(),
+            sync_stage: None,
+            sequencer: None,
+            validator: None,
+            observers: Vec::new(),
+        }
     }
 
     /// Set the node configuration.
@@ -86,7 +98,7 @@ impl<P: BlockProducer + 'static> NodeBuilder<P> {
     /// Set the node role.
     ///
     /// This is a convenience method that updates the role in the configuration.
-    pub fn with_role(mut self, role: NodeRole) -> Self {
+    pub const fn with_role(mut self, role: NodeRole) -> Self {
         self.config.role = role;
         self
     }
@@ -113,7 +125,7 @@ impl<P: BlockProducer + 'static> NodeBuilder<P> {
     /// When set, the node will start from its current state without syncing
     /// to the chain tip. Use this when resuming from a recent checkpoint or
     /// when the node is already synced.
-    pub fn skip_sync(mut self) -> Self {
+    pub const fn skip_sync(mut self) -> Self {
         self.config.skip_sync = true;
         self
     }
@@ -131,6 +143,15 @@ impl<P: BlockProducer + 'static> NodeBuilder<P> {
     /// Required if the node role is Validator or Dual.
     pub fn with_validator<R: Role + 'static>(mut self, validator: R) -> Self {
         self.validator = Some(Box::new(validator));
+        self
+    }
+
+    /// Add an observer for node events.
+    ///
+    /// Observers are called synchronously when events occur. Multiple
+    /// observers can be registered and will be called in order.
+    pub fn with_observer(mut self, observer: Arc<dyn NodeObserver>) -> Self {
+        self.observers.push(observer);
         self
     }
 
@@ -205,6 +226,7 @@ impl<P: BlockProducer + 'static> NodeBuilder<P> {
             sequencer: self.sequencer,
             validator: self.validator,
             event_tx,
+            observers: self.observers,
             shutdown_rx,
             shutdown_tx,
             last_checkpoint_save: Instant::now(),
@@ -244,6 +266,8 @@ pub struct Node<P: BlockProducer> {
     validator: Option<Box<dyn Role>>,
     /// Event broadcaster for observers
     event_tx: broadcast::Sender<NodeEvent>,
+    /// Observers for synchronous event notification
+    observers: Vec<Arc<dyn NodeObserver>>,
     /// Shutdown signal receiver
     shutdown_rx: mpsc::Receiver<()>,
     /// Shutdown signal sender (for external shutdown requests)
@@ -276,17 +300,17 @@ impl<P: BlockProducer> Node<P> {
     }
 
     /// Get a reference to the node's configuration.
-    pub fn config(&self) -> &NodeConfig {
+    pub const fn config(&self) -> &NodeConfig {
         &self.config
     }
 
     /// Get a mutable reference to the sync stage, if present.
-    pub fn sync_stage_mut(&mut self) -> Option<&mut SyncStage<P>> {
+    pub const fn sync_stage_mut(&mut self) -> Option<&mut SyncStage<P>> {
         self.sync_stage.as_mut()
     }
 
     /// Get a reference to the sync stage, if present.
-    pub fn sync_stage(&self) -> Option<&SyncStage<P>> {
+    pub const fn sync_stage(&self) -> Option<&SyncStage<P>> {
         self.sync_stage.as_ref()
     }
 
@@ -296,8 +320,8 @@ impl<P: BlockProducer> Node<P> {
     }
 
     /// Get a reference to the sequencer, if present.
-    pub fn sequencer(&self) -> Option<&Box<dyn Role>> {
-        self.sequencer.as_ref()
+    pub fn sequencer(&self) -> Option<&dyn Role> {
+        self.sequencer.as_deref()
     }
 
     /// Get a mutable reference to the validator, if present.
@@ -306,8 +330,8 @@ impl<P: BlockProducer> Node<P> {
     }
 
     /// Get a reference to the validator, if present.
-    pub fn validator(&self) -> Option<&Box<dyn Role>> {
-        self.validator.as_ref()
+    pub fn validator(&self) -> Option<&dyn Role> {
+        self.validator.as_deref()
     }
 
     /// Subscribes to node events.
@@ -325,13 +349,21 @@ impl<P: BlockProducer> Node<P> {
         self.shutdown_tx.clone()
     }
 
+    /// Add an observer to receive events.
+    ///
+    /// Observers are called synchronously for each event. This method
+    /// allows adding observers after node construction.
+    pub fn add_observer(&mut self, observer: Arc<dyn NodeObserver>) {
+        self.observers.push(observer);
+    }
+
     /// Gets the current node state.
-    pub fn state(&self) -> &NodeState {
+    pub const fn state(&self) -> &NodeState {
         &self.state
     }
 
     /// Gets the current checkpoint.
-    pub fn checkpoint(&self) -> &Checkpoint {
+    pub const fn checkpoint(&self) -> &Checkpoint {
         &self.checkpoint
     }
 
@@ -508,7 +540,11 @@ impl<P: BlockProducer> Node<P> {
 
     /// Emits an event to all subscribers.
     async fn emit(&self, event: NodeEvent) {
-        // Ignore send errors (no subscribers is fine)
+        // Notify synchronous observers first
+        for observer in &self.observers {
+            observer.on_event(&event);
+        }
+        // Then send to broadcast channel for async subscribers
         let _ = self.event_tx.send(event);
     }
 
@@ -810,5 +846,69 @@ mod tests {
     fn test_node_builder_method() {
         let builder = Node::<MockBlockProducer>::builder();
         assert_eq!(builder.config, NodeConfig::default());
+    }
+
+    #[test]
+    fn test_observer_dispatch() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use crate::observer::NodeObserver;
+
+        struct CountingObserver {
+            count: AtomicUsize,
+        }
+
+        impl NodeObserver for CountingObserver {
+            fn on_event(&self, _event: &NodeEvent) {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let observer = Arc::new(CountingObserver { count: AtomicUsize::new(0) });
+        let node = NodeBuilder::<MockBlockProducer>::new()
+            .with_role(NodeRole::Sequencer)
+            .with_sequencer(MockSequencer)
+            .with_observer(observer.clone())
+            .skip_sync()
+            .build()
+            .unwrap();
+
+        // Observers should be registered
+        assert_eq!(node.observers.len(), 1);
+
+        // Manually test observer is called
+        node.observers[0].on_event(&NodeEvent::StateChanged(NodeState::Starting));
+        assert_eq!(observer.count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_add_observer_after_build() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use crate::observer::NodeObserver;
+
+        struct CountingObserver {
+            count: AtomicUsize,
+        }
+
+        impl NodeObserver for CountingObserver {
+            fn on_event(&self, _event: &NodeEvent) {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let mut node = NodeBuilder::<MockBlockProducer>::new()
+            .with_role(NodeRole::Sequencer)
+            .with_sequencer(MockSequencer)
+            .skip_sync()
+            .build()
+            .unwrap();
+
+        assert_eq!(node.observers.len(), 0);
+
+        let observer = Arc::new(CountingObserver { count: AtomicUsize::new(0) });
+        node.add_observer(observer.clone());
+
+        assert_eq!(node.observers.len(), 1);
     }
 }

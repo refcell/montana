@@ -38,3 +38,10 @@ pub use app::App;
 /// events.
 mod tui;
 pub use tui::{MontanaTui, create_tui};
+
+/// TUI observer for node events.
+///
+/// The [`TuiObserver`] implements the [`NodeObserver`] trait and converts
+/// [`NodeEvent`]s to [`TuiEvent`]s, forwarding them to the TUI via a [`TuiHandle`].
+mod observer;
+pub use observer::TuiObserver;

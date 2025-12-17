@@ -17,12 +17,12 @@ pub enum NodeState {
 
 impl NodeState {
     /// Returns true if the node is currently syncing.
-    pub fn is_syncing(&self) -> bool {
+    pub const fn is_syncing(&self) -> bool {
         matches!(self, Self::Syncing(_))
     }
 
     /// Returns true if the node is fully synced and active.
-    pub fn is_active(&self) -> bool {
+    pub const fn is_active(&self) -> bool {
         matches!(self, Self::Active)
     }
 }

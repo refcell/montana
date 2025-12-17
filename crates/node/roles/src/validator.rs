@@ -107,7 +107,7 @@ where
     ///
     /// # Arguments
     /// * `ms` - Poll interval in milliseconds
-    pub fn with_poll_interval(mut self, ms: u64) -> Self {
+    pub const fn with_poll_interval(mut self, ms: u64) -> Self {
         self.poll_interval_ms = ms;
         self
     }

@@ -36,12 +36,12 @@ impl SyncProgress {
     }
 
     /// Returns the number of blocks remaining to sync.
-    pub fn blocks_remaining(&self) -> u64 {
+    pub const fn blocks_remaining(&self) -> u64 {
         self.target_block.saturating_sub(self.current_block)
     }
 
     /// Returns true if syncing is complete (current block >= target block).
-    pub fn is_complete(&self) -> bool {
+    pub const fn is_complete(&self) -> bool {
         self.current_block >= self.target_block
     }
 }

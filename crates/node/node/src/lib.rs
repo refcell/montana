@@ -21,5 +21,8 @@ pub use sync::{SyncConfig, SyncEvent, SyncStage, SyncStatus};
 mod events;
 pub use events::NodeEvent;
 
+mod observer;
+pub use observer::{AsyncObserver, LoggingObserver, NodeObserver, NoopObserver};
+
 mod builder;
 pub use builder::{Node, NodeBuilder};

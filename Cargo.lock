@@ -3490,6 +3490,7 @@ dependencies = [
  "alloy-primitives",
  "crossterm",
  "derive_more",
+ "montana-node",
  "montana-tui-common",
  "ratatui",
  "tokio",

@@ -8,5 +8,5 @@ mod execute;
 mod source;
 
 pub use errors::ExecutePayloadError;
-pub use execute::ExecutePayload;
+pub use execute::{ExecutePayload, NoopExecutor};
 pub use source::{BatchSource, L2BlockData, RawTransaction, SourceError};

@@ -24,7 +24,7 @@ use montana_batch_runner::{
 use montana_brotli::BrotliCompressor;
 use montana_derivation_runner::{DerivationConfig, DerivationRunner};
 use montana_pipeline::{
-    CompressedBatch, Compressor, L1BatchSource, SourceError as PipelineSourceError,
+    CompressedBatch, Compressor, L1BatchSource, NoopExecutor, SourceError as PipelineSourceError,
     SubmissionReceipt,
 };
 use montana_zlib::ZlibCompressor;
@@ -258,7 +258,9 @@ fn run_with_compressor<C: Compressor + Clone + Send + Sync + 'static>(
 
     // Create derivation runner
     let source_adapter = BatchSourceAdapter::new(Arc::clone(&batch_context));
-    let derivation_runner = DerivationRunner::new(source_adapter, compressor, derivation_config);
+    let executor = NoopExecutor::new();
+    let derivation_runner =
+        DerivationRunner::new(source_adapter, compressor, executor, derivation_config);
     let derivation_runner = Arc::new(Mutex::new(derivation_runner));
 
     // Spawn batch submission task

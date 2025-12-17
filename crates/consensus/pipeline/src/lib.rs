@@ -6,6 +6,9 @@
 mod source;
 pub use source::{BatchSource, L1BatchSource, L2BlockData, RawTransaction, SourceError};
 
+mod execute;
+pub use execute::{ExecutePayload, ExecutePayloadError, NoopExecutor};
+
 mod sink;
 pub use sink::{BatchSink, CompressedBatch, L2BlockSink, SinkError, SubmissionReceipt};
 

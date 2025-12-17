@@ -8,6 +8,7 @@ Derivation pipeline runner for batch decompression and derivation.
 
 - Polls for compressed batches from a configurable source
 - Decompresses batches using pluggable decompression algorithms
+- Executes payloads through a pluggable executor trait
 - Derives L2 blocks from batch data
 - Tracks latency between batch submission and derivation
 - Reports metrics and statistics to the caller
@@ -36,7 +37,8 @@ let config = DerivationConfig::builder()
 // Create runner with your implementations of the pipeline traits
 // let source = ...; // Your L1BatchSource implementation
 // let compressor = ...; // Your Compressor implementation
-// let mut runner = DerivationRunner::new(source, compressor, config);
+// let executor = ...; // Your ExecutePayload implementation (or NoopExecutor for testing)
+// let mut runner = DerivationRunner::new(source, compressor, executor, config);
 
 // Run the derivation loop
 // loop {
@@ -82,6 +84,7 @@ Errors are classified for retry logic:
 - **SourceError**: Failed to fetch batch from source
 - **DecompressionFailed**: Failed to decompress batch data
 - **EmptyBatch**: No batch available from source
+- **ExecutionFailed**: Failed to execute payload (fatal)
 
 ## Architecture
 
@@ -94,9 +97,9 @@ Errors are classified for retry logic:
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │                  Pipeline Traits                          │   │
-│  │  ┌────────────────┐ ┌────────────────────┐               │   │
-│  │  │ L1BatchSource  │ │    Compressor      │               │   │
-│  │  └────────────────┘ └────────────────────┘               │   │
+│  │  ┌────────────────┐ ┌────────────────┐ ┌───────────────┐ │   │
+│  │  │ L1BatchSource  │ │  Compressor    │ │ExecutePayload │ │   │
+│  │  └────────────────┘ └────────────────┘ └───────────────┘ │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```

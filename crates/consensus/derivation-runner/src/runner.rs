@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use montana_pipeline::{CompressedBatch, Compressor, L1BatchSource};
+use montana_pipeline::{CompressedBatch, Compressor, ExecutePayload, L1BatchSource};
 use tokio::time::sleep;
 
 use crate::{DerivationConfig, DerivationError, DerivationMetrics};
@@ -10,16 +10,23 @@ use crate::{DerivationConfig, DerivationError, DerivationMetrics};
 /// Derivation runner that polls for batches and derives L2 blocks.
 ///
 /// The runner continuously polls a batch source for new compressed batches,
-/// decompresses them, and tracks metrics about the derivation process.
-pub struct DerivationRunner<S, C>
+/// decompresses them, executes the payload, and tracks metrics about the
+/// derivation process.
+///
+/// The executor is generic, allowing different implementations to be plugged in
+/// for different use cases (e.g., full execution, validation-only, or no-op for testing).
+pub struct DerivationRunner<S, C, E>
 where
     S: L1BatchSource,
     C: Compressor,
+    E: ExecutePayload<Payload = Vec<u8>>,
 {
     /// The batch source to poll for new batches.
     source: S,
     /// The compressor for decompressing batches.
     compressor: C,
+    /// The executor for processing decompressed payloads.
+    executor: E,
     /// Configuration.
     config: DerivationConfig,
     /// Accumulated metrics.
@@ -30,16 +37,18 @@ where
     paused: bool,
 }
 
-impl<S, C> DerivationRunner<S, C>
+impl<S, C, E> DerivationRunner<S, C, E>
 where
     S: L1BatchSource,
     C: Compressor,
+    E: ExecutePayload<Payload = Vec<u8>>,
 {
     /// Creates a new derivation runner.
-    pub fn new(source: S, compressor: C, config: DerivationConfig) -> Self {
+    pub fn new(source: S, compressor: C, executor: E, config: DerivationConfig) -> Self {
         Self {
             source,
             compressor,
+            executor,
             config,
             metrics: DerivationMetrics::default(),
             submission_times: std::collections::HashMap::new(),
@@ -134,6 +143,14 @@ where
 
         let decompressed_size = decompressed.len();
 
+        // Execute the payload
+        self.executor.execute(decompressed).map_err(|e| {
+            DerivationError::ExecutionFailed(format!(
+                "Failed to execute payload for batch #{}: {}",
+                batch_number, e
+            ))
+        })?;
+
         // Update metrics
         self.metrics.batches_derived += 1;
         self.metrics.blocks_derived += 1;
@@ -159,10 +176,11 @@ where
     }
 }
 
-impl<S, C> std::fmt::Debug for DerivationRunner<S, C>
+impl<S, C, E> std::fmt::Debug for DerivationRunner<S, C, E>
 where
     S: L1BatchSource,
     C: Compressor,
+    E: ExecutePayload<Payload = Vec<u8>>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DerivationRunner")
@@ -174,6 +192,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use montana_pipeline::NoopExecutor;
+
     use super::*;
 
     // Mock batch source for testing
@@ -229,8 +249,9 @@ mod tests {
     async fn test_runner_no_batches() {
         let source = MockBatchSource::new(vec![None]);
         let compressor = MockCompressor;
+        let executor = NoopExecutor::new();
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, executor, config);
 
         let result = runner.tick().await;
         assert!(result.is_ok());
@@ -242,8 +263,9 @@ mod tests {
         let batch = CompressedBatch { batch_number: 0, data: vec![1, 2, 3, 4] };
         let source = MockBatchSource::new(vec![Some(batch)]);
         let compressor = MockCompressor;
+        let executor = NoopExecutor::new();
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, executor, config);
 
         let result = runner.tick().await;
         assert!(result.is_ok());
@@ -262,8 +284,9 @@ mod tests {
         let batch2 = CompressedBatch { batch_number: 1, data: vec![5, 6, 7, 8, 9] };
         let source = MockBatchSource::new(vec![Some(batch1), Some(batch2)]);
         let compressor = MockCompressor;
+        let executor = NoopExecutor::new();
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, executor, config);
 
         // First batch
         let result1 = runner.tick().await;
@@ -285,8 +308,9 @@ mod tests {
         let batch = CompressedBatch { batch_number: 0, data: vec![1, 2, 3, 4] };
         let source = MockBatchSource::new(vec![Some(batch)]);
         let compressor = MockCompressor;
+        let executor = NoopExecutor::new();
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, executor, config);
 
         // Record submission time
         let submit_time = Instant::now() - Duration::from_millis(50);
@@ -305,8 +329,9 @@ mod tests {
     fn test_runner_debug() {
         let source = MockBatchSource::new(vec![]);
         let compressor = MockCompressor;
+        let executor = NoopExecutor::new();
         let config = DerivationConfig::default();
-        let runner = DerivationRunner::new(source, compressor, config);
+        let runner = DerivationRunner::new(source, compressor, executor, config);
 
         let debug_str = format!("{:?}", runner);
         assert!(debug_str.contains("DerivationRunner"));
@@ -316,8 +341,9 @@ mod tests {
     fn test_runner_metrics_access() {
         let source = MockBatchSource::new(vec![]);
         let compressor = MockCompressor;
+        let executor = NoopExecutor::new();
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, executor, config);
 
         // Test immutable access
         let metrics = runner.metrics();

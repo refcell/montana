@@ -29,6 +29,5 @@ pub use mode::BatchSubmissionMode;
 
 mod service;
 pub use service::{BatcherService, BatcherState};
-
 // Re-export useful types from dependencies
 pub use montana_anvil::Address;

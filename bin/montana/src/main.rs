@@ -11,20 +11,17 @@
 
 mod cli;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use cli::{Args, ProducerMode};
 use eyre::Result;
-use montana_batcher::{
-    Address, BatchContext, BatchSubmissionMode, BatcherConfig, BatchSink,
-};
+use montana_batcher::{Address, BatchContext, BatchSink, BatchSubmissionMode, BatcherConfig};
 use montana_brotli::BrotliCompressor;
 use montana_cli::MontanaMode;
 use montana_pipeline::{CompressedBatch, Compressor};
 use runner::{Execution, ProducerMode as RunnerMode};
 use sequencer::OpBlock;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -165,9 +162,7 @@ async fn run_sequencer(
                                 total_batches += 1;
                                 info!(
                                     batch_number = receipt.batch_number,
-                                    total_batches,
-                                    total_blocks,
-                                    "Batch submitted successfully"
+                                    total_batches, total_blocks, "Batch submitted successfully"
                                 );
                             }
                             Err(e) => {
@@ -212,8 +207,7 @@ async fn run_sequencer(
                 // by lowering the threshold check - for now just log
                 info!(
                     remaining_blocks = remaining_count,
-                    "Note: {} blocks remain unbatched (below threshold)",
-                    remaining_count
+                    "Note: {} blocks remain unbatched (below threshold)", remaining_count
                 );
             }
         }
@@ -227,11 +221,7 @@ async fn run_sequencer(
     // Wait for batcher to complete and get stats
     match batcher_handle.await {
         Ok((total_blocks, total_batches)) => {
-            info!(
-                total_blocks,
-                total_batches,
-                "Sequencer completed successfully"
-            );
+            info!(total_blocks, total_batches, "Sequencer completed successfully");
         }
         Err(e) => {
             tracing::error!(error = %e, "Batcher task failed");

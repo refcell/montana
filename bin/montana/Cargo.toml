@@ -28,6 +28,7 @@ op-alloy.workspace = true
 # consensus crates
 montana-batch-context.workspace = true
 montana-batcher.workspace = true
+montana-checkpoint = { workspace = true }
 montana-brotli.workspace = true
 montana-derivation-runner.workspace = true
 montana-pipeline.workspace = true

@@ -21,3 +21,5 @@ target
 # Binary output files
 output.json
 
+# Planning documents
+random/

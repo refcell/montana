@@ -8,7 +8,7 @@ repository = "https://github.com/base/montana"
 
 [workspace]
 resolver = "2"
-members = ["bin/*", "examples/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/utilities/*"]
+members = ["bin/*", "examples/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/node/*", "crates/utilities/*"]
 default-members = ["bin/montana"]
 
 [workspace.lints.rust]
@@ -59,6 +59,11 @@ montana-pipeline = { version = "0.0.1", path = "crates/consensus/pipeline" }
 montana-txmgr = { version = "0.0.1", path = "crates/consensus/txmgr" }
 montana-zlib = { version = "0.0.1", path = "crates/consensus/zlib" }
 montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
+
+# node crates
+montana-checkpoint = { version = "0.0.1", path = "crates/node/checkpoint" }
+montana-node = { version = "0.0.1", path = "crates/node/node" }
+montana-roles = { version = "0.0.1", path = "crates/node/roles" }
 
 # utilities crates
 montana-cli = { version = "0.0.1", path = "crates/utilities/cli" }

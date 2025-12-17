@@ -12,7 +12,7 @@
 
 mod cli;
 
-use std::{io, sync::Arc, time::Duration};
+use std::{io, path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::providers::{Provider, ProviderBuilder};
 use montana_batch_context::{BatchContext, BatchSubmissionMode, L1BatchSourceAdapter};
@@ -25,7 +25,7 @@ use crossterm::{
 };
 use database::{CachedDatabase, RPCDatabase};
 use eyre::Result;
-use montana_batcher::{Address, BatcherConfig};
+use montana_batcher::{Address, BatcherConfig, Checkpoint};
 use montana_brotli::BrotliCompressor;
 use montana_cli::MontanaMode;
 use montana_derivation_runner::{DerivationConfig, DerivationRunner};
@@ -140,17 +140,17 @@ async fn run_with_handle(args: Args, tui_handle: Option<TuiHandle>) -> Result<()
                 Duration::from_millis(*poll_interval_ms),
                 Some(start_block),
             );
-            run_sequencer(db, producer, args.batch_mode, tui_handle).await
+            run_sequencer(db, producer, args.batch_mode, args.checkpoint_path, tui_handle).await
         }
         (MontanaMode::Sequencer, ProducerMode::Historical { start, end }) => {
             let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_sequencer(db, producer, args.batch_mode, tui_handle).await
+            run_sequencer(db, producer, args.batch_mode, args.checkpoint_path, tui_handle).await
         }
         (MontanaMode::Validator, ProducerMode::Live { .. }) => {
-            run_validator(args.batch_mode, tui_handle).await
+            run_validator(args.batch_mode, args.checkpoint_path, tui_handle).await
         }
         (MontanaMode::Validator, ProducerMode::Historical { .. }) => {
-            run_validator(args.batch_mode, tui_handle).await
+            run_validator(args.batch_mode, args.checkpoint_path, tui_handle).await
         }
         (MontanaMode::Dual, ProducerMode::Live { poll_interval_ms }) => {
             let producer = LiveRpcProducer::new(
@@ -158,11 +158,11 @@ async fn run_with_handle(args: Args, tui_handle: Option<TuiHandle>) -> Result<()
                 Duration::from_millis(*poll_interval_ms),
                 Some(start_block),
             );
-            run_dual(db, producer, args.batch_mode, tui_handle).await
+            run_dual(db, producer, args.batch_mode, args.checkpoint_path.clone(), tui_handle).await
         }
         (MontanaMode::Dual, ProducerMode::Historical { start, end }) => {
             let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_dual(db, producer, args.batch_mode, tui_handle).await
+            run_dual(db, producer, args.batch_mode, args.checkpoint_path.clone(), tui_handle).await
         }
     }
 }
@@ -203,6 +203,7 @@ async fn run_sequencer<DB, P>(
     db: DB,
     producer: P,
     batch_mode: BatchSubmissionMode,
+    checkpoint_path: PathBuf,
     tui_handle: Option<TuiHandle>,
 ) -> Result<()>
 where
@@ -210,6 +211,16 @@ where
     P: BlockProducer + 'static,
 {
     info!(batch_mode = %batch_mode, "Starting in sequencer mode");
+
+    // Load checkpoint for resumption
+    let checkpoint = Checkpoint::load(&checkpoint_path)
+        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
+        .unwrap_or_default();
+    info!(
+        checkpoint_path = ?checkpoint_path,
+        last_batch_submitted = checkpoint.last_batch_submitted,
+        "Loaded checkpoint state"
+    );
 
     // Create the batch context based on the submission mode
     let batch_inbox = Address::repeat_byte(0x42);
@@ -232,8 +243,10 @@ where
     let sink = batch_ctx.sink();
     let config = BatcherConfig::default();
 
-    // Create the batch driver to manage batching decisions
-    let mut driver = montana_batcher::BatchDriver::new(config.clone());
+    // Create the batch driver to manage batching decisions with checkpoint support
+    let mut driver = montana_batcher::BatchDriver::new(config.clone())
+        .with_checkpoint(checkpoint_path.clone())
+        .map_err(|e| eyre::eyre!("Failed to initialize batch driver with checkpoint: {}", e))?;
 
     info!(
         buffer_capacity = SEQUENCER_BUFFER_CAPACITY,
@@ -277,6 +290,15 @@ where
 
             // Check if we should submit a batch
             while let Some(pending_batch) = driver.build_batch() {
+                // Check if batch should be skipped (already submitted per checkpoint)
+                if driver.should_skip_batch(pending_batch.batch_number) {
+                    info!(
+                        batch_number = pending_batch.batch_number,
+                        "Skipping already-submitted batch"
+                    );
+                    continue;
+                }
+
                 // Calculate block range for this batch
                 let first_block_num = last_safe_block + 1;
                 let last_block_num = first_block_num + pending_batch.blocks.len() as u64 - 1;
@@ -320,9 +342,21 @@ where
                             Ok(receipt) => {
                                 total_batches += 1;
                                 last_safe_block = last_block_num;
+
+                                // Record successful submission in checkpoint
+                                if let Err(e) =
+                                    driver.record_batch_submitted(pending_batch.batch_number)
+                                {
+                                    tracing::error!(
+                                        batch_number = pending_batch.batch_number,
+                                        error = %e,
+                                        "Failed to save checkpoint after batch submission"
+                                    );
+                                }
+
                                 info!(
                                     batch_number = receipt.batch_number,
-                                    total_batches, total_blocks, "Batch submitted successfully"
+                                    total_batches, total_blocks, "Batch submitted and checkpointed"
                                 );
 
                                 // Emit batch submitted event
@@ -396,9 +430,20 @@ where
 /// Run in validator mode: derive and validate blocks from L1.
 async fn run_validator(
     batch_mode: BatchSubmissionMode,
+    checkpoint_path: PathBuf,
     tui_handle: Option<TuiHandle>,
 ) -> Result<()> {
     info!(batch_mode = %batch_mode, "Starting in validator mode");
+
+    // Load checkpoint for resumption
+    let checkpoint = Checkpoint::load(&checkpoint_path)
+        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
+        .unwrap_or_default();
+    info!(
+        checkpoint_path = ?checkpoint_path,
+        last_batch_derived = checkpoint.last_batch_derived,
+        "Loaded checkpoint state"
+    );
 
     // Create the batch context for reading from L1
     let batch_inbox = Address::repeat_byte(0x42);
@@ -416,7 +461,12 @@ async fn run_validator(
     let executor = NoopExecutor::new();
     let config = DerivationConfig::builder().poll_interval_ms(DERIVATION_POLL_INTERVAL_MS).build();
 
-    let mut runner = DerivationRunner::new(source, compressor, executor, config);
+    // Create derivation runner with checkpoint support
+    let mut runner = DerivationRunner::new(source, compressor, executor, config)
+        .with_checkpoint(checkpoint_path)
+        .map_err(|e| {
+            eyre::eyre!("Failed to initialize derivation runner with checkpoint: {}", e)
+        })?;
 
     info!(
         poll_interval_ms = DERIVATION_POLL_INTERVAL_MS,
@@ -478,6 +528,7 @@ async fn run_dual<DB, P>(
     db: DB,
     producer: P,
     batch_mode: BatchSubmissionMode,
+    checkpoint_path: PathBuf,
     tui_handle: Option<TuiHandle>,
 ) -> Result<()>
 where
@@ -485,6 +536,17 @@ where
     P: BlockProducer + 'static,
 {
     info!(batch_mode = %batch_mode, "Starting in dual mode (sequencer + validator)");
+
+    // Load checkpoint for resumption
+    let checkpoint = Checkpoint::load(&checkpoint_path)
+        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
+        .unwrap_or_default();
+    info!(
+        checkpoint_path = ?checkpoint_path,
+        last_batch_submitted = checkpoint.last_batch_submitted,
+        last_batch_derived = checkpoint.last_batch_derived,
+        "Loaded checkpoint state"
+    );
 
     // Create the batch context
     let batch_inbox = Address::repeat_byte(0x42);
@@ -512,8 +574,10 @@ where
     let sink = batch_ctx.sink();
     let batcher_config = BatcherConfig::default();
 
-    // Create the batch driver to manage batching decisions
-    let mut driver = montana_batcher::BatchDriver::new(batcher_config.clone());
+    // Create the batch driver to manage batching decisions with checkpoint support
+    let mut driver = montana_batcher::BatchDriver::new(batcher_config.clone())
+        .with_checkpoint(checkpoint_path.clone())
+        .map_err(|e| eyre::eyre!("Failed to initialize batch driver with checkpoint: {}", e))?;
 
     info!(
         buffer_capacity = SEQUENCER_BUFFER_CAPACITY,
@@ -556,6 +620,15 @@ where
             );
 
             while let Some(pending_batch) = driver.build_batch() {
+                // Check if batch should be skipped (already submitted per checkpoint)
+                if driver.should_skip_batch(pending_batch.batch_number) {
+                    info!(
+                        batch_number = pending_batch.batch_number,
+                        "Skipping already-submitted batch"
+                    );
+                    continue;
+                }
+
                 // Calculate block range for this batch
                 let first_block_num = last_safe_block + 1;
                 let last_block_num = first_block_num + pending_batch.blocks.len() as u64 - 1;
@@ -585,9 +658,21 @@ where
                             Ok(receipt) => {
                                 total_batches += 1;
                                 last_safe_block = last_block_num;
+
+                                // Record successful submission in checkpoint
+                                if let Err(e) =
+                                    driver.record_batch_submitted(pending_batch.batch_number)
+                                {
+                                    tracing::error!(
+                                        batch_number = pending_batch.batch_number,
+                                        error = %e,
+                                        "Failed to save checkpoint after batch submission"
+                                    );
+                                }
+
                                 info!(
                                     batch_number = receipt.batch_number,
-                                    total_batches, "Batch submitted"
+                                    total_batches, "Batch submitted and checkpointed"
                                 );
 
                                 // Send batch info to derivation task
@@ -631,13 +716,23 @@ where
     let derivation_batch_ctx = Arc::clone(&batch_ctx);
     let derivation_compressor = compressor;
     let derivation_tui_handle = tui_handle;
+    let derivation_checkpoint_path = checkpoint_path;
     let derivation_handle = tokio::spawn(async move {
         let source = L1BatchSourceAdapter::new(&derivation_batch_ctx);
         let executor = NoopExecutor::new();
         let config =
             DerivationConfig::builder().poll_interval_ms(DERIVATION_POLL_INTERVAL_MS).build();
 
-        let mut runner = DerivationRunner::new(source, derivation_compressor, executor, config);
+        // Create derivation runner with checkpoint support
+        let runner_result = DerivationRunner::new(source, derivation_compressor, executor, config)
+            .with_checkpoint(derivation_checkpoint_path);
+        let mut runner = match runner_result {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to initialize derivation runner with checkpoint");
+                return 0u64;
+            }
+        };
         let mut _total_derived = 0u64;
 
         loop {

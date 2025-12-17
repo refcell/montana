@@ -3317,6 +3317,7 @@ dependencies = [
  "montana-batch-context",
  "montana-batcher",
  "montana-brotli",
+ "montana-checkpoint",
  "montana-cli",
  "montana-derivation-runner",
  "montana-pipeline",
@@ -3376,6 +3377,7 @@ dependencies = [
  "async-trait",
  "clap",
  "montana-anvil",
+ "montana-checkpoint",
  "montana-pipeline",
  "montana-txmgr",
  "rstest",
@@ -3394,6 +3396,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-checkpoint"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "montana-cli"
 version = "0.0.1"
 dependencies = [
@@ -3408,6 +3420,7 @@ name = "montana-derivation-runner"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "montana-checkpoint",
  "montana-pipeline",
  "rstest",
  "thiserror",
@@ -3433,6 +3446,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "montana-node"
+version = "0.0.1"
+
+[[package]]
 name = "montana-pipeline"
 version = "0.0.1"
 dependencies = [
@@ -3441,6 +3458,15 @@ dependencies = [
  "rstest",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "montana-roles"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "eyre",
+ "montana-checkpoint",
 ]
 
 [[package]]

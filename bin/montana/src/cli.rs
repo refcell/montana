@@ -1,5 +1,7 @@
 //! CLI argument definitions for the node binary
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 use montana_batcher::BatchSubmissionMode;
 use montana_cli::MontanaMode;
@@ -26,6 +28,13 @@ pub(crate) struct Args {
     /// Disable the TUI interface (TUI is enabled by default)
     #[arg(long, default_value = "false")]
     pub no_tui: bool,
+
+    /// Path to checkpoint file for resumption.
+    ///
+    /// If the file exists, the node will resume from the last checkpointed state.
+    /// If the file doesn't exist, a new checkpoint file will be created.
+    #[arg(long, default_value = "./data/checkpoint.json")]
+    pub checkpoint_path: PathBuf,
 
     /// Block producer mode (live or historical)
     #[command(subcommand)]

@@ -31,3 +31,4 @@ mod service;
 pub use service::{BatcherService, BatcherState};
 // Re-export useful types from dependencies
 pub use montana_anvil::Address;
+pub use montana_checkpoint::{Checkpoint, CheckpointError};

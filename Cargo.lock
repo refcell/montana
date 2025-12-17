@@ -3377,7 +3377,6 @@ dependencies = [
  "libmdbx",
  "revm",
  "serde",
- "serde_json",
  "tempfile",
  "tracing",
  "triedb",

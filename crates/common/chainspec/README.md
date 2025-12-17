@@ -1,6 +1,6 @@
 # chainspec
 
-Chain specification for OP Stack chains.
+Chain specification for Base stack chains.
 
 ## Overview
 
@@ -11,12 +11,12 @@ This crate provides chain specifications including hardfork activation timestamp
 | Type | Description |
 |------|-------------|
 | `Chain` | Chain specification containing chain ID, name, and hardfork timestamps |
-| `Hardforks` | Hardfork activation timestamps for each OP Stack fork |
-| `Hardfork` | Enum of OP Stack hardforks (Bedrock, Canyon, Delta, etc.) |
+| `Hardforks` | Hardfork activation timestamps for each Base stack fork |
+| `Hardfork` | Enum of Base stack hardforks (Bedrock, Canyon, Delta, etc.) |
 
 ## Supported Hardforks
 
-- **Bedrock** - Initial OP Stack launch
+- **Bedrock** - Initial Base stack launch
 - **Canyon** - First post-Bedrock hardfork
 - **Delta** - Span batch support
 - **Ecotone** - 4844 blob support

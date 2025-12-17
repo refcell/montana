@@ -14,7 +14,7 @@ This crate provides a unified interface for receiving blocks from various source
 | `HistoricalRangeProducer` | Producer for fetching historical block ranges |
 | `LiveRpcProducer` | Producer for live blocks via RPC polling |
 | `RpcBlockSource` | RPC-backed block source implementation |
-| `OpBlock` | OP Stack block type with all necessary fields |
+| `OpBlock` | Base stack block type with all necessary fields |
 
 ## Modules
 

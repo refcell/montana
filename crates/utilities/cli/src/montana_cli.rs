@@ -7,7 +7,7 @@ use crate::MontanaMode;
 
 /// Montana node CLI arguments.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "montana", about = "Montana OP Stack Node")]
+#[command(name = "montana", about = "Montana Base Stack Node")]
 pub struct MontanaCli {
     /// L2 RPC URL
     #[arg(short = 'r', long, env = "L2_RPC_URL")]

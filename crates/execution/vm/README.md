@@ -1,16 +1,16 @@
 # VM
 
-Block execution for OP Stack chains.
+Block execution for Base stack chains.
 
 ## Overview
 
-This crate provides a `BlockExecutor` that takes a database and chain specification, then executes blocks and their transactions using op-revm. It handles all OP Stack-specific execution logic including deposit transactions and fee handling.
+This crate provides a `BlockExecutor` that takes a database and chain specification, then executes blocks and their transactions using op-revm. It handles all Base stack-specific execution logic including deposit transactions and fee handling.
 
 ## Core Components
 
 | Component | Description |
 |-----------|-------------|
-| `BlockExecutor` | Main executor for processing OP Stack blocks |
+| `BlockExecutor` | Main executor for processing Base stack blocks |
 | `BlockResult` | Result of executing an entire block |
 | `TxResult` | Result of executing a single transaction |
 

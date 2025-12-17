@@ -20,7 +20,7 @@ derive_more.workspace = true
 # execution crates
 blocksource.workspace = true
 
-# OP Stack types
+# Base stack types
 op-alloy.workspace = true
 alloy-rlp.workspace = true
 

@@ -99,7 +99,7 @@ alloy-trie = "0.9"
 alloy-op-hardforks = "0.4.5"
 alloy-chains = "0.2.1"
 
-# OP Stack types
+# Base stack types
 op-alloy = { version = "0.23.1", features = ["consensus", "network", "rpc-types"] }
 
 # REVM dependencies

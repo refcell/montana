@@ -1,4 +1,4 @@
-//! Montana OP Stack Node binary.
+//! Montana Base stack Node binary.
 //!
 //! This is a thin binary that wires up components from library crates.
 //! All business logic lives in the library crates; this file only handles

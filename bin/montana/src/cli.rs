@@ -1,6 +1,7 @@
 //! CLI argument definitions for the node binary
 
 use clap::{Parser, Subcommand};
+use montana_batcher::BatchSubmissionMode;
 use montana_cli::MontanaMode;
 
 /// CLI arguments
@@ -11,9 +12,16 @@ pub(crate) struct Args {
     #[arg(short, long, env = "BASE_RPC_URL")]
     pub rpc_url: String,
 
-    /// Operating mode: executor (default), sequencer, or validator
-    #[arg(long, default_value = "executor")]
+    /// Operating mode: executor, sequencer (default), or validator
+    #[arg(long, default_value = "sequencer")]
     pub mode: MontanaMode,
+
+    /// Batch submission mode (only used in sequencer mode)
+    /// - anvil: Spawn a local Anvil instance for batch submission (default)
+    /// - in-memory: Log batches without persisting them
+    /// - remote: Submit to a remote L1 (not yet implemented)
+    #[arg(long, default_value = "anvil")]
+    pub batch_mode: BatchSubmissionMode,
 
     /// Block producer mode (live or historical)
     #[command(subcommand)]

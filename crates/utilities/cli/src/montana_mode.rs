@@ -14,23 +14,23 @@ use clap::ValueEnum;
 ///
 /// // Get the default mode
 /// let default = MontanaMode::default();
-/// assert_eq!(default, MontanaMode::Executor);
+/// assert_eq!(default, MontanaMode::Sequencer);
 ///
 /// // Display mode as string
 /// assert_eq!(MontanaMode::Sequencer.to_string(), "sequencer");
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum MontanaMode {
-    /// Executor mode (default) - execute blocks and verify against RPC.
+    /// Executor mode - execute blocks and verify against RPC.
     ///
     /// Fetches L2 blocks, executes them locally, and verifies the results
     /// against RPC receipts. Does not submit batches to L1.
-    #[default]
     Executor,
-    /// Sequencer mode - execute blocks and submit batches to L1.
+    /// Sequencer mode (default) - execute blocks and submit batches to L1.
     ///
     /// Runs as a full sequencer: executes L2 blocks and submits compressed
     /// batches to L1 via the batch submission pipeline.
+    #[default]
     Sequencer,
     /// Validator mode - derive and validate blocks from L1.
     ///
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn montana_mode_default() {
-        assert_eq!(MontanaMode::default(), MontanaMode::Executor);
+        assert_eq!(MontanaMode::default(), MontanaMode::Sequencer);
     }
 
     #[test]

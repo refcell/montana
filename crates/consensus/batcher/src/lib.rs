@@ -7,16 +7,13 @@
 
 // Used in tests and future implementation
 #[cfg(not(test))]
-use async_trait as _;
-#[cfg(not(test))]
 use montana_txmgr as _;
-#[cfg(not(test))]
-use tokio as _;
-#[cfg(not(test))]
-use tracing as _;
 
 mod config;
 pub use config::{BatcherConfig, BatcherConfigBuilder};
+
+mod context;
+pub use context::{BatchContext, BatchContextError, BatchSink, InMemoryBatchSink};
 
 mod driver;
 pub use driver::{BatchDriver, PendingBatch};
@@ -27,5 +24,11 @@ pub use error::BatcherError;
 mod metrics;
 pub use metrics::BatcherMetrics;
 
+mod mode;
+pub use mode::BatchSubmissionMode;
+
 mod service;
 pub use service::{BatcherService, BatcherState};
+
+// Re-export useful types from dependencies
+pub use montana_anvil::Address;

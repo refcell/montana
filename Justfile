@@ -115,6 +115,14 @@ roundtrip *ARGS:
 shadow *ARGS:
     cargo run --release -p shadow -- {{ARGS}}
 
-# Run the montana node against Base mainnet
+# Run the montana node in executor mode against Base mainnet
+run-montana-executor:
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode executor historical --start 39554271 --end 39554273
+
+# Run the montana node in sequencer mode with in-memory batch submission
+run-montana-inmemory:
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --batch-mode in-memory historical --start 39554271 --end 39554273
+
+# Run the montana node in sequencer mode (default) with Anvil batch submission against Base mainnet
 run-montana:
     cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 historical --start 39554271 --end 39554273

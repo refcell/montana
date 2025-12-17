@@ -14,7 +14,9 @@ workspace = true
 [dependencies]
 montana-pipeline = { workspace = true }
 montana-txmgr = { workspace = true }
+montana-anvil = { workspace = true }
 async-trait = { workspace = true }
+clap = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }

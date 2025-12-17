@@ -3339,6 +3339,8 @@ name = "montana-batcher"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "clap",
+ "montana-anvil",
  "montana-pipeline",
  "montana-txmgr",
  "rstest",

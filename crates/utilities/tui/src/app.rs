@@ -1,14 +1,45 @@
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use montana_tui_common::LogEntry;
 
 /// Maximum number of log entries to keep in each log buffer.
 const MAX_LOG_ENTRIES: usize = 100;
 
+/// Sync state tracking
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SyncState {
+    /// Not syncing / idle
+    Idle,
+    /// Actively syncing
+    Syncing {
+        /// Starting block
+        start_block: u64,
+        /// Current block
+        current_block: u64,
+        /// Target block
+        target_block: u64,
+        /// Blocks per second
+        blocks_per_second: f64,
+        /// ETA
+        eta: Option<Duration>,
+    },
+    /// Sync completed
+    Completed {
+        /// Blocks synced
+        blocks_synced: u64,
+        /// Duration in seconds
+        duration_secs: f64,
+    },
+}
+
 /// Application state for the Montana TUI.
 ///
 /// This struct maintains all the state needed to render the 4-pane TUI:
 /// - Chain head progression (unsafe, safe, finalized)
+/// - Sync state and progress metrics
 /// - Statistics (blocks processed, batches submitted/derived)
 /// - Round-trip latency metrics
 /// - Log buffers for each component
@@ -26,6 +57,14 @@ pub struct App {
     /// Latest finalized head (L2 block re-derived from L1)
     pub finalized_head: u64,
 
+    // Sync state
+    /// Current sync state
+    pub sync_state: SyncState,
+    /// Total syncs completed
+    pub syncs_completed: u64,
+    /// Timestamp when sync started (for elapsed time tracking)
+    pub sync_start_time: Option<Instant>,
+
     // Statistics
     /// Total number of L2 blocks processed
     pub blocks_processed: u64,
@@ -41,8 +80,8 @@ pub struct App {
     round_trip_latencies: Vec<u64>,
 
     // Log buffers
-    /// Transaction pool logs
-    pub tx_pool_logs: Vec<LogEntry>,
+    /// Sync update logs (replaces tx_pool_logs)
+    pub sync_logs: Vec<LogEntry>,
     /// Block builder logs
     pub block_builder_logs: Vec<LogEntry>,
     /// Batch submission logs
@@ -64,12 +103,15 @@ impl App {
             unsafe_head: 0,
             safe_head: 0,
             finalized_head: 0,
+            sync_state: SyncState::Idle,
+            syncs_completed: 0,
+            sync_start_time: None,
             blocks_processed: 0,
             batches_submitted: 0,
             batches_derived: 0,
             batch_submit_times: HashMap::new(),
             round_trip_latencies: Vec::new(),
-            tx_pool_logs: Vec::new(),
+            sync_logs: Vec::new(),
             block_builder_logs: Vec::new(),
             batch_logs: Vec::new(),
             derivation_logs: Vec::new(),
@@ -85,12 +127,15 @@ impl App {
         self.unsafe_head = 0;
         self.safe_head = 0;
         self.finalized_head = 0;
+        self.sync_state = SyncState::Idle;
+        self.syncs_completed = 0;
+        self.sync_start_time = None;
         self.blocks_processed = 0;
         self.batches_submitted = 0;
         self.batches_derived = 0;
         self.batch_submit_times.clear();
         self.round_trip_latencies.clear();
-        self.tx_pool_logs.clear();
+        self.sync_logs.clear();
         self.block_builder_logs.clear();
         self.batch_logs.clear();
         self.derivation_logs.clear();
@@ -103,17 +148,86 @@ impl App {
         self.is_paused = !self.is_paused;
     }
 
-    /// Add a log entry to the transaction pool logs.
+    /// Add a log entry to the sync logs.
     ///
     /// Log entries are kept in a circular buffer with a maximum of 100 entries.
     ///
     /// # Arguments
     ///
     /// * `entry` - The log entry to add
-    pub fn log_tx(&mut self, entry: LogEntry) {
-        self.tx_pool_logs.push(entry);
-        if self.tx_pool_logs.len() > MAX_LOG_ENTRIES {
-            self.tx_pool_logs.remove(0);
+    pub fn log_sync(&mut self, entry: LogEntry) {
+        self.sync_logs.push(entry);
+        if self.sync_logs.len() > MAX_LOG_ENTRIES {
+            self.sync_logs.remove(0);
+        }
+    }
+
+    /// Start a sync operation.
+    ///
+    /// Records the start time and sets the sync state to Syncing.
+    pub fn start_sync(&mut self, start_block: u64, target_block: u64) {
+        self.sync_state = SyncState::Syncing {
+            start_block,
+            current_block: start_block,
+            target_block,
+            blocks_per_second: 0.0,
+            eta: None,
+        };
+        self.sync_start_time = Some(Instant::now());
+    }
+
+    /// Update sync progress.
+    ///
+    /// If not already syncing, this will start a sync using the current_block
+    /// as an approximation for the start block.
+    pub const fn update_sync_progress(
+        &mut self,
+        current_block: u64,
+        target_block: u64,
+        blocks_per_second: f64,
+        eta: Option<Duration>,
+    ) {
+        // Preserve start_block if already syncing, otherwise use current_block as approximation
+        let start_block = match self.sync_state {
+            SyncState::Syncing { start_block, .. } => start_block,
+            SyncState::Idle | SyncState::Completed { .. } => current_block,
+        };
+
+        self.sync_state =
+            SyncState::Syncing { start_block, current_block, target_block, blocks_per_second, eta };
+    }
+
+    /// Complete a sync operation.
+    pub const fn complete_sync(&mut self, blocks_synced: u64, duration_secs: f64) {
+        self.sync_state = SyncState::Completed { blocks_synced, duration_secs };
+        self.syncs_completed += 1;
+        self.sync_start_time = None;
+    }
+
+    /// Get the elapsed sync time in seconds.
+    pub fn sync_elapsed_secs(&self) -> f64 {
+        self.sync_start_time.map_or(0.0, |t| t.elapsed().as_secs_f64())
+    }
+
+    /// Check if sync is complete (either Completed state or Idle with blocks synced).
+    pub const fn is_sync_complete(&self) -> bool {
+        matches!(self.sync_state, SyncState::Completed { .. })
+    }
+
+    /// Get sync progress as a percentage (0.0 to 100.0).
+    pub fn sync_progress_percent(&self) -> f64 {
+        match self.sync_state {
+            SyncState::Syncing { start_block, current_block, target_block, .. } => {
+                if target_block <= start_block {
+                    100.0
+                } else {
+                    let total = (target_block - start_block) as f64;
+                    let done = (current_block.saturating_sub(start_block)) as f64;
+                    (done / total) * 100.0
+                }
+            }
+            SyncState::Completed { .. } => 100.0,
+            SyncState::Idle => 0.0,
         }
     }
 

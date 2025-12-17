@@ -26,10 +26,10 @@ pub use handle::TuiHandle;
 /// Application state.
 ///
 /// The [`App`] struct maintains all state for the Montana TUI, including chain
-/// head progression, statistics, latency metrics, and log buffers for each
-/// component.
+/// head progression, sync state, statistics, latency metrics, and log buffers
+/// for each component. The [`SyncState`] enum tracks the current sync status.
 mod app;
-pub use app::App;
+pub use app::{App, SyncState};
 
 /// TUI implementation.
 ///

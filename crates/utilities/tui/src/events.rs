@@ -1,15 +1,53 @@
+use std::time::Duration;
+
 use alloy_primitives::Address;
 
 /// Events that can be sent to the TUI from the montana binary.
 ///
 /// These events represent the key activities happening in the Montana node:
-/// - L2 transaction pool activity
+/// - Sync status and progress updates
 /// - L2 block building and batch submission
 /// - L1 batch submission with compression
 /// - L2 block derivation and execution from L1 data
 /// - Chain head progression (unsafe, safe, finalized)
 #[derive(Debug, Clone)]
 pub enum TuiEvent {
+    /// Sync process has started.
+    ///
+    /// This event is triggered when the node begins syncing from a starting block
+    /// to a target block.
+    SyncStarted {
+        /// The block number at which syncing started
+        start_block: u64,
+        /// The target block number to reach
+        target_block: u64,
+    },
+
+    /// Sync progress update.
+    ///
+    /// This event provides real-time updates on sync progress including
+    /// current block, speed, and estimated time remaining.
+    SyncProgress {
+        /// The current block number being processed
+        current_block: u64,
+        /// The target block number to reach
+        target_block: u64,
+        /// Blocks synced per second (rolling average)
+        blocks_per_second: f64,
+        /// Estimated time remaining
+        eta: Option<Duration>,
+    },
+
+    /// Sync process has completed.
+    ///
+    /// This event is triggered when the sync has caught up to the target.
+    SyncCompleted {
+        /// Total number of blocks synced
+        blocks_synced: u64,
+        /// Duration of sync in seconds
+        duration_secs: f64,
+    },
+
     /// New transaction seen in pool (from L2 fetching).
     ///
     /// This event is triggered when a new transaction arrives in the L2 transaction pool,

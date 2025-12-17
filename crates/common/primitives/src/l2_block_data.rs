@@ -14,4 +14,3 @@ pub struct L2BlockData<T = Bytes> {
     /// Block transactions.
     pub transactions: Vec<T>,
 }
-

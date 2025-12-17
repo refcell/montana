@@ -12,4 +12,3 @@ pub struct SubmissionReceipt {
     /// Blob hash (if blob submission).
     pub blob_hash: Option<[u8; 32]>,
 }
-

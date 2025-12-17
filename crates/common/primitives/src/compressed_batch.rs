@@ -8,4 +8,3 @@ pub struct CompressedBatch {
     /// Compressed data.
     pub data: Vec<u8>,
 }
-

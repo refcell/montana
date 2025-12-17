@@ -1,100 +1,103 @@
-//! Optimism (Base) block executor using op-revm
+//! Montana OP Stack Node binary.
 //!
-//! This binary fetches blocks from an Optimism (Base) RPC and executes all transactions
-//! using op-revm with an in-memory database that falls back to RPC for missing state.
-//!
-//! # Operating Modes
-//!
-//! - **Executor**: Execute blocks and verify against RPC receipts
-//! - **Sequencer**: Execute blocks and submit batches to L1
-//! - **Validator**: Derive and validate blocks from L1
-//! - **Dual** (default): Run both sequencer and validator concurrently
+//! This is a thin binary that wires up components from library crates.
+//! All business logic lives in the library crates; this file only handles
+//! configuration parsing, component construction, and runtime setup.
 
-mod cli;
-
-use std::{io, path::PathBuf, sync::Arc, time::Duration};
+use std::{io, sync::Arc};
 
 use alloy::providers::{Provider, ProviderBuilder};
-use montana_batch_context::{BatchContext, BatchSubmissionMode, L1BatchSourceAdapter};
-use blocksource::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer};
+use async_trait::async_trait;
 use clap::Parser;
-use cli::{Args, ProducerMode};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use database::{CachedDatabase, RPCDatabase};
 use eyre::Result;
-use montana_batcher::{Address, BatcherConfig, Checkpoint};
+use montana_batch_context::BatchContext;
+use montana_batcher::{Address, BatchDriver, BatcherConfig};
 use montana_brotli::BrotliCompressor;
-use montana_cli::MontanaMode;
-use montana_derivation_runner::{DerivationConfig, DerivationRunner};
-use montana_pipeline::{CompressedBatch, Compressor, NoopExecutor};
-use montana_tui::{TuiEvent, TuiHandle, create_tui};
+use montana_cli::{MontanaCli, MontanaMode, ProducerMode};
+use montana_node::{Node, NodeBuilder, NodeConfig, NodeRole, SyncConfig, SyncStage};
+use montana_pipeline::NoopExecutor;
+use montana_roles::{Sequencer, Validator};
+use montana_tui::{TuiObserver, create_tui};
 use op_alloy::network::Optimism;
-use runner::{ExecutedBlock, Execution, verification};
-use tokio::sync::mpsc;
-use tracing::info;
-
-/// Buffer capacity for the sequencer mode.
-const SEQUENCER_BUFFER_CAPACITY: usize = 256;
-
-/// Default poll interval for derivation in milliseconds.
-const DERIVATION_POLL_INTERVAL_MS: u64 = 50;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let cli = MontanaCli::parse();
 
-    if !args.no_tui {
-        run_with_tui(args)
+    // Check for unsupported executor mode
+    if cli.mode == MontanaMode::Executor {
+        eprintln!("Error: Executor mode is not yet supported in the new node architecture.");
+        eprintln!("Please use 'sequencer', 'validator', or 'dual' mode instead.");
+        std::process::exit(1);
+    }
+
+    if cli.headless {
+        init_tracing(&cli.log_level);
+        run_headless(cli).await
     } else {
-        // Initialize tracing only in non-TUI mode
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::from_default_env()
-                    .add_directive(tracing::level_filters::LevelFilter::INFO.into()),
-            )
-            .init();
-        run_without_tui(args).await
+        run_with_tui(cli)
     }
 }
 
-/// Run without TUI (existing tracing-based behavior).
-async fn run_without_tui(args: Args) -> Result<()> {
-    run_with_handle(args, None).await
+fn init_tracing(log_level: &str) {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
+        )
+        .init();
 }
 
-/// Run with TUI interface.
-fn run_with_tui(args: Args) -> Result<()> {
-    // Setup terminal
+async fn run_headless(cli: MontanaCli) -> Result<()> {
+    match &cli.producer {
+        ProducerMode::Live { .. } => {
+            let mut node = build_node_live(cli, None).await?;
+            node.run().await
+        }
+        ProducerMode::Historical { .. } => {
+            let mut node = build_node_historical(cli, None).await?;
+            node.run().await
+        }
+    }
+}
+
+fn run_with_tui(cli: MontanaCli) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
 
-    // Create TUI and handle
     let (tui, handle) = create_tui();
+    let tui_observer = Arc::new(TuiObserver::new(handle));
 
-    // Create a new tokio runtime for async work
     let rt = tokio::runtime::Runtime::new()?;
+    let is_live = matches!(cli.producer, ProducerMode::Live { .. });
 
-    // Clone args for the async task
-    let async_args = args;
-    let async_handle = handle;
-
-    // Spawn the async work in a separate thread
     std::thread::spawn(move || {
         rt.block_on(async move {
-            if let Err(e) = run_with_handle(async_args, Some(async_handle)).await {
-                tracing::error!(error = %e, "Montana node error");
+            let result = if is_live {
+                match build_node_live(cli, Some(tui_observer)).await {
+                    Ok(mut node) => node.run().await,
+                    Err(e) => Err(e),
+                }
+            } else {
+                match build_node_historical(cli, Some(tui_observer)).await {
+                    Ok(mut node) => node.run().await,
+                    Err(e) => Err(e),
+                }
+            };
+
+            if let Err(e) = result {
+                tracing::error!(error = %e, "Node error");
             }
         });
     });
 
-    // Run TUI (blocking) in main thread
     let result = tui.run();
 
-    // Cleanup
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
     ratatui::restore();
@@ -102,453 +105,78 @@ fn run_with_tui(args: Args) -> Result<()> {
     result.map_err(|e| eyre::eyre!("TUI error: {}", e))
 }
 
-/// Core logic that takes optional TUI handle.
-async fn run_with_handle(args: Args, tui_handle: Option<TuiHandle>) -> Result<()> {
+async fn build_node_live(
+    cli: MontanaCli,
+    tui_observer: Option<Arc<TuiObserver>>,
+) -> Result<Node<blocksource::LiveRpcProducer<impl Provider<Optimism> + Clone + 'static>>> {
+    use std::time::Duration;
+
+    use blocksource::LiveRpcProducer;
+
+    // Build provider
     let provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .network::<Optimism>()
-        .connect(args.rpc_url.as_str())
+        .connect(&cli.rpc_url)
         .await?;
 
-    let start_block = match &args.producer {
-        ProducerMode::Live { .. } => provider.get_block_number().await?,
-        ProducerMode::Historical { start, .. } => *start,
+    // Get start block
+    let start_block = provider.get_block_number().await?;
+
+    // Build block producer
+    let ProducerMode::Live { poll_interval_ms } = &cli.producer else {
+        unreachable!("build_node_live called with non-live producer");
     };
 
-    let db = CachedDatabase::new(RPCDatabase::new(
-        provider.clone(),
-        start_block.saturating_sub(1),
-        tokio::runtime::Handle::current(),
-    ));
+    let block_producer =
+        LiveRpcProducer::new(provider, Duration::from_millis(*poll_interval_ms), Some(start_block));
 
-    match (&args.mode, &args.producer) {
-        (MontanaMode::Executor, ProducerMode::Live { poll_interval_ms }) => {
-            let producer = LiveRpcProducer::new(
-                provider.clone(),
-                Duration::from_millis(*poll_interval_ms),
-                Some(start_block),
-            );
-            run_executor(db, producer, provider, tui_handle).await
-        }
-        (MontanaMode::Executor, ProducerMode::Historical { start, end }) => {
-            let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_executor(db, producer, provider, tui_handle).await
-        }
-        (MontanaMode::Sequencer, ProducerMode::Live { poll_interval_ms }) => {
-            let producer = LiveRpcProducer::new(
-                provider.clone(),
-                Duration::from_millis(*poll_interval_ms),
-                Some(start_block),
-            );
-            run_sequencer(db, producer, args.batch_mode, args.checkpoint_path, tui_handle).await
-        }
-        (MontanaMode::Sequencer, ProducerMode::Historical { start, end }) => {
-            let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_sequencer(db, producer, args.batch_mode, args.checkpoint_path, tui_handle).await
-        }
-        (MontanaMode::Validator, ProducerMode::Live { .. }) => {
-            run_validator(args.batch_mode, args.checkpoint_path, tui_handle).await
-        }
-        (MontanaMode::Validator, ProducerMode::Historical { .. }) => {
-            run_validator(args.batch_mode, args.checkpoint_path, tui_handle).await
-        }
-        (MontanaMode::Dual, ProducerMode::Live { poll_interval_ms }) => {
-            let producer = LiveRpcProducer::new(
-                provider.clone(),
-                Duration::from_millis(*poll_interval_ms),
-                Some(start_block),
-            );
-            run_dual(db, producer, args.batch_mode, args.checkpoint_path.clone(), tui_handle).await
-        }
-        (MontanaMode::Dual, ProducerMode::Historical { start, end }) => {
-            let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_dual(db, producer, args.batch_mode, args.checkpoint_path.clone(), tui_handle).await
-        }
-    }
+    build_node_common(cli, block_producer, tui_observer).await
 }
 
-/// Run in executor mode: execute and verify blocks against RPC receipts.
-async fn run_executor<DB, P, Prov>(
-    db: DB,
-    producer: P,
-    provider: Prov,
-    _tui_handle: Option<TuiHandle>,
-) -> Result<()>
-where
-    DB: database::Database,
-    P: BlockProducer + 'static,
-    Prov: Provider<Optimism> + Clone + Send + Sync + 'static,
-{
-    info!("Starting in executor mode");
+async fn build_node_historical(
+    cli: MontanaCli,
+    tui_observer: Option<Arc<TuiObserver>>,
+) -> Result<Node<blocksource::HistoricalRangeProducer<impl Provider<Optimism> + Clone + 'static>>> {
+    use blocksource::HistoricalRangeProducer;
 
-    // Create a channel for execution output
-    let (block_tx, block_rx) = mpsc::channel::<ExecutedBlock>(16);
+    // Build provider
+    let provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .network::<Optimism>()
+        .connect(&cli.rpc_url)
+        .await?;
 
-    let execution = Execution::new(db, producer, block_tx);
+    // Build block producer
+    let ProducerMode::Historical { start, end } = &cli.producer else {
+        unreachable!("build_node_historical called with non-historical producer");
+    };
 
-    // Spawn a task to verify executed blocks against RPC receipts
-    let verifier_handle = tokio::spawn(verification::run_verifier(block_rx, provider));
+    let block_producer = HistoricalRangeProducer::new(provider, *start, *end);
 
-    // Run execution
-    let result = execution.start().await;
-
-    // Wait for verifier to complete
-    let _ = verifier_handle.await;
-
-    result
+    build_node_common(cli, block_producer, tui_observer).await
 }
 
-/// Run in sequencer mode: execute blocks and submit batches to L1.
-async fn run_sequencer<DB, P>(
-    db: DB,
-    producer: P,
-    batch_mode: BatchSubmissionMode,
-    checkpoint_path: PathBuf,
-    tui_handle: Option<TuiHandle>,
-) -> Result<()>
-where
-    DB: database::Database,
-    P: BlockProducer + 'static,
-{
-    info!(batch_mode = %batch_mode, "Starting in sequencer mode");
+async fn build_node_common<P: blocksource::BlockProducer + 'static>(
+    cli: MontanaCli,
+    block_producer: P,
+    tui_observer: Option<Arc<TuiObserver>>,
+) -> Result<Node<P>> {
+    // Build node config
+    let config = NodeConfig {
+        role: mode_to_node_role(&cli.mode),
+        checkpoint_path: cli.checkpoint_path.clone(),
+        checkpoint_interval_secs: cli.checkpoint_interval,
+        skip_sync: cli.skip_sync,
+    };
 
-    // Load checkpoint for resumption
-    let checkpoint = Checkpoint::load(&checkpoint_path)
-        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
-        .unwrap_or_default();
-    info!(
-        checkpoint_path = ?checkpoint_path,
-        last_batch_submitted = checkpoint.last_batch_submitted,
-        "Loaded checkpoint state"
-    );
+    // Build sync config
+    let sync_config = SyncConfig { sync_threshold: cli.sync_threshold, ..Default::default() };
 
-    // Create the batch context based on the submission mode
-    let batch_inbox = Address::repeat_byte(0x42);
-    let batch_ctx = BatchContext::new(batch_mode, batch_inbox)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to create batch context: {}", e))?;
+    // Use batch mode from CLI directly (it's already BatchSubmissionMode)
+    let batch_mode = cli.batch_mode;
 
-    if let Some(endpoint) = batch_ctx.anvil_endpoint() {
-        info!(endpoint = %endpoint, "Anvil L1 endpoint available");
-    }
-
-    // Create channel for execution → batcher communication
-    let (block_tx, mut block_rx) = mpsc::channel::<ExecutedBlock>(SEQUENCER_BUFFER_CAPACITY);
-
-    // Create execution client with output channel
-    let execution = Execution::new(db, producer, block_tx);
-
-    // Create batcher components
-    let compressor = BrotliCompressor::default();
-    let sink = batch_ctx.sink();
-    let config = BatcherConfig::default();
-
-    // Create the batch driver to manage batching decisions with checkpoint support
-    let mut driver = montana_batcher::BatchDriver::new(config.clone())
-        .with_checkpoint(checkpoint_path.clone())
-        .map_err(|e| eyre::eyre!("Failed to initialize batch driver with checkpoint: {}", e))?;
-
-    info!(
-        buffer_capacity = SEQUENCER_BUFFER_CAPACITY,
-        batch_interval = ?config.batch_interval,
-        min_batch_size = config.min_batch_size,
-        max_blocks_per_batch = config.max_blocks_per_batch,
-        "Sequencer initialized, running execution with batch submission"
-    );
-
-    // Spawn the batcher task that processes blocks and submits batches
-    let batcher_handle = tokio::spawn(async move {
-        let mut total_blocks = 0u64;
-        let mut total_batches = 0u64;
-        let mut last_safe_block = 0u64;
-
-        while let Some(executed) = block_rx.recv().await {
-            let block_number = executed.block.header.number;
-
-            // Emit block built event
-            if let Some(ref handle) = tui_handle {
-                handle.send(TuiEvent::BlockBuilt {
-                    number: block_number,
-                    tx_count: executed.block.transactions.len(),
-                    size_bytes: 0, // TODO: calculate actual size
-                    gas_used: executed.block.header.gas_used,
-                });
-                handle.send(TuiEvent::UnsafeHeadUpdated(block_number));
-            }
-
-            // Convert block to L2BlockData for batching
-            let l2_data = sequencer::op_block_to_l2_data(&executed.block);
-            driver.add_blocks(vec![l2_data]);
-            total_blocks += 1;
-
-            tracing::debug!(
-                block_number = executed.block.header.number,
-                pending_blocks = driver.pending_count(),
-                current_size = driver.current_size(),
-                "Block added to batcher"
-            );
-
-            // Check if we should submit a batch
-            while let Some(pending_batch) = driver.build_batch() {
-                // Check if batch should be skipped (already submitted per checkpoint)
-                if driver.should_skip_batch(pending_batch.batch_number) {
-                    info!(
-                        batch_number = pending_batch.batch_number,
-                        "Skipping already-submitted batch"
-                    );
-                    continue;
-                }
-
-                // Calculate block range for this batch
-                let first_block_num = last_safe_block + 1;
-                let last_block_num = first_block_num + pending_batch.blocks.len() as u64 - 1;
-
-                info!(
-                    batch_number = pending_batch.batch_number,
-                    blocks = pending_batch.blocks.len(),
-                    uncompressed_size = pending_batch.uncompressed_size,
-                    "Building batch for submission"
-                );
-
-                // Encode the batch data
-                let mut batch_data = Vec::new();
-                for block_data in &pending_batch.blocks {
-                    for tx in &block_data.transactions {
-                        batch_data.extend_from_slice(&tx.0);
-                    }
-                }
-
-                // Compress the batch
-                match compressor.compress(&batch_data) {
-                    Ok(compressed) => {
-                        let compressed_size = compressed.len();
-                        let compression_ratio =
-                            1.0 - (compressed_size as f64 / batch_data.len().max(1) as f64);
-                        info!(
-                            batch_number = pending_batch.batch_number,
-                            uncompressed = batch_data.len(),
-                            compressed = compressed_size,
-                            compression_ratio = format!("{:.1}%", compression_ratio * 100.0),
-                            "Batch compressed"
-                        );
-
-                        // Submit the batch
-                        let compressed_batch = CompressedBatch {
-                            batch_number: pending_batch.batch_number,
-                            data: compressed,
-                        };
-
-                        match sink.submit(compressed_batch).await {
-                            Ok(receipt) => {
-                                total_batches += 1;
-                                last_safe_block = last_block_num;
-
-                                // Record successful submission in checkpoint
-                                if let Err(e) =
-                                    driver.record_batch_submitted(pending_batch.batch_number)
-                                {
-                                    tracing::error!(
-                                        batch_number = pending_batch.batch_number,
-                                        error = %e,
-                                        "Failed to save checkpoint after batch submission"
-                                    );
-                                }
-
-                                info!(
-                                    batch_number = receipt.batch_number,
-                                    total_batches, total_blocks, "Batch submitted and checkpointed"
-                                );
-
-                                // Emit batch submitted event
-                                if let Some(ref handle) = tui_handle {
-                                    handle.send(TuiEvent::BatchSubmitted {
-                                        batch_number: pending_batch.batch_number,
-                                        block_count: pending_batch.blocks.len(),
-                                        first_block: first_block_num,
-                                        last_block: last_block_num,
-                                        uncompressed_size: batch_data.len(),
-                                        compressed_size,
-                                    });
-                                    handle.send(TuiEvent::SafeHeadUpdated(last_block_num));
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    batch_number = pending_batch.batch_number,
-                                    error = %e,
-                                    "Failed to submit batch"
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            batch_number = pending_batch.batch_number,
-                            error = %e,
-                            "Failed to compress batch"
-                        );
-                    }
-                }
-            }
-        }
-
-        info!(
-            total_blocks,
-            total_batches,
-            remaining_pending = driver.pending_count(),
-            "Block ingestion completed"
-        );
-
-        // Log any remaining blocks
-        if driver.pending_count() > 0 {
-            info!(
-                remaining_blocks = driver.pending_count(),
-                "Note: {} blocks remain unbatched (below threshold)",
-                driver.pending_count()
-            );
-        }
-
-        (total_blocks, total_batches)
-    });
-
-    // Run execution
-    let execution_result = execution.start().await;
-
-    // Wait for batcher to complete and get stats
-    match batcher_handle.await {
-        Ok((total_blocks, total_batches)) => {
-            info!(total_blocks, total_batches, "Sequencer completed successfully");
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "Batcher task failed");
-        }
-    }
-
-    execution_result
-}
-
-/// Run in validator mode: derive and validate blocks from L1.
-async fn run_validator(
-    batch_mode: BatchSubmissionMode,
-    checkpoint_path: PathBuf,
-    tui_handle: Option<TuiHandle>,
-) -> Result<()> {
-    info!(batch_mode = %batch_mode, "Starting in validator mode");
-
-    // Load checkpoint for resumption
-    let checkpoint = Checkpoint::load(&checkpoint_path)
-        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
-        .unwrap_or_default();
-    info!(
-        checkpoint_path = ?checkpoint_path,
-        last_batch_derived = checkpoint.last_batch_derived,
-        "Loaded checkpoint state"
-    );
-
-    // Create the batch context for reading from L1
-    let batch_inbox = Address::repeat_byte(0x42);
-    let batch_ctx = BatchContext::new(batch_mode, batch_inbox)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to create batch context: {}", e))?;
-
-    if let Some(endpoint) = batch_ctx.anvil_endpoint() {
-        info!(endpoint = %endpoint, "Anvil L1 endpoint available");
-    }
-
-    // Create derivation components
-    let source = L1BatchSourceAdapter::new(&batch_ctx);
-    let compressor = BrotliCompressor::default();
-    let executor = NoopExecutor::new();
-    let config = DerivationConfig::builder().poll_interval_ms(DERIVATION_POLL_INTERVAL_MS).build();
-
-    // Create derivation runner with checkpoint support
-    let mut runner = DerivationRunner::new(source, compressor, executor, config)
-        .with_checkpoint(checkpoint_path)
-        .map_err(|e| {
-            eyre::eyre!("Failed to initialize derivation runner with checkpoint: {}", e)
-        })?;
-
-    info!(
-        poll_interval_ms = DERIVATION_POLL_INTERVAL_MS,
-        "Validator initialized, running derivation loop"
-    );
-
-    // Run the derivation loop
-    let mut total_batches = 0u64;
-    loop {
-        match runner.tick().await {
-            Ok(Some(metrics)) => {
-                total_batches += 1;
-                info!(
-                    batches_derived = metrics.batches_derived,
-                    blocks_derived = metrics.blocks_derived,
-                    first_block = metrics.first_block_in_batch,
-                    last_block = metrics.last_block_in_batch,
-                    bytes_decompressed = metrics.bytes_decompressed,
-                    "Derived batch from L1"
-                );
-
-                // Emit batch derived event (for metrics tracking)
-                if let Some(ref handle) = tui_handle {
-                    handle.send(TuiEvent::BatchDerived {
-                        batch_number: metrics.current_batch_number,
-                        block_count: metrics.blocks_in_current_batch,
-                        first_block: metrics.first_block_in_batch,
-                        last_block: metrics.last_block_in_batch,
-                    });
-                }
-            }
-            Ok(None) => {
-                // No batch available, continue polling
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "Derivation error");
-                // Continue trying
-            }
-        }
-
-        // Exit condition: no more batches expected (in historical mode)
-        // For now, just run indefinitely - this would need refinement
-        // based on actual use case requirements
-        if total_batches > 0 {
-            // Small delay before next poll
-            tokio::time::sleep(Duration::from_millis(DERIVATION_POLL_INTERVAL_MS)).await;
-        }
-    }
-}
-
-/// Information about a submitted batch, sent from sequencer to derivation task.
-struct BatchInfo {
-    batch_number: u64,
-    block_count: u64,
-}
-
-/// Run in dual mode: execute blocks, submit batches, and derive/validate concurrently.
-async fn run_dual<DB, P>(
-    db: DB,
-    producer: P,
-    batch_mode: BatchSubmissionMode,
-    checkpoint_path: PathBuf,
-    tui_handle: Option<TuiHandle>,
-) -> Result<()>
-where
-    DB: database::Database,
-    P: BlockProducer + 'static,
-{
-    info!(batch_mode = %batch_mode, "Starting in dual mode (sequencer + validator)");
-
-    // Load checkpoint for resumption
-    let checkpoint = Checkpoint::load(&checkpoint_path)
-        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
-        .unwrap_or_default();
-    info!(
-        checkpoint_path = ?checkpoint_path,
-        last_batch_submitted = checkpoint.last_batch_submitted,
-        last_batch_derived = checkpoint.last_batch_derived,
-        "Loaded checkpoint state"
-    );
-
-    // Create the batch context
+    // Build batch context
     let batch_inbox = Address::repeat_byte(0x42);
     let batch_ctx = Arc::new(
         BatchContext::new(batch_mode, batch_inbox)
@@ -556,245 +184,123 @@ where
             .map_err(|e| eyre::eyre!("Failed to create batch context: {}", e))?,
     );
 
-    if let Some(endpoint) = batch_ctx.anvil_endpoint() {
-        info!(endpoint = %endpoint, "Anvil L1 endpoint available");
+    // Create node builder
+    let mut builder = NodeBuilder::new().with_config(config.clone());
+
+    // Add sync stage unless skipped
+    if !cli.skip_sync {
+        let sync_stage = SyncStage::new(block_producer, sync_config);
+        builder = builder.with_sync_stage(sync_stage);
     }
 
-    // Create channel for execution → batcher communication
-    let (block_tx, mut block_rx) = mpsc::channel::<ExecutedBlock>(SEQUENCER_BUFFER_CAPACITY);
+    // Add sequencer if role requires it
+    if config.role.runs_sequencer() {
+        let (_block_tx, block_rx) = tokio::sync::mpsc::channel(256);
 
-    // Create channel for batcher → derivation communication (batch block counts)
-    let (batch_info_tx, mut batch_info_rx) = mpsc::channel::<BatchInfo>(SEQUENCER_BUFFER_CAPACITY);
+        let batch_driver = BatchDriver::new(BatcherConfig::default());
+        let compressor = BrotliCompressor::default();
 
-    // Create execution client with output channel
-    let execution = Execution::new(db, producer, block_tx);
+        // Wrap the batch context sink in an adapter to bridge the two BatchSink traits
+        let sink_adapter = BatchSinkAdapter { inner: batch_ctx.sink() };
 
-    // Create batcher components
-    let compressor = BrotliCompressor::default();
-    let sink = batch_ctx.sink();
-    let batcher_config = BatcherConfig::default();
+        let sequencer = Sequencer::new(
+            sink_adapter,
+            compressor,
+            batch_driver,
+            cli.checkpoint_path.clone(),
+            block_rx,
+        )?;
+        builder = builder.with_sequencer(sequencer);
+    }
 
-    // Create the batch driver to manage batching decisions with checkpoint support
-    let mut driver = montana_batcher::BatchDriver::new(batcher_config.clone())
-        .with_checkpoint(checkpoint_path.clone())
-        .map_err(|e| eyre::eyre!("Failed to initialize batch driver with checkpoint: {}", e))?;
-
-    info!(
-        buffer_capacity = SEQUENCER_BUFFER_CAPACITY,
-        batch_interval = ?batcher_config.batch_interval,
-        min_batch_size = batcher_config.min_batch_size,
-        max_blocks_per_batch = batcher_config.max_blocks_per_batch,
-        "Dual mode initialized"
-    );
-
-    // Spawn the batcher task (sequencer side)
-    let batcher_compressor = compressor.clone();
-    let batcher_tui_handle = tui_handle.clone();
-    let batcher_handle = tokio::spawn(async move {
-        let mut total_blocks = 0u64;
-        let mut total_batches = 0u64;
-        let mut last_safe_block = 0u64;
-
-        while let Some(executed) = block_rx.recv().await {
-            let block_number = executed.block.header.number;
-
-            // Emit block built event
-            if let Some(ref handle) = batcher_tui_handle {
-                handle.send(TuiEvent::BlockBuilt {
-                    number: block_number,
-                    tx_count: executed.block.transactions.len(),
-                    size_bytes: 0, // TODO: calculate actual size
-                    gas_used: executed.block.header.gas_used,
-                });
-                handle.send(TuiEvent::UnsafeHeadUpdated(block_number));
-            }
-
-            let l2_data = sequencer::op_block_to_l2_data(&executed.block);
-            driver.add_blocks(vec![l2_data]);
-            total_blocks += 1;
-
-            tracing::debug!(
-                block_number = executed.block.header.number,
-                pending_blocks = driver.pending_count(),
-                "Block added to batcher"
-            );
-
-            while let Some(pending_batch) = driver.build_batch() {
-                // Check if batch should be skipped (already submitted per checkpoint)
-                if driver.should_skip_batch(pending_batch.batch_number) {
-                    info!(
-                        batch_number = pending_batch.batch_number,
-                        "Skipping already-submitted batch"
-                    );
-                    continue;
-                }
-
-                // Calculate block range for this batch
-                let first_block_num = last_safe_block + 1;
-                let last_block_num = first_block_num + pending_batch.blocks.len() as u64 - 1;
-                let block_count = pending_batch.blocks.len() as u64;
-
-                info!(
-                    batch_number = pending_batch.batch_number,
-                    blocks = pending_batch.blocks.len(),
-                    "Building batch for submission"
-                );
-
-                let mut batch_data = Vec::new();
-                for block_data in &pending_batch.blocks {
-                    for tx in &block_data.transactions {
-                        batch_data.extend_from_slice(&tx.0);
-                    }
-                }
-
-                match batcher_compressor.compress(&batch_data) {
-                    Ok(compressed) => {
-                        let compressed_batch = CompressedBatch {
-                            batch_number: pending_batch.batch_number,
-                            data: compressed.clone(),
-                        };
-
-                        match sink.submit(compressed_batch).await {
-                            Ok(receipt) => {
-                                total_batches += 1;
-                                last_safe_block = last_block_num;
-
-                                // Record successful submission in checkpoint
-                                if let Err(e) =
-                                    driver.record_batch_submitted(pending_batch.batch_number)
-                                {
-                                    tracing::error!(
-                                        batch_number = pending_batch.batch_number,
-                                        error = %e,
-                                        "Failed to save checkpoint after batch submission"
-                                    );
-                                }
-
-                                info!(
-                                    batch_number = receipt.batch_number,
-                                    total_batches, "Batch submitted and checkpointed"
-                                );
-
-                                // Send batch info to derivation task
-                                let _ = batch_info_tx
-                                    .send(BatchInfo {
-                                        batch_number: pending_batch.batch_number,
-                                        block_count,
-                                    })
-                                    .await;
-
-                                // Emit batch submitted event
-                                if let Some(ref handle) = batcher_tui_handle {
-                                    handle.send(TuiEvent::BatchSubmitted {
-                                        batch_number: pending_batch.batch_number,
-                                        block_count: pending_batch.blocks.len(),
-                                        first_block: first_block_num,
-                                        last_block: last_block_num,
-                                        uncompressed_size: batch_data.len(),
-                                        compressed_size: compressed.len(),
-                                    });
-                                    handle.send(TuiEvent::SafeHeadUpdated(last_block_num));
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(error = %e, "Failed to submit batch");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e, "Failed to compress batch");
-                    }
-                }
-            }
-        }
-
-        info!(total_blocks, total_batches, "Sequencer side completed");
-        (total_blocks, total_batches)
-    });
-
-    // Spawn the derivation task (validator side)
-    let derivation_batch_ctx = Arc::clone(&batch_ctx);
-    let derivation_compressor = compressor;
-    let derivation_tui_handle = tui_handle;
-    let derivation_checkpoint_path = checkpoint_path;
-    let derivation_handle = tokio::spawn(async move {
-        let source = L1BatchSourceAdapter::new(&derivation_batch_ctx);
+    // Add validator if role requires it
+    if config.role.runs_validator() {
+        // Create a batch source adapter that wraps the batch context source
+        // We need to create an owned adapter, not a reference-based one
+        let source = BatchSourceAdapter { inner: Arc::clone(&batch_ctx) };
+        let compressor = BrotliCompressor::default();
         let executor = NoopExecutor::new();
-        let config =
-            DerivationConfig::builder().poll_interval_ms(DERIVATION_POLL_INTERVAL_MS).build();
-
-        // Create derivation runner with checkpoint support
-        let runner_result = DerivationRunner::new(source, derivation_compressor, executor, config)
-            .with_checkpoint(derivation_checkpoint_path);
-        let mut runner = match runner_result {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!(error = %e, "Failed to initialize derivation runner with checkpoint");
-                return 0u64;
-            }
-        };
-        let mut _total_derived = 0u64;
-
-        loop {
-            // Check for batch info from sequencer (non-blocking)
-            while let Ok(batch_info) = batch_info_rx.try_recv() {
-                runner.record_batch_block_count(batch_info.batch_number, batch_info.block_count);
-            }
-
-            match runner.tick().await {
-                Ok(Some(metrics)) => {
-                    _total_derived += 1;
-                    info!(
-                        batches_derived = metrics.batches_derived,
-                        blocks_derived = metrics.blocks_derived,
-                        first_block = metrics.first_block_in_batch,
-                        last_block = metrics.last_block_in_batch,
-                        bytes_decompressed = metrics.bytes_decompressed,
-                        "Derived batch from L1"
-                    );
-
-                    // Emit batch derived event (for metrics tracking)
-                    if let Some(ref handle) = derivation_tui_handle {
-                        handle.send(TuiEvent::BatchDerived {
-                            batch_number: metrics.current_batch_number,
-                            block_count: metrics.blocks_in_current_batch,
-                            first_block: metrics.first_block_in_batch,
-                            last_block: metrics.last_block_in_batch,
-                        });
-                    }
-                }
-                Ok(None) => {
-                    // No batch available
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "Derivation error");
-                }
-            }
-
-            // Small delay between polls
-            tokio::time::sleep(Duration::from_millis(DERIVATION_POLL_INTERVAL_MS)).await;
-        }
-
-        #[allow(unreachable_code)]
-        _total_derived
-    });
-
-    // Run execution
-    let execution_result = execution.start().await;
-
-    // Wait for batcher to complete
-    match batcher_handle.await {
-        Ok((total_blocks, total_batches)) => {
-            info!(total_blocks, total_batches, "Batcher completed");
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "Batcher task failed");
-        }
+        let validator = Validator::new(source, compressor, executor, cli.checkpoint_path.clone())?;
+        builder = builder.with_validator(validator);
     }
 
-    // Abort derivation (it runs indefinitely)
-    derivation_handle.abort();
+    // Add TUI observer if present
+    if let Some(observer) = tui_observer {
+        builder = builder.with_observer(observer);
+    }
 
-    info!("Dual mode completed");
-    execution_result
+    builder.build()
+}
+
+/// Convert MontanaMode to NodeRole.
+///
+/// # Panics
+/// Panics if called with Executor mode, which is not supported in the new architecture.
+fn mode_to_node_role(mode: &MontanaMode) -> NodeRole {
+    match mode {
+        MontanaMode::Executor => {
+            // Executor mode is not supported in the new architecture
+            // This should never be reached due to the check in main()
+            panic!("Executor mode is not supported")
+        }
+        MontanaMode::Sequencer => NodeRole::Sequencer,
+        MontanaMode::Validator => NodeRole::Validator,
+        MontanaMode::Dual => NodeRole::Dual,
+    }
+}
+
+/// Adapter that bridges montana_batch_context::BatchSink to montana_pipeline::BatchSink.
+struct BatchSinkAdapter {
+    inner: Arc<Box<dyn montana_batch_context::BatchSink>>,
+}
+
+#[async_trait]
+impl montana_pipeline::BatchSink for BatchSinkAdapter {
+    async fn submit(
+        &mut self,
+        batch: montana_pipeline::CompressedBatch,
+    ) -> Result<montana_pipeline::SubmissionReceipt, montana_pipeline::SinkError> {
+        self.inner
+            .submit(batch)
+            .await
+            .map_err(|e| montana_pipeline::SinkError::Connection(e.to_string()))
+    }
+
+    async fn capacity(&self) -> Result<usize, montana_pipeline::SinkError> {
+        // Return a reasonable default capacity
+        // In a real implementation, this would query the underlying sink
+        Ok(1000)
+    }
+
+    async fn health_check(&self) -> Result<(), montana_pipeline::SinkError> {
+        // For now, always return healthy
+        // In a real implementation, this would check the underlying sink
+        Ok(())
+    }
+}
+
+/// Adapter that bridges BatchContext source to montana_pipeline::L1BatchSource.
+struct BatchSourceAdapter {
+    inner: Arc<BatchContext>,
+}
+
+#[async_trait]
+impl montana_pipeline::L1BatchSource for BatchSourceAdapter {
+    async fn next_batch(
+        &mut self,
+    ) -> Result<Option<montana_pipeline::CompressedBatch>, montana_pipeline::SourceError> {
+        self.inner
+            .source()
+            .next_batch()
+            .await
+            .map_err(|e| montana_pipeline::SourceError::Connection(e.to_string()))
+    }
+
+    async fn l1_head(&self) -> Result<u64, montana_pipeline::SourceError> {
+        self.inner
+            .source()
+            .l1_head()
+            .await
+            .map_err(|e| montana_pipeline::SourceError::Connection(e.to_string()))
+    }
 }

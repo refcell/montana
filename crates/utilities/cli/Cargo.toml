@@ -15,5 +15,6 @@ workspace = true
 [dependencies]
 clap = { workspace = true, features = ["derive"] }
 derive_more.workspace = true
+montana-batcher.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

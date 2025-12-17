@@ -16,7 +16,7 @@ default:
     @just --list
 
 # Runs all ci checks.
-ci: fix check lychee zepter
+ci: init-reth fix check lychee zepter
 
 # Performs lychee checks, installing the lychee command if necessary
 lychee:
@@ -143,3 +143,8 @@ montana *ARGS:
 # Run the migration tool to migrate a Reth MDBX database to TrieDB
 migrate SOURCE DEST *ARGS:
     cargo run --release -p migrate -- --source {{SOURCE}} --dest {{DEST}} {{ARGS}}
+
+# Initialize reth static files for migration testing
+init-reth:
+    @command -v op-reth >/dev/null 2>&1 || cargo install op-reth
+    op-reth init --datadir ./static/reth --chain base

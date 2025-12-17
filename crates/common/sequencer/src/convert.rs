@@ -5,7 +5,7 @@
 
 use alloy_rlp::Encodable;
 use blocksource::OpBlock;
-use channels::{L2BlockData, RawTransaction};
+use channels::{Bytes, L2BlockData};
 use op_alloy::consensus::OpTxEnvelope;
 
 /// Convert an executed `OpBlock` to `L2BlockData` for batch submission.
@@ -28,7 +28,7 @@ pub fn op_block_to_l2_data(block: &OpBlock) -> L2BlockData {
             let mut buf = Vec::new();
             // Access the inner OpTxEnvelope from the RPC transaction wrapper
             tx.inner.inner.encode(&mut buf);
-            RawTransaction(buf)
+            Bytes::from(buf)
         })
         .collect();
 
@@ -44,10 +44,10 @@ pub fn op_block_to_l2_data(block: &OpBlock) -> L2BlockData {
 /// # Returns
 ///
 /// RLP-encoded transaction bytes.
-pub fn tx_to_raw(tx: &OpTxEnvelope) -> RawTransaction {
+pub fn tx_to_raw(tx: &OpTxEnvelope) -> Bytes {
     let mut buf = Vec::new();
     tx.encode(&mut buf);
-    RawTransaction(buf)
+    Bytes::from(buf)
 }
 
 #[cfg(test)]
@@ -75,9 +75,9 @@ mod tests {
         // Try to decode - if this fails, the test data is invalid
         if let Ok(tx) = OpTxEnvelope::decode(&mut encoded.as_slice()) {
             let raw = tx_to_raw(&tx);
-            assert!(!raw.0.is_empty());
+            assert!(!raw.is_empty());
             // Re-encoded should match original
-            assert_eq!(raw.0, encoded);
+            assert_eq!(raw.as_ref(), encoded.as_slice());
         }
         // If decode fails, we just skip the assertion - the test is about the encoding logic
     }

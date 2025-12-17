@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 async-trait.workspace = true
 derive_more.workspace = true
+primitives.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

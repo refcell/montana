@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use montana_pipeline::{BatchSource, L2BlockData, RawTransaction, SourceError};
+use montana_pipeline::{BatchSource, Bytes, L2BlockData, SourceError};
 use serde::{Deserialize, Serialize};
 
 use crate::LocalError;
@@ -92,7 +92,7 @@ impl BatchSource for LocalBatchSource {
                 let transactions = block
                     .transactions
                     .iter()
-                    .map(|tx| Self::hex_to_bytes(&tx.data).map(RawTransaction))
+                    .map(|tx| Self::hex_to_bytes(&tx.data).map(Bytes::from))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(L2BlockData { timestamp: block.timestamp, transactions })

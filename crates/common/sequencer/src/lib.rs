@@ -13,4 +13,4 @@ mod errors;
 pub use errors::BufferError;
 // Re-export key types from dependencies for convenience
 pub use blocksource::OpBlock;
-pub use channels::{BatchSource, L2BlockData, RawTransaction};
+pub use channels::{BatchSource, Bytes, L2BlockData};

@@ -1593,6 +1593,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "derive_more",
+ "primitives",
  "rstest",
  "tokio",
 ]
@@ -3438,6 +3439,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "channels",
+ "primitives",
  "rstest",
  "thiserror",
  "tokio",
@@ -4099,6 +4101,10 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.0.1"
+dependencies = [
+ "alloy-primitives",
+ "rstest",
+]
 
 [[package]]
 name = "proc-macro-crate"

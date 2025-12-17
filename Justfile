@@ -10,6 +10,7 @@ alias wt := watch-test
 alias wc := watch-check
 alias s := shadow
 alias m := montana
+alias mh := harness
 
 # Default to display help menu
 default:
@@ -139,3 +140,19 @@ run-montana-reexec START='1':
 # Alias for running montana
 montana *ARGS:
     cargo run --release -p montana -- {{ARGS}}
+
+# Run montana with test harness (local anvil chain)
+harness *ARGS:
+    cargo run --release -p montana -- --with-harness {{ARGS}}
+
+# Run montana with test harness in headless mode
+harness-headless *ARGS:
+    cargo run --release -p montana -- --with-harness --headless {{ARGS}}
+
+# Run montana with test harness and custom initial blocks (for sync testing)
+harness-sync BLOCKS='100' *ARGS:
+    cargo run --release -p montana -- --with-harness --harness-initial-blocks {{BLOCKS}} {{ARGS}}
+
+# Run montana with test harness and fast block time
+harness-fast *ARGS:
+    cargo run --release -p montana -- --with-harness --harness-block-time-ms 500 {{ARGS}}

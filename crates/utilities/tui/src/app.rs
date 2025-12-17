@@ -118,6 +118,14 @@ pub struct App {
     // UI state
     /// Whether the TUI is paused (no updates)
     pub is_paused: bool,
+    /// Whether harness mode is enabled (testing/demo mode)
+    pub harness_mode: bool,
+
+    // Harness tracking
+    /// Harness block logs (only populated in harness mode)
+    pub harness_logs: Vec<LogEntry>,
+    /// Latest harness block number
+    pub harness_block: u64,
 }
 
 impl App {
@@ -153,6 +161,9 @@ impl App {
             start_block: None,
             skip_sync: false,
             is_paused: false,
+            harness_mode: false,
+            harness_logs: Vec::new(),
+            harness_block: 0,
         }
     }
 
@@ -184,6 +195,8 @@ impl App {
         self.block_builder_logs.clear();
         self.batch_logs.clear();
         self.derivation_logs.clear();
+        self.harness_logs.clear();
+        self.harness_block = 0;
     }
 
     /// Toggle the pause state.
@@ -525,6 +538,31 @@ impl App {
         if self.execution_logs.len() > MAX_LOG_ENTRIES {
             self.execution_logs.remove(0);
         }
+    }
+
+    /// Add a log entry to the harness logs.
+    ///
+    /// Log entries are kept in a circular buffer with a maximum of 100 entries.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - The log entry to add
+    pub fn log_harness(&mut self, entry: LogEntry) {
+        self.harness_logs.push(entry);
+        if self.harness_logs.len() > MAX_LOG_ENTRIES {
+            self.harness_logs.remove(0);
+        }
+    }
+
+    /// Record a harness block production.
+    ///
+    /// # Arguments
+    ///
+    /// * `block_number` - The block number produced
+    /// * `tx_count` - Number of transactions in the block
+    pub fn record_harness_block(&mut self, block_number: u64, tx_count: usize) {
+        self.harness_block = block_number;
+        self.log_harness(LogEntry::info(format!("Block #{} ({} txs)", block_number, tx_count)));
     }
 }
 

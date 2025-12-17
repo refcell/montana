@@ -33,6 +33,7 @@ montana-roles.workspace = true
 
 # utilities
 montana-cli.workspace = true
+montana-harness.workspace = true
 montana-tui.workspace = true
 
 # async

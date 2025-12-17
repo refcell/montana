@@ -3319,6 +3319,7 @@ dependencies = [
  "montana-brotli",
  "montana-checkpoint",
  "montana-cli",
+ "montana-harness",
  "montana-node",
  "montana-pipeline",
  "montana-roles",
@@ -3425,6 +3426,18 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "montana-harness"
+version = "0.0.1"
+dependencies = [
+ "alloy",
+ "eyre",
+ "rand 0.8.5",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
 ]
 
 [[package]]

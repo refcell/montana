@@ -201,6 +201,10 @@ fn process_event(app: &mut App, event: TuiEvent) {
                 "Block #{}: {:.1} blks/s, {} remaining, ETA {}",
                 current_block, blocks_per_second, remaining, eta_str
             )));
+            // In harness mode, also log synced blocks to the harness activity panel
+            if app.harness_mode && current_block > app.harness_block {
+                app.record_harness_block(current_block, 0);
+            }
         }
         TuiEvent::SyncCompleted { blocks_synced, duration_secs } => {
             app.complete_sync(blocks_synced, duration_secs);
@@ -224,6 +228,10 @@ fn process_event(app: &mut App, event: TuiEvent) {
                 format_bytes(size_bytes),
                 gas_used
             )));
+            // In harness mode, also log to the harness activity panel
+            if app.harness_mode {
+                app.record_harness_block(number, tx_count);
+            }
         }
         TuiEvent::BatchSubmitted {
             batch_number,
@@ -298,6 +306,12 @@ fn process_event(app: &mut App, event: TuiEvent) {
         TuiEvent::Reset => {
             app.reset();
         }
+        TuiEvent::HarnessModeEnabled => {
+            app.harness_mode = true;
+        }
+        TuiEvent::HarnessBlockProduced { block_number, tx_count } => {
+            app.record_harness_block(block_number, tx_count);
+        }
     }
 }
 
@@ -305,20 +319,54 @@ fn process_event(app: &mut App, event: TuiEvent) {
 fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
     let area = frame.area();
 
-    // Main layout: header (1/4 height), body (flexible), footer (3 lines)
-    let main_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Ratio(1, 4), Constraint::Min(5), Constraint::Length(3)])
-        .split(area);
+    // If harness mode is enabled, add a banner at the top
+    if app.harness_mode {
+        // Layout with harness banner (1 line), header (1/4), body (flexible), footer (3 lines)
+        let main_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Ratio(1, 4),
+                Constraint::Min(5),
+                Constraint::Length(3),
+            ])
+            .split(area);
 
-    // Draw header (split into chain state + metrics)
-    draw_header(frame, app, main_chunks[0]);
+        // Draw harness banner
+        draw_harness_banner(frame, main_chunks[0]);
 
-    // Draw body (4 equal columns)
-    draw_body(frame, app, main_chunks[1]);
+        // Draw header (split into chain state + metrics)
+        draw_header(frame, app, main_chunks[1]);
 
-    // Draw footer
-    draw_footer(frame, app, main_chunks[2]);
+        // Draw body (4 equal columns)
+        draw_body(frame, app, main_chunks[2]);
+
+        // Draw footer
+        draw_footer(frame, app, main_chunks[3]);
+    } else {
+        // Main layout: header (1/4 height), body (flexible), footer (3 lines)
+        let main_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Ratio(1, 4), Constraint::Min(5), Constraint::Length(3)])
+            .split(area);
+
+        // Draw header (split into chain state + metrics)
+        draw_header(frame, app, main_chunks[0]);
+
+        // Draw body (4 equal columns)
+        draw_body(frame, app, main_chunks[1]);
+
+        // Draw footer
+        draw_footer(frame, app, main_chunks[2]);
+    }
+}
+
+/// Draw the harness mode banner.
+fn draw_harness_banner(frame: &mut ratatui::Frame<'_>, area: Rect) {
+    let banner = Paragraph::new(" ⚠ HARNESS MODE (TESTING) - Local anvil chain, not production ⚠ ")
+        .style(Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(banner, area);
 }
 
 /// Draw the header with chain state, sync stats, and metrics.
@@ -569,24 +617,62 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(widget, area);
 }
 
-/// Draw the body with 4 vertical columns.
+/// Draw the body with 4 vertical columns (5 in harness mode).
 fn draw_body(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    // Split into 4 equal columns
-    let body_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-        ])
-        .split(area);
+    if app.harness_mode {
+        // In harness mode, add a 5th column for harness activity
+        let body_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+            ])
+            .split(area);
 
-    draw_sync_updates(frame, app, body_chunks[0]);
-    draw_block_builder(frame, app, body_chunks[1]);
-    // Third column is split: Execution on top, Batch Submissions below
-    draw_execution_and_batches(frame, app, body_chunks[2]);
-    draw_derived_blocks(frame, app, body_chunks[3]);
+        draw_harness_activity(frame, app, body_chunks[0]);
+        draw_sync_updates(frame, app, body_chunks[1]);
+        draw_block_builder(frame, app, body_chunks[2]);
+        draw_execution_and_batches(frame, app, body_chunks[3]);
+        draw_derived_blocks(frame, app, body_chunks[4]);
+    } else {
+        // Split into 4 equal columns
+        let body_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+            ])
+            .split(area);
+
+        draw_sync_updates(frame, app, body_chunks[0]);
+        draw_block_builder(frame, app, body_chunks[1]);
+        // Third column is split: Execution on top, Batch Submissions below
+        draw_execution_and_batches(frame, app, body_chunks[2]);
+        draw_derived_blocks(frame, app, body_chunks[3]);
+    }
+}
+
+/// Draw harness activity (only shown in harness mode).
+fn draw_harness_activity(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let logs = render_logs(&app.harness_logs);
+
+    let title = format!(" Anvil (Block #{}) ", app.harness_block);
+
+    let widget = Paragraph::new(logs)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(widget, area);
 }
 
 /// Draw sync updates stream.

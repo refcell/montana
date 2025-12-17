@@ -19,6 +19,7 @@ use montana_batcher::{Address, BatchDriver, BatcherConfig};
 use montana_brotli::BrotliCompressor;
 use montana_checkpoint::Checkpoint;
 use montana_cli::{MontanaCli, MontanaMode, init_tracing_with_level};
+use montana_harness::{Harness, HarnessConfig};
 use montana_node::{Node, NodeBuilder, NodeConfig, NodeRole, SyncConfig, SyncStage};
 use montana_pipeline::{Bytes, L2BlockData, NoopExecutor};
 use montana_roles::{ExecutionCallback, Sequencer, Validator};
@@ -37,6 +38,28 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    // Validate RPC URL or harness mode
+    if !cli.with_harness && cli.rpc_url.is_none() {
+        eprintln!("Error: --rpc-url is required unless --with-harness is enabled.");
+        std::process::exit(1);
+    }
+
+    if cli.with_harness && cli.rpc_url.is_some() {
+        eprintln!("Warning: --rpc-url is ignored when --with-harness is enabled.");
+    }
+
+    // In harness mode, we always use the block feeder (skip_sync) to get continuous
+    // TUI updates. The sync stage doesn't emit per-block events, so the harness panel
+    // would be empty without this.
+    let mut cli = cli;
+    if cli.with_harness && !cli.skip_sync {
+        cli.skip_sync = true;
+        // Start from block 0 to sync through the initial harness blocks
+        if cli.start.is_none() {
+            cli.start = Some(0);
+        }
+    }
+
     if cli.headless {
         init_tracing_with_level(&cli.log_level);
         run_headless(cli).await
@@ -46,8 +69,30 @@ async fn main() -> Result<()> {
 }
 
 async fn run_headless(cli: MontanaCli) -> Result<()> {
-    let mut node = build_node(cli, None, None).await?;
-    node.run().await
+    // Spawn harness if enabled
+    let harness = if cli.with_harness {
+        let config = HarnessConfig {
+            block_time_ms: cli.harness_block_time_ms,
+            initial_delay_blocks: cli.harness_initial_blocks,
+            ..Default::default()
+        };
+        Some(Harness::spawn(config).await?)
+    } else {
+        None
+    };
+
+    // Get the RPC URL (from harness or CLI)
+    let rpc_url = harness
+        .as_ref()
+        .map(|h| h.rpc_url().to_string())
+        .or_else(|| cli.rpc_url.clone())
+        .expect("RPC URL should be available");
+
+    let mut node = build_node(cli, None, None, rpc_url).await?;
+    let result = node.run().await;
+    // Drop harness AFTER node.run() completes to keep anvil alive
+    drop(harness);
+    result
 }
 
 fn run_with_tui(cli: MontanaCli) -> Result<()> {
@@ -72,6 +117,11 @@ fn run_with_tui(cli: MontanaCli) -> Result<()> {
         skip_sync: cli.skip_sync,
     });
 
+    // Send harness mode event if enabled
+    if cli.with_harness {
+        handle.send(montana_tui::TuiEvent::HarnessModeEnabled);
+    }
+
     // Clone handle for block feeder before creating observer
     let block_feeder_handle = handle.clone();
     let tui_observer = Arc::new(TuiObserver::new(handle));
@@ -80,15 +130,44 @@ fn run_with_tui(cli: MontanaCli) -> Result<()> {
 
     std::thread::spawn(move || {
         rt.block_on(async move {
-            let result = match build_node(cli, Some(tui_observer), Some(block_feeder_handle)).await
-            {
-                Ok(mut node) => node.run().await,
-                Err(e) => Err(e),
+            // Spawn harness if enabled
+            let harness = if cli.with_harness {
+                let config = HarnessConfig {
+                    block_time_ms: cli.harness_block_time_ms,
+                    initial_delay_blocks: cli.harness_initial_blocks,
+                    ..Default::default()
+                };
+                match Harness::spawn(config).await {
+                    Ok(h) => Some(h),
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to spawn harness");
+                        return;
+                    }
+                }
+            } else {
+                None
             };
+
+            // Get the RPC URL (from harness or CLI)
+            let rpc_url = harness
+                .as_ref()
+                .map(|h| h.rpc_url().to_string())
+                .or_else(|| cli.rpc_url.clone())
+                .expect("RPC URL should be available");
+
+            let result =
+                match build_node(cli, Some(tui_observer), Some(block_feeder_handle), rpc_url).await
+                {
+                    Ok(mut node) => node.run().await,
+                    Err(e) => Err(e),
+                };
 
             if let Err(e) = result {
                 tracing::error!(error = %e, "Node error");
             }
+
+            // Drop harness AFTER node.run() completes to keep anvil alive
+            drop(harness);
         });
     });
 
@@ -106,20 +185,26 @@ async fn build_node(
     cli: MontanaCli,
     tui_observer: Option<Arc<TuiObserver>>,
     tui_handle: Option<TuiHandle>,
+    rpc_url: String,
 ) -> Result<Node<BlockProducerWrapper>> {
     // Build provider
     let provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .network::<Optimism>()
-        .connect(&cli.rpc_url)
+        .connect(&rpc_url)
         .await?;
 
     // Determine start block:
     // 1. Use explicit --start if provided
-    // 2. Otherwise, try loading from checkpoint file
-    // 3. Fall back to chain tip if no checkpoint exists
+    // 2. In harness mode with no explicit start, start from block 0 (to sync the initial blocks)
+    // 3. Otherwise, try loading from checkpoint file
+    // 4. Fall back to chain tip if no checkpoint exists
     let start_block = if let Some(start) = cli.start {
         start
+    } else if cli.with_harness {
+        // In harness mode, always start from block 0 to sync through the initial blocks
+        tracing::info!("Harness mode: starting sync from block 0");
+        0
     } else if let Some(checkpoint) = Checkpoint::load(&cli.checkpoint_path)
         .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
     {
@@ -144,7 +229,7 @@ async fn build_node(
     );
     let block_producer = BlockProducerWrapper::new(block_producer, "rpc");
 
-    build_node_common(cli, block_producer, tui_observer, tui_handle, provider).await
+    build_node_common(cli, block_producer, tui_observer, tui_handle, provider, rpc_url).await
 }
 
 async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
@@ -153,6 +238,7 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
     tui_observer: Option<Arc<TuiObserver>>,
     tui_handle: Option<TuiHandle>,
     _provider: P,
+    rpc_url: String,
 ) -> Result<Node<BlockProducerWrapper>> {
     // Build node config
     let config = NodeConfig {
@@ -192,7 +278,7 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         let start = cli.start.unwrap_or(0);
         let poll_ms = cli.poll_interval_ms;
         let feeder_tui_handle = tui_handle.clone();
-        let rpc_url = cli.rpc_url.clone();
+        let feeder_rpc_url = rpc_url.clone();
 
         std::thread::spawn(move || {
             // Create a dedicated runtime for the block feeder
@@ -206,7 +292,7 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
                 let feeder_provider = match ProviderBuilder::new()
                     .disable_recommended_fillers()
                     .network::<Optimism>()
-                    .connect(&rpc_url)
+                    .connect(&feeder_rpc_url)
                     .await
                 {
                     Ok(p) => p,
@@ -289,6 +375,12 @@ async fn run_block_feeder<P: Provider<Optimism> + Clone>(
 ) -> Result<()> {
     use alloy::eips::eip2718::Encodable2718;
 
+    tracing::info!(
+        start,
+        has_tui_handle = tui_handle.is_some(),
+        "Block feeder started"
+    );
+
     let mut current = start;
     let mut blocks_fetched: u64 = 0;
 
@@ -351,7 +443,7 @@ async fn run_block_feeder<P: Provider<Optimism> + Clone>(
                     .send(TuiEvent::BacklogUpdated { blocks_fetched, last_fetched_block: current });
             }
 
-            tracing::debug!(block = current, blocks_fetched, "Fed block to sequencer");
+            tracing::debug!(block = current, tx_count, blocks_fetched, "Fed block to sequencer");
             current += 1;
 
             // Yield to allow other tasks to run (e.g., TUI event processing)

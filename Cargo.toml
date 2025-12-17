@@ -67,6 +67,7 @@ montana-roles = { version = "0.0.1", path = "crates/node/roles" }
 
 # utilities crates
 montana-cli = { version = "0.0.1", path = "crates/utilities/cli" }
+montana-harness = { version = "0.0.1", path = "crates/utilities/harness" }
 montana-tui = { version = "0.0.1", path = "crates/utilities/tui" }
 montana-tui-common = { version = "0.0.1", path = "crates/utilities/tui-common" }
 
@@ -122,6 +123,7 @@ ratatui = "0.29.0"
 
 # testing
 criterion = "0.8.1"
+rand = "0.8"
 rstest = "0.26.1"
 tempfile = "3"
 tokio = { version = "1.48.0", features = ["full"] }

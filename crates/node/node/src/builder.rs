@@ -420,6 +420,14 @@ impl<P: BlockProducer> Node<P> {
         if let Some(sync_stage) = self.sync_stage.as_mut() {
             sync_stage.initialize(start_block).await?;
             let progress = sync_stage.progress();
+
+            // Emit SyncStarted event
+            self.emit(NodeEvent::SyncStarted {
+                start_block: progress.start_block,
+                target_block: progress.target_block,
+            })
+            .await;
+
             self.set_state(NodeState::Syncing(progress)).await;
         } else {
             tracing::warn!("Sync stage not configured, skipping");
@@ -456,6 +464,16 @@ impl<P: BlockProducer> Node<P> {
                 }
                 SyncStatus::Complete => {
                     tracing::info!("Sync stage complete");
+
+                    // Calculate sync stats
+                    let blocks_synced = self.sync_stage.as_ref().map_or(0, |sync_stage| {
+                        let progress = sync_stage.progress();
+                        progress.current_block.saturating_sub(progress.start_block)
+                    });
+
+                    // Emit SyncCompleted event
+                    self.emit(NodeEvent::SyncCompleted { blocks_synced, duration_secs: 0.0 }).await;
+
                     // Save final checkpoint
                     if let Some(sync_stage) = self.sync_stage.as_ref() {
                         self.checkpoint = sync_stage.checkpoint();

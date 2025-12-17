@@ -12,12 +12,13 @@ use crate::{BatchSubmissionMode, MontanaMode};
 ///
 /// Use `--skip-sync` to bypass the sync stage (for re-execution from a specific block).
 /// Use `--start` to specify a starting block (defaults to checkpoint or genesis).
+/// Use `--with-harness` to run with a local test chain (ignores --rpc-url).
 #[derive(Parser, Debug, Clone)]
 #[command(name = "montana", about = "Montana Base Stack Node")]
 pub struct MontanaCli {
-    /// L2 RPC URL
+    /// L2 RPC URL (ignored when --with-harness is set)
     #[arg(short = 'r', long, env = "L2_RPC_URL")]
-    pub rpc_url: String,
+    pub rpc_url: Option<String>,
 
     /// Node operating mode
     #[arg(long, default_value = "dual")]
@@ -69,4 +70,27 @@ pub struct MontanaCli {
     /// L1 RPC URL (for remote batch mode)
     #[arg(long, env = "L1_RPC_URL")]
     pub l1_rpc_url: Option<String>,
+
+    // Harness options
+    /// Run with built-in test harness (spawns local anvil chain).
+    ///
+    /// When enabled, --rpc-url is ignored and the harness anvil URL is used instead.
+    /// This is useful for testing and demos without requiring a real RPC endpoint.
+    #[arg(long)]
+    pub with_harness: bool,
+
+    /// Harness block time in milliseconds.
+    ///
+    /// Controls how fast blocks are produced in harness mode.
+    /// Only used when --with-harness is enabled.
+    #[arg(long, default_value = "1000")]
+    pub harness_block_time_ms: u64,
+
+    /// Initial blocks to generate before starting (creates sync backlog).
+    ///
+    /// When > 0, the harness generates this many blocks before Montana starts,
+    /// creating a "historical" backlog that must be synced. Useful for testing sync.
+    /// Only used when --with-harness is enabled.
+    #[arg(long, default_value = "50")]
+    pub harness_initial_blocks: u64,
 }

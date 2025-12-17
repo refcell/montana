@@ -191,4 +191,20 @@ pub enum TuiEvent {
     /// This event clears all logs, metrics, and statistics, resetting the TUI to
     /// its initial state.
     Reset,
+
+    /// Harness mode enabled.
+    ///
+    /// This event indicates that Montana is running with the test harness,
+    /// which spawns a local anvil chain for testing/demo purposes.
+    HarnessModeEnabled,
+
+    /// A new block was produced by the harness anvil instance.
+    ///
+    /// This event is used to show harness activity in a dedicated TUI section.
+    HarnessBlockProduced {
+        /// The block number produced by anvil
+        block_number: u64,
+        /// Number of transactions in the block
+        tx_count: usize,
+    },
 }

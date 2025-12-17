@@ -7,14 +7,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use montana_anvil::{Address, AnvilConfig, AnvilManager};
+use montana_cli::BatchSubmissionMode;
 use montana_pipeline::{
     BatchSink as PipelineBatchSink, CompressedBatch, SinkError as PipelineSinkError,
     SubmissionReceipt,
 };
 use tokio::sync::Mutex;
 use tracing::info;
-
-use crate::BatchSubmissionMode;
 
 /// Error type for batch context operations.
 #[derive(Debug, thiserror::Error)]

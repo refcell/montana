@@ -23,9 +23,8 @@ pub use error::BatcherError;
 
 mod metrics;
 pub use metrics::BatcherMetrics;
-
-mod mode;
-pub use mode::BatchSubmissionMode;
+// Re-export BatchSubmissionMode from montana-cli
+pub use montana_cli::BatchSubmissionMode;
 
 mod service;
 pub use service::{BatcherService, BatcherState};

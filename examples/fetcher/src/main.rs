@@ -17,9 +17,8 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use montana_cli::init_tracing;
 use serde::{Deserialize, Serialize};
-use tracing::Level;
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Default Base mainnet RPC URL.
 const DEFAULT_RPC_URL: &str = "https://mainnet.base.org";
@@ -135,22 +134,6 @@ fn main() {
         tracing::error!("Fetcher failed: {}", e);
         std::process::exit(1);
     }
-}
-
-fn init_tracing(verbosity: u8) {
-    let level = match verbosity {
-        0 => Level::WARN,
-        1 => Level::INFO,
-        2 => Level::DEBUG,
-        _ => Level::TRACE,
-    };
-
-    let filter = EnvFilter::builder().with_default_directive(level.into()).from_env_lossy();
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer().with_target(true).with_thread_ids(false))
-        .init();
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {

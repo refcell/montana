@@ -2327,12 +2327,12 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "derive_more",
+ "montana-cli",
  "reqwest",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber 0.3.22",
 ]
 
 [[package]]
@@ -3374,9 +3374,9 @@ name = "montana-batcher"
 version = "0.0.1"
 dependencies = [
  "async-trait",
- "clap",
  "montana-anvil",
  "montana-checkpoint",
+ "montana-cli",
  "montana-pipeline",
  "montana-txmgr",
  "rstest",
@@ -3410,7 +3410,6 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "derive_more",
- "montana-batcher",
  "tracing",
  "tracing-subscriber 0.3.22",
 ]

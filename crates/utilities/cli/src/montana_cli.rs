@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use montana_batcher::BatchSubmissionMode;
 
-use crate::MontanaMode;
+use crate::{BatchSubmissionMode, MontanaMode};
 
 /// Montana node CLI arguments.
 ///

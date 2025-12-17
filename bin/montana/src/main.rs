@@ -17,7 +17,7 @@ use eyre::Result;
 use montana_batch_context::BatchContext;
 use montana_batcher::{Address, BatchDriver, BatcherConfig};
 use montana_brotli::BrotliCompressor;
-use montana_cli::{MontanaCli, MontanaMode};
+use montana_cli::{MontanaCli, MontanaMode, init_tracing_with_level};
 use montana_node::{Node, NodeBuilder, NodeConfig, NodeRole, SyncConfig, SyncStage};
 use montana_pipeline::{Bytes, L2BlockData, NoopExecutor};
 use montana_roles::{ExecutionCallback, Sequencer, Validator};
@@ -37,20 +37,11 @@ async fn main() -> Result<()> {
     }
 
     if cli.headless {
-        init_tracing(&cli.log_level);
+        init_tracing_with_level(&cli.log_level);
         run_headless(cli).await
     } else {
         run_with_tui(cli)
     }
-}
-
-fn init_tracing(log_level: &str) {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
-        )
-        .init();
 }
 
 async fn run_headless(cli: MontanaCli) -> Result<()> {

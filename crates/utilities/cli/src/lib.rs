@@ -32,6 +32,13 @@ pub use mode::Mode;
 mod montana_mode;
 pub use montana_mode::MontanaMode;
 
+/// Batch submission mode selection.
+///
+/// The [`BatchSubmissionMode`] enum defines the available batch submission modes: in-memory,
+/// anvil, and remote.
+mod batch_submission_mode;
+pub use batch_submission_mode::BatchSubmissionMode;
+
 /// Montana CLI argument parsing.
 ///
 /// The [`MontanaCli`] struct provides the main interface for parsing command-line arguments
@@ -39,12 +46,12 @@ pub use montana_mode::MontanaMode;
 /// mode, sync behavior, checkpointing, logging, and batch submission.
 mod montana_cli;
 pub use montana_cli::MontanaCli;
-// Re-export BatchSubmissionMode from montana_batcher
-pub use montana_batcher::BatchSubmissionMode;
 
 /// Tracing initialization utilities.
 ///
 /// The [`init_tracing`] function configures the tracing subscriber with a verbosity-based
 /// log level and respects the `RUST_LOG` environment variable.
-mod tracing;
-pub use tracing::init_tracing;
+/// The [`init_tracing_with_level`] function configures the tracing subscriber with a
+/// string-based log level.
+mod tracing_init;
+pub use crate::tracing_init::{init_tracing, init_tracing_with_level};

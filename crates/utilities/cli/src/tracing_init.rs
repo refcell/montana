@@ -45,6 +45,31 @@ pub fn init_tracing(verbosity: u8) {
         .init();
 }
 
+/// Initialize the tracing subscriber with a string log level.
+///
+/// This is useful when the log level is provided directly as a string
+/// (e.g., from a CLI argument) rather than as a verbosity count.
+///
+/// # Examples
+///
+/// ```no_run
+/// use montana_cli::init_tracing_with_level;
+///
+/// init_tracing_with_level("info");
+/// ```
+///
+/// # Panics
+///
+/// This function will panic if a global tracing subscriber has already been set.
+pub fn init_tracing_with_level(log_level: &str) {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
+        )
+        .init();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

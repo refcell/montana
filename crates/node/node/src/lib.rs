@@ -9,8 +9,17 @@ pub use role::NodeRole;
 mod stage;
 pub use stage::{NodeStage, SyncProgress};
 
+mod state;
+pub use state::NodeState;
+
 mod config;
 pub use config::NodeConfig;
 
 mod sync;
 pub use sync::{SyncConfig, SyncEvent, SyncStage, SyncStatus};
+
+mod events;
+pub use events::NodeEvent;
+
+mod builder;
+pub use builder::{Node, NodeBuilder};

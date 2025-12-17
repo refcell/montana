@@ -16,7 +16,7 @@ default:
     @just --list
 
 # Runs all ci checks.
-ci: init-reth fix check lychee zepter
+ci: fix check lychee zepter
 
 # Performs lychee checks, installing the lychee command if necessary
 lychee:
@@ -42,7 +42,7 @@ zepter-fix:
   zepter format features --fix
 
 # Runs tests across workspace with all features enabled
-test:
+test: init-reth
     @command -v cargo-nextest >/dev/null 2>&1 || cargo install cargo-nextest
     RUSTFLAGS="-D warnings" cargo nextest run --workspace --all-features
 

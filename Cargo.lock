@@ -5050,7 +5050,6 @@ dependencies = [
  "blocksource",
  "channels",
  "op-alloy",
- "rstest",
  "thiserror",
  "tokio",
  "tracing",

@@ -1,16 +1,13 @@
 //! Block producer implementations for streaming blocks to consumers.
 //!
 //! This module provides a trait-based abstraction for block producers,
-//! with implementations for both live RPC polling and historical range fetching.
+//! with implementations for RPC polling and channel-based streaming.
 
 mod channel;
 pub use channel::ChannelBlockProducer;
 
-mod historical;
-pub use historical::HistoricalRangeProducer;
-
-mod live;
-pub use live::LiveRpcProducer;
+mod rpc;
+pub use rpc::RpcBlockProducer;
 use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 

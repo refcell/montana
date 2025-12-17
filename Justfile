@@ -118,39 +118,23 @@ shadow *ARGS:
 
 # Run the montana node in sequencer mode with in-memory batch submission
 run-montana-inmemory:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode sequencer --batch-mode in-memory --start 39554271 --end 39554273
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode sequencer --batch-mode in-memory
 
 # Run the montana node in sequencer mode
 run-montana-sequencer:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode sequencer --start 39554271 --end 39554273
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode sequencer
 
 # Run the montana node in validator mode
 run-montana-validator:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode validator --start 39554271 --end 39554273
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode validator
 
-# Run the montana node in dual mode (default: sequencer + validator) with Anvil batch submission against Base mainnet (full history)
+# Run the montana node in dual mode (default: sequencer + validator)
 run-montana:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --start 1 --end 40000000
-
-# Run the montana node following the chain tip (continuously processes new blocks)
-run-montana-live:
     cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545
 
-# Run the montana node with skip-sync (re-execute blocks without sync overhead)
-run-montana-skip-sync:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --skip-sync --start 39554271 --end 39554273
-
-# Run the montana node in sequencer mode with skip-sync
-run-montana-sequencer-skip-sync:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode sequencer --skip-sync --start 39554271 --end 39554273
-
-# Run the montana node in validator mode with skip-sync
-run-montana-validator-skip-sync:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode validator --skip-sync --start 39554271 --end 39554273
-
-# Run the montana node following tip with skip-sync (resume synced node)
-run-montana-live-skip-sync:
-    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --skip-sync
+# Re-execute blocks from a specific starting block (skip sync - for debugging/testing)
+run-montana-reexec START='1':
+    cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --skip-sync --start {{START}}
 
 # Alias for running montana
 montana *ARGS:

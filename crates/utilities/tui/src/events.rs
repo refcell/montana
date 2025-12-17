@@ -169,17 +169,15 @@ pub enum TuiEvent {
     /// Node mode information.
     ///
     /// This event provides information about the node's operational configuration,
-    /// including the node role (Sequencer/Validator/Dual), producer mode (Live/Historical),
-    /// whether sync was skipped, and the block range for historical mode.
+    /// including the node role (Sequencer/Validator/Dual), starting block,
+    /// and whether sync was skipped.
     ModeInfo {
         /// Node role (Sequencer, Validator, or Dual)
         node_role: String,
-        /// Producer mode (Live or Historical)
-        producer_mode: String,
+        /// Starting block number (None = from checkpoint)
+        start_block: Option<u64>,
         /// Whether sync stage was skipped
         skip_sync: bool,
-        /// Optional block range for historical mode (start, end)
-        historical_range: Option<(u64, u64)>,
     },
 
     /// Pause/Resume toggle.

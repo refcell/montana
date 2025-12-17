@@ -108,7 +108,7 @@ The consensus layer handles data availability via a duplex pipeline:
 
 **Binaries**
 
-- [`montana`](./bin/montana): The batch submitter execution extension.
+- [`montana`](./bin/montana): The Montana node binary for running sequencer, validator, or dual nodes.
 
 See the [`examples/`](./examples) directory for additional example binaries and tools.
 
@@ -163,8 +163,11 @@ cargo build --release
 # Run the compression analyzer
 cargo run -p analyze -- --help
 
-# Run the batch submitter
-cargo run -p montana -- --help
+# Run the Montana node
+cargo run -p montana -- --rpc-url <L2_RPC>
+
+# Run with specific configuration
+cargo run -p montana -- --rpc-url <L2_RPC> --mode sequencer --start 1000000
 ```
 
 ## Contributing

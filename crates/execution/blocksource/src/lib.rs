@@ -7,7 +7,7 @@ pub mod convert;
 pub use convert::{block_to_env, tx_to_op_tx};
 
 pub mod producer;
-pub use producer::{BlockProducer, ChannelBlockProducer, HistoricalRangeProducer, LiveRpcProducer};
+pub use producer::{BlockProducer, ChannelBlockProducer, RpcBlockProducer};
 
 pub mod rpc;
 pub use rpc::{BlockSource, RpcBlockSource};

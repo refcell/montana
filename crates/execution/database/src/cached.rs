@@ -1,6 +1,6 @@
 //! Cached database wrapper
 //!
-//! This module provides an in-memory caching layer that wraps any `DatabaseRef` implementation.
+//! This module provides an in-memory caching layer that wraps any `Database` implementation.
 //! Cache misses are forwarded to the underlying database.
 
 use std::{
@@ -11,11 +11,11 @@ use std::{
 use alloy::primitives::{Address, B256, U256};
 use revm::{
     bytecode::Bytecode,
-    database_interface::{Database, DatabaseCommit, DatabaseRef},
+    database_interface::{Database as RevmDatabase, DatabaseCommit, DatabaseRef},
     state::{AccountInfo, EvmState},
 };
 
-use crate::errors::DbError;
+use crate::{errors::DbError, traits::Database};
 
 /// In-memory caching database wrapper
 ///
@@ -35,7 +35,7 @@ pub struct CachedDatabase<DB> {
     inner: DB,
 }
 
-impl<DB> CachedDatabase<DB> {
+impl<DB: Database> CachedDatabase<DB> {
     /// Create a new cached database wrapping the given inner database
     #[must_use]
     pub fn new(inner: DB) -> Self {
@@ -80,7 +80,7 @@ impl<DB> CachedDatabase<DB> {
 
 impl<DB> DatabaseRef for CachedDatabase<DB>
 where
-    DB: DatabaseRef<Error = DbError>,
+    DB: Database,
 {
     type Error = DbError;
 
@@ -191,9 +191,9 @@ where
     }
 }
 
-impl<DB> Database for CachedDatabase<DB>
+impl<DB> RevmDatabase for CachedDatabase<DB>
 where
-    DB: DatabaseRef<Error = DbError>,
+    DB: Database,
 {
     type Error = DbError;
 
@@ -242,5 +242,14 @@ impl<DB> DatabaseCommit for CachedDatabase<DB> {
                 }
             }
         }
+    }
+}
+
+impl<DB> Database for CachedDatabase<DB>
+where
+    DB: Database,
+{
+    fn commit_block(&mut self) {
+        self.inner.commit_block();
     }
 }

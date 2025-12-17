@@ -10,5 +10,5 @@ pub mod types;
 
 pub use convert::{block_to_env, tx_to_op_tx};
 pub use producer::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer};
-pub use rpc::RpcBlockSource;
+pub use rpc::{BlockSource, RpcBlockSource};
 pub use types::OpBlock;

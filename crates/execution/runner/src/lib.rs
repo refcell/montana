@@ -4,7 +4,5 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod execution;
-mod mode;
 
-pub use execution::Execution;
-pub use mode::ProducerMode;
+pub use execution::{ExecutedBlock, Execution};

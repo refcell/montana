@@ -11,7 +11,10 @@ use std::{
     collections::HashMap,
     fs,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use alloy::{
@@ -21,12 +24,16 @@ use alloy::{
     providers::Provider,
 };
 use op_alloy::network::Optimism;
-use revm::{bytecode::Bytecode, database_interface::DatabaseRef, state::AccountInfo};
+use revm::{
+    bytecode::Bytecode,
+    database_interface::{Database as RevmDatabase, DatabaseCommit, DatabaseRef},
+    state::{AccountInfo, EvmState},
+};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
 use tracing::{debug, warn};
 
-use crate::errors::DbError;
+use crate::{errors::DbError, traits::Database};
 
 /// Serializable storage key (address, slot) as a string for JSON map keys
 fn storage_key(address: Address, slot: U256) -> String {
@@ -50,12 +57,10 @@ struct BlockCache {
 pub struct RPCDatabase<P> {
     /// File-based cache for persistence across runs
     file_cache: Arc<RwLock<BlockCache>>,
-    /// Path to the cache file
-    cache_path: PathBuf,
     /// RPC provider for fallback lookups
     provider: P,
     /// Block number to query state at (the block before the one we're executing)
-    state_block: u64,
+    state_block: Arc<AtomicU64>,
     /// Tokio runtime handle for blocking RPC calls
     runtime_handle: Handle,
 }
@@ -71,10 +76,26 @@ impl<P: Provider<Optimism> + Clone> RPCDatabase<P> {
     /// File cache is stored at `cache/remote-db/<state_block>.json`
     #[must_use]
     pub fn new(provider: P, state_block: u64, runtime_handle: Handle) -> Self {
-        let cache_path = PathBuf::from(format!("static/remote-db/{state_block}.json"));
+        let file_cache = Self::load_cache_for_block(state_block);
 
-        // Load existing file cache if present
-        let file_cache = Self::load_file_cache(&cache_path);
+        Self {
+            file_cache: Arc::new(RwLock::new(file_cache)),
+            state_block: Arc::new(AtomicU64::new(state_block)),
+            provider,
+            runtime_handle,
+        }
+    }
+
+    fn cache_path(state_block: u64) -> PathBuf {
+        PathBuf::from(format!("static/remote-db/{state_block}.json"))
+    }
+
+    fn load_cache_for_block(state_block: u64) -> BlockCache {
+        let cache_path = Self::cache_path(state_block);
+        let file_cache = fs::read_to_string(&cache_path).map_or_else(
+            |_| BlockCache::default(),
+            |contents| serde_json::from_str(&contents).unwrap_or_default(),
+        );
 
         if !file_cache.accounts.is_empty() || !file_cache.storage.is_empty() {
             debug!(
@@ -85,22 +106,7 @@ impl<P: Provider<Optimism> + Clone> RPCDatabase<P> {
                 file_cache.block_hashes.len()
             );
         }
-
-        Self {
-            file_cache: Arc::new(RwLock::new(file_cache)),
-            cache_path,
-            provider,
-            state_block,
-            runtime_handle,
-        }
-    }
-
-    /// Load file cache from disk, returns empty cache if not found or invalid
-    fn load_file_cache(path: &PathBuf) -> BlockCache {
-        fs::read_to_string(path).map_or_else(
-            |_| BlockCache::default(),
-            |contents| serde_json::from_str(&contents).unwrap_or_default(),
-        )
+        file_cache
     }
 
     /// Save current file cache to disk
@@ -110,8 +116,10 @@ impl<P: Provider<Optimism> + Clone> RPCDatabase<P> {
             return;
         };
 
+        let cache_path = Self::cache_path(self.state_block.load(Ordering::Acquire));
+
         // Create cache directory if needed
-        if let Some(parent) = self.cache_path.parent()
+        if let Some(parent) = cache_path.parent()
             && let Err(e) = fs::create_dir_all(parent)
         {
             warn!("Failed to create cache directory: {e}");
@@ -120,7 +128,7 @@ impl<P: Provider<Optimism> + Clone> RPCDatabase<P> {
 
         match serde_json::to_string_pretty(&*cache) {
             Ok(json) => {
-                if let Err(e) = fs::write(&self.cache_path, json) {
+                if let Err(e) = fs::write(&cache_path, json) {
                     warn!("Failed to write cache file: {e}");
                 }
             }
@@ -140,7 +148,7 @@ impl<P: Provider<Optimism> + Clone> RPCDatabase<P> {
         }
 
         let provider = self.provider.clone();
-        let block_num = self.state_block;
+        let block_num = self.state_block.load(Ordering::Acquire);
 
         let info = tokio::task::block_in_place(|| {
             self.runtime_handle.block_on(async move {
@@ -189,7 +197,7 @@ impl<P: Provider<Optimism> + Clone> RPCDatabase<P> {
         }
 
         let provider = self.provider.clone();
-        let block_num = self.state_block;
+        let block_num = self.state_block.load(Ordering::Acquire);
 
         let value = tokio::task::block_in_place(|| {
             self.runtime_handle.block_on(async move {
@@ -266,5 +274,37 @@ impl<P: Provider<Optimism> + Clone> DatabaseRef for RPCDatabase<P> {
 
     fn block_hash_ref(&self, block_number: u64) -> Result<B256, Self::Error> {
         self.fetch_block_hash(block_number)
+    }
+}
+
+impl<P: Provider<Optimism> + Clone> RevmDatabase for RPCDatabase<P> {
+    type Error = DbError;
+
+    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.basic_ref(address)
+    }
+
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.code_by_hash_ref(code_hash)
+    }
+
+    fn storage(&mut self, address: Address, slot: U256) -> Result<U256, Self::Error> {
+        self.storage_ref(address, slot)
+    }
+
+    fn block_hash(&mut self, block_number: u64) -> Result<B256, Self::Error> {
+        self.block_hash_ref(block_number)
+    }
+}
+
+impl<P: Provider<Optimism> + Clone> DatabaseCommit for RPCDatabase<P> {
+    fn commit(&mut self, _changes: EvmState) {}
+}
+
+impl<P: Provider<Optimism> + Clone> Database for RPCDatabase<P> {
+    fn commit_block(&mut self) {
+        let new_block = self.state_block.fetch_add(1, Ordering::AcqRel) + 1;
+        let file_cache = Self::load_cache_for_block(new_block);
+        *self.file_cache.write().unwrap() = file_cache;
     }
 }

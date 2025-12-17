@@ -3,14 +3,13 @@
 use alloy::{consensus::BlockHeader, network::BlockResponse};
 use blocksource::{OpBlock, block_to_env, tx_to_op_tx};
 use chainspec::Chain;
-use database::{CachedDatabase, DatabaseCommit, DbError};
+use database::Database;
 use op_alloy::consensus::OpTxEnvelope;
 use op_revm::{DefaultOp, L1BlockInfo, OpBuilder};
 use revm::{
     ExecuteEvm,
     context::CfgEnv,
     context_interface::result::{ExecutionResult, Output},
-    database_interface::DatabaseRef,
 };
 use thiserror::Error;
 use tracing::info;
@@ -35,7 +34,7 @@ pub struct TxResult {
 }
 
 /// Result of executing a block
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockResult {
     /// Block number
     pub block_number: u64,
@@ -46,16 +45,16 @@ pub struct BlockResult {
 /// Block executor that uses op-revm to execute OP Stack blocks
 #[derive(Debug)]
 pub struct BlockExecutor<DB> {
-    db: CachedDatabase<DB>,
+    db: DB,
     chain: Chain,
 }
 
 impl<DB> BlockExecutor<DB>
 where
-    DB: DatabaseRef<Error = DbError> + Clone,
+    DB: Database,
 {
     /// Create a new block executor
-    pub const fn new(db: CachedDatabase<DB>, chain: Chain) -> Self {
+    pub const fn new(db: DB, chain: Chain) -> Self {
         Self { db, chain }
     }
 

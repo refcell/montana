@@ -13,17 +13,24 @@ mod cli;
 
 use std::{sync::Arc, time::Duration};
 
+use alloy::{
+    eips::BlockId,
+    network::ReceiptResponse,
+    providers::{Provider, ProviderBuilder},
+};
+use blocksource::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer};
 use clap::Parser;
 use cli::{Args, ProducerMode};
+use database::{CachedDatabase, RPCDatabase};
 use eyre::Result;
 use montana_batcher::{Address, BatchContext, BatchSink, BatchSubmissionMode, BatcherConfig};
 use montana_brotli::BrotliCompressor;
 use montana_cli::MontanaMode;
 use montana_pipeline::{CompressedBatch, Compressor};
-use runner::{Execution, ProducerMode as RunnerMode};
-use sequencer::OpBlock;
+use op_alloy::network::Optimism;
+use runner::{ExecutedBlock, Execution};
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Buffer capacity for the sequencer mode.
 const SEQUENCER_BUFFER_CAPACITY: usize = 256;
@@ -39,35 +46,146 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let producer_mode = match args.producer {
-        ProducerMode::Live { poll_interval_ms, start_block } => {
-            RunnerMode::Live { poll_interval: Duration::from_millis(poll_interval_ms), start_block }
-        }
-        ProducerMode::Historical { start, end } => RunnerMode::Historical { start, end },
+    let provider = ProviderBuilder::new()
+        .disable_recommended_fillers()
+        .network::<Optimism>()
+        .connect(args.rpc_url.as_str())
+        .await?;
+
+    let start_block = match &args.producer {
+        ProducerMode::Live { .. } => provider.get_block_number().await?,
+        ProducerMode::Historical { start, .. } => *start,
     };
 
-    match args.mode {
-        MontanaMode::Executor => run_executor(args.rpc_url, producer_mode).await,
-        MontanaMode::Sequencer => run_sequencer(args.rpc_url, producer_mode, args.batch_mode).await,
-        MontanaMode::Validator => {
+    let db = CachedDatabase::new(RPCDatabase::new(
+        provider.clone(),
+        start_block.saturating_sub(1),
+        tokio::runtime::Handle::current(),
+    ));
+
+    match (&args.mode, &args.producer) {
+        (MontanaMode::Executor, ProducerMode::Live { poll_interval_ms }) => {
+            let producer = LiveRpcProducer::new(
+                provider.clone(),
+                Duration::from_millis(*poll_interval_ms),
+                Some(start_block),
+            );
+            run_executor(db, producer, provider).await
+        }
+        (MontanaMode::Executor, ProducerMode::Historical { start, end }) => {
+            let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
+            run_executor(db, producer, provider).await
+        }
+        (MontanaMode::Sequencer, ProducerMode::Live { poll_interval_ms }) => {
+            let producer = LiveRpcProducer::new(
+                provider.clone(),
+                Duration::from_millis(*poll_interval_ms),
+                Some(start_block),
+            );
+            run_sequencer(db, producer, args.batch_mode).await
+        }
+        (MontanaMode::Sequencer, ProducerMode::Historical { start, end }) => {
+            let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
+            run_sequencer(db, producer, args.batch_mode).await
+        }
+        (MontanaMode::Validator, _) => {
             unimplemented!("Validator mode is not yet implemented")
         }
     }
 }
 
-/// Run in executor mode: execute and verify blocks only.
-async fn run_executor(rpc_url: String, mode: RunnerMode) -> Result<()> {
+/// Run in executor mode: execute and verify blocks against RPC receipts.
+async fn run_executor<DB, P, Prov>(db: DB, producer: P, provider: Prov) -> Result<()>
+where
+    DB: database::Database,
+    P: BlockProducer + 'static,
+    Prov: Provider<Optimism> + Clone + Send + Sync + 'static,
+{
     info!("Starting in executor mode");
-    let execution = Execution::new(rpc_url, mode);
-    execution.start().await
+
+    // Create a channel for execution output
+    let (block_tx, mut block_rx) = mpsc::channel::<ExecutedBlock>(16);
+
+    let execution = Execution::new(db, producer, block_tx);
+
+    // Spawn a task to verify executed blocks against RPC receipts
+    let verifier_handle = tokio::spawn(async move {
+        while let Some(executed) = block_rx.recv().await {
+            let block_number = executed.result.block_number;
+
+            // Fetch receipts from RPC for verification
+            let receipts = match provider.get_block_receipts(BlockId::number(block_number)).await {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    warn!(block = block_number, "No receipts found for block");
+                    continue;
+                }
+                Err(e) => {
+                    warn!(block = block_number, error = %e, "Failed to fetch receipts");
+                    continue;
+                }
+            };
+
+            // Verify execution results against receipts
+            let mut verified = 0;
+            let mut mismatched = 0;
+
+            for (idx, (tx_result, receipt)) in
+                executed.result.tx_results.iter().zip(receipts.iter()).enumerate()
+            {
+                let receipt_gas = receipt.gas_used();
+                let receipt_success = receipt.status();
+
+                if tx_result.gas_used == receipt_gas && tx_result.success == receipt_success {
+                    verified += 1;
+                } else {
+                    mismatched += 1;
+                    warn!(
+                        "Block {} tx {}: gas mismatch (exec={}, receipt={}) or status mismatch (exec={}, receipt={})",
+                        block_number,
+                        idx,
+                        tx_result.gas_used,
+                        receipt_gas,
+                        tx_result.success,
+                        receipt_success
+                    );
+                }
+            }
+
+            if mismatched == 0 {
+                info!(
+                    "Block {} verification PASSED: {}/{} transactions verified",
+                    block_number,
+                    verified,
+                    executed.result.tx_results.len()
+                );
+            } else {
+                warn!(
+                    "Block {} verification FAILED: {} mismatched, {} verified out of {} transactions",
+                    block_number,
+                    mismatched,
+                    verified,
+                    executed.result.tx_results.len()
+                );
+            }
+        }
+    });
+
+    // Run execution
+    let result = execution.start().await;
+
+    // Wait for verifier to complete
+    let _ = verifier_handle.await;
+
+    result
 }
 
 /// Run in sequencer mode: execute blocks and submit batches to L1.
-async fn run_sequencer(
-    rpc_url: String,
-    mode: RunnerMode,
-    batch_mode: BatchSubmissionMode,
-) -> Result<()> {
+async fn run_sequencer<DB, P>(db: DB, producer: P, batch_mode: BatchSubmissionMode) -> Result<()>
+where
+    DB: database::Database,
+    P: BlockProducer + 'static,
+{
     info!(batch_mode = %batch_mode, "Starting in sequencer mode");
 
     // Create the batch context based on the submission mode
@@ -82,10 +200,10 @@ async fn run_sequencer(
     }
 
     // Create channel for execution → batcher communication
-    let (block_tx, mut block_rx) = mpsc::channel::<OpBlock>(SEQUENCER_BUFFER_CAPACITY);
+    let (block_tx, mut block_rx) = mpsc::channel::<ExecutedBlock>(SEQUENCER_BUFFER_CAPACITY);
 
     // Create execution client with output channel
-    let execution = Execution::new(rpc_url, mode).with_output(block_tx);
+    let execution = Execution::new(db, producer, block_tx);
 
     // Create batcher components
     let compressor = BrotliCompressor::default();
@@ -108,14 +226,14 @@ async fn run_sequencer(
         let mut total_blocks = 0u64;
         let mut total_batches = 0u64;
 
-        while let Some(block) = block_rx.recv().await {
+        while let Some(executed) = block_rx.recv().await {
             // Convert block to L2BlockData for batching
-            let l2_data = sequencer::op_block_to_l2_data(&block);
+            let l2_data = sequencer::op_block_to_l2_data(&executed.block);
             driver.add_blocks(vec![l2_data]);
             total_blocks += 1;
 
             tracing::debug!(
-                block_number = block.header.number,
+                block_number = executed.block.header.number,
                 pending_blocks = driver.pending_count(),
                 current_size = driver.current_size(),
                 "Block added to batcher"

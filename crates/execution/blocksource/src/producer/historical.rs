@@ -1,9 +1,6 @@
 //! Historical range block producer that fetches a range of past blocks.
 
-use alloy::{
-    eips::BlockNumberOrTag,
-    providers::{Provider, RootProvider},
-};
+use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use async_trait::async_trait;
 use eyre::{Result, eyre};
 use op_alloy::network::Optimism;
@@ -18,13 +15,13 @@ use crate::OpBlock;
 /// This producer fetches blocks from `start_block` to `end_block` (inclusive)
 /// and then completes. It sends blocks in sequential order.
 #[derive(Debug)]
-pub struct HistoricalRangeProducer {
-    provider: RootProvider<Optimism>,
+pub struct HistoricalRangeProducer<P> {
+    provider: P,
     start_block: u64,
     end_block: u64,
 }
 
-impl HistoricalRangeProducer {
+impl<P> HistoricalRangeProducer<P> {
     /// Create a new historical range producer.
     ///
     /// # Arguments
@@ -32,13 +29,13 @@ impl HistoricalRangeProducer {
     /// * `start_block` - The first block to fetch (inclusive)
     /// * `end_block` - The last block to fetch (inclusive)
     #[must_use]
-    pub const fn new(provider: RootProvider<Optimism>, start_block: u64, end_block: u64) -> Self {
+    pub const fn new(provider: P, start_block: u64, end_block: u64) -> Self {
         Self { provider, start_block, end_block }
     }
 }
 
 #[async_trait]
-impl BlockProducer for HistoricalRangeProducer {
+impl<P: Provider<Optimism> + Sync> BlockProducer for HistoricalRangeProducer<P> {
     async fn produce(&self, tx: Sender<OpBlock>) -> Result<()> {
         let total_blocks = self.end_block.saturating_sub(self.start_block) + 1;
         info!(

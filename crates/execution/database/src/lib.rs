@@ -10,6 +10,5 @@ pub mod traits;
 pub mod triedb;
 
 pub use cached::CachedDatabase;
-pub use errors::DbError;
 pub use remote::RPCDatabase;
-pub use traits::{DBErrorMarker, Database, DatabaseCommit, DatabaseRef};
+pub use traits::{Database, DatabaseCommit};

@@ -2,10 +2,7 @@
 
 use std::time::Duration;
 
-use alloy::{
-    eips::BlockNumberOrTag,
-    providers::{Provider, RootProvider},
-};
+use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use async_trait::async_trait;
 use eyre::{Result, eyre};
 use op_alloy::network::Optimism;
@@ -20,13 +17,13 @@ use crate::OpBlock;
 /// This producer continuously polls `eth_blockNumber` and fetches any new blocks
 /// since the last seen block, sending them to the consumer channel.
 #[derive(Debug)]
-pub struct LiveRpcProducer {
-    provider: RootProvider<Optimism>,
+pub struct LiveRpcProducer<P> {
+    provider: P,
     poll_interval: Duration,
     start_block: Option<u64>,
 }
 
-impl LiveRpcProducer {
+impl<P> LiveRpcProducer<P> {
     /// Create a new live RPC producer.
     ///
     /// # Arguments
@@ -34,17 +31,13 @@ impl LiveRpcProducer {
     /// * `poll_interval` - How often to poll for new blocks
     /// * `start_block` - Optional starting block number (None = start from latest)
     #[must_use]
-    pub const fn new(
-        provider: RootProvider<Optimism>,
-        poll_interval: Duration,
-        start_block: Option<u64>,
-    ) -> Self {
+    pub const fn new(provider: P, poll_interval: Duration, start_block: Option<u64>) -> Self {
         Self { provider, poll_interval, start_block }
     }
 }
 
 #[async_trait]
-impl BlockProducer for LiveRpcProducer {
+impl<P: Provider<Optimism> + Sync> BlockProducer for LiveRpcProducer<P> {
     async fn produce(&self, tx: Sender<OpBlock>) -> Result<()> {
         // Determine starting block
         let mut last_block = match self.start_block {

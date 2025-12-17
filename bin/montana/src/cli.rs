@@ -35,10 +35,6 @@ pub(crate) enum ProducerMode {
         /// Poll interval in milliseconds
         #[arg(long, default_value = "2000")]
         poll_interval_ms: u64,
-
-        /// Starting block number (default: latest)
-        #[arg(long)]
-        start_block: Option<u64>,
     },
 
     /// Fetch a historical range of blocks

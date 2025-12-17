@@ -1,163 +1,91 @@
 //! Block execution client
 
-use alloy::{
-    consensus::BlockHeader,
-    eips::BlockId,
-    network::{BlockResponse, ReceiptResponse},
-    providers::{Provider, ProviderBuilder, RootProvider},
-};
-use blocksource::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer, OpBlock};
+use std::fmt;
+
+use blocksource::{BlockProducer, OpBlock};
 use chainspec::BASE_MAINNET;
-use database::{CachedDatabase, RPCDatabase};
+use database::Database;
 use eyre::Result;
-use op_alloy::network::Optimism;
-use tokio::{runtime::Handle, sync::mpsc};
-use tracing::{error, info, trace, warn};
-use vm::BlockExecutor;
+use tokio::sync::mpsc;
+use tracing::{info, trace, warn};
+use vm::{BlockExecutor, BlockResult};
 
-use crate::ProducerMode;
-
-const CHANNEL_CAPACITY: usize = 256;
-
-/// Block execution client
-#[derive(Debug)]
-pub struct Execution {
-    rpc_url: String,
-    mode: ProducerMode,
-    /// Optional channel to send verified blocks downstream (e.g., to sequencer buffer).
-    output_tx: Option<mpsc::Sender<OpBlock>>,
+/// An executed block with its execution result
+#[derive(Debug, Clone)]
+pub struct ExecutedBlock {
+    /// The original block
+    pub block: OpBlock,
+    /// The execution result
+    pub result: BlockResult,
 }
 
-impl Execution {
+/// Block execution client
+pub struct Execution<DB, P> {
+    db: DB,
+    producer: P,
+    /// Channel to send executed blocks downstream.
+    output_tx: mpsc::Sender<ExecutedBlock>,
+}
+
+impl<DB: fmt::Debug, P: fmt::Debug> fmt::Debug for Execution<DB, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Execution")
+            .field("db", &self.db)
+            .field("producer", &self.producer)
+            .field("output_tx", &"<Sender>")
+            .finish()
+    }
+}
+
+impl<DB, P> Execution<DB, P>
+where
+    DB: Database,
+    P: BlockProducer + 'static,
+{
     /// Create a new execution client
-    pub const fn new(rpc_url: String, mode: ProducerMode) -> Self {
-        Self { rpc_url, mode, output_tx: None }
+    pub const fn new(db: DB, producer: P, output_tx: mpsc::Sender<ExecutedBlock>) -> Self {
+        Self { db, producer, output_tx }
     }
 
-    /// Configure the execution client with an output channel.
+    /// Start executing blocks from the producer
     ///
-    /// When configured, verified blocks will be sent to this channel
-    /// for downstream processing (e.g., batch submission in sequencer mode).
-    pub fn with_output(mut self, tx: mpsc::Sender<OpBlock>) -> Self {
-        self.output_tx = Some(tx);
-        self
-    }
-
-    /// Start the execution client
+    /// This spawns the producer in a background task and consumes blocks,
+    /// executing each one.
     pub async fn start(self) -> Result<()> {
-        // Create channel for producer -> consumer communication
-        let (tx, mut rx) = mpsc::channel::<OpBlock>(CHANNEL_CAPACITY);
+        // Destructure self to separate producer from the rest
+        let Self { mut db, producer, output_tx } = self;
 
-        let provider = ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .network::<Optimism>()
-            .connect(self.rpc_url.as_str())
-            .await?;
+        // Create channel for block production
+        let (tx, mut rx) = mpsc::channel(16);
 
-        let producer: Box<dyn BlockProducer> = match self.mode {
-            ProducerMode::Live { poll_interval, start_block } => {
-                Box::new(LiveRpcProducer::new(provider.clone(), poll_interval, start_block))
-            }
-            ProducerMode::Historical { start, end } => {
-                Box::new(HistoricalRangeProducer::new(provider.clone(), start, end))
-            }
-        };
+        // Spawn the producer
+        let producer_handle = tokio::spawn(async move { producer.produce(tx).await });
 
-        let producer_handle = tokio::spawn(async move {
-            if let Err(e) = producer.produce(tx).await {
-                error!("Producer error: {e}");
-            }
-        });
-
-        // Consumer loop: process blocks as they arrive
+        // Consume and execute blocks
         while let Some(block) = rx.recv().await {
-            // Clone block before execution if we need to forward it downstream
-            let block_to_forward = self.output_tx.as_ref().map(|_| block.clone());
+            let block_num = block.header.number;
+            info!(block = block_num, "Executing block");
 
-            match Self::execute_block(block, &provider).await {
-                Ok(()) => {
-                    // Forward verified block to downstream consumer if configured
-                    if let (Some(output_tx), Some(forward_block)) =
-                        (&self.output_tx, block_to_forward)
-                    {
-                        if output_tx.send(forward_block).await.is_err() {
-                            warn!("Downstream consumer dropped, stopping output forwarding");
-                        } else {
-                            trace!("Forwarded verified block to downstream consumer");
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Block execution error: {e}");
-                }
+            // Execute the block
+            let mut executor = BlockExecutor::new(db.clone(), BASE_MAINNET);
+            let result = executor.execute_block(block.clone())?;
+
+            // Commit the block state after successful execution
+            db.commit_block();
+
+            // Forward executed block to downstream consumer
+            let executed = ExecutedBlock { block, result };
+            if output_tx.send(executed).await.is_err() {
+                warn!("Downstream consumer dropped, stopping output forwarding");
+            } else {
+                trace!("Forwarded executed block to downstream consumer");
             }
         }
 
         // Wait for producer to finish
-        producer_handle.await?;
+        producer_handle.abort();
 
-        info!("All blocks processed");
-        Ok(())
-    }
-
-    /// Execute a block using the `BlockExecutor` and verify against RPC receipts
-    async fn execute_block(block: OpBlock, provider: &RootProvider<Optimism>) -> Result<()> {
-        let block_number = block.header().number();
-
-        // Create the database backed by RPC (state at block - 1)
-        let state_block = block_number.saturating_sub(1);
-        let rpc_db = RPCDatabase::new(provider.clone(), state_block, Handle::current());
-        let db = CachedDatabase::new(rpc_db);
-
-        let mut executor = BlockExecutor::new(db, BASE_MAINNET);
-        let result = executor.execute_block(block)?;
-
-        // Fetch receipts from RPC for verification
-        let receipts =
-            provider.get_block_receipts(BlockId::number(block_number)).await?.unwrap_or_default();
-
-        // Verify execution results against RPC receipts
-        let mut verified = 0;
-        let mut mismatched = 0;
-
-        for (idx, (tx_result, receipt)) in result.tx_results.iter().zip(receipts.iter()).enumerate()
-        {
-            let receipt_gas = receipt.gas_used();
-            let receipt_success = receipt.status();
-
-            if tx_result.gas_used == receipt_gas && tx_result.success == receipt_success {
-                verified += 1;
-            } else {
-                mismatched += 1;
-                warn!(
-                    "Block {} tx {}: gas mismatch (exec={}, receipt={}) or status mismatch (exec={}, receipt={})",
-                    block_number,
-                    idx,
-                    tx_result.gas_used,
-                    receipt_gas,
-                    tx_result.success,
-                    receipt_success
-                );
-            }
-        }
-
-        if mismatched == 0 {
-            info!(
-                "Block {} verification PASSED: {}/{} transactions verified",
-                block_number,
-                verified,
-                result.tx_results.len()
-            );
-        } else {
-            warn!(
-                "Block {} verification FAILED: {} mismatched, {} verified out of {} transactions",
-                block_number,
-                mismatched,
-                verified,
-                result.tx_results.len()
-            );
-        }
-
+        info!("Execution complete");
         Ok(())
     }
 }

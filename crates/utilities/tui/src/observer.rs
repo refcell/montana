@@ -43,7 +43,12 @@ impl NodeObserver for TuiObserver {
             },
 
             // Block events
-            NodeEvent::BlockExecuted { block_number } => TuiEvent::UnsafeHeadUpdated(*block_number),
+            NodeEvent::BlockExecuted { block_number, execution_time_ms } => {
+                TuiEvent::BlockExecuted {
+                    block_number: *block_number,
+                    execution_time_ms: *execution_time_ms,
+                }
+            }
 
             // Batch events from sequencer
             NodeEvent::BatchSubmitted { batch_number, tx_hash: _ } => {

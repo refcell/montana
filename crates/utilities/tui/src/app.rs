@@ -73,6 +73,24 @@ pub struct App {
     /// Total number of batches derived from L1
     pub batches_derived: u64,
 
+    // Execution tracking
+    /// Total blocks fetched (for backlog calculation)
+    pub blocks_fetched: u64,
+    /// Total blocks executed
+    pub blocks_executed: u64,
+    /// Last fetched block number
+    pub last_fetched_block: u64,
+    /// Last executed block number
+    pub last_executed_block: u64,
+    /// Recent execution times in ms (for calculating rate)
+    execution_times: Vec<u64>,
+    /// Timestamp when execution started (for rate calculation)
+    pub execution_start_time: Option<std::time::Instant>,
+    /// Timestamp when last block was executed (for stall detection)
+    pub last_execution_time: Option<std::time::Instant>,
+    /// Execution logs
+    pub execution_logs: Vec<LogEntry>,
+
     // Round-trip latency tracking
     /// Batch submission timestamps (batch_number -> submit time)
     batch_submit_times: HashMap<u64, Instant>,
@@ -88,6 +106,16 @@ pub struct App {
     pub batch_logs: Vec<LogEntry>,
     /// Derivation logs
     pub derivation_logs: Vec<LogEntry>,
+
+    // Mode information
+    /// Node role (Sequencer, Validator, or Dual)
+    pub node_role: String,
+    /// Producer mode (Live or Historical)
+    pub producer_mode: String,
+    /// Whether sync stage was skipped
+    pub skip_sync: bool,
+    /// Optional block range for historical mode (start, end)
+    pub historical_range: Option<(u64, u64)>,
 
     // UI state
     /// Whether the TUI is paused (no updates)
@@ -109,12 +137,24 @@ impl App {
             blocks_processed: 0,
             batches_submitted: 0,
             batches_derived: 0,
+            blocks_fetched: 0,
+            blocks_executed: 0,
+            last_fetched_block: 0,
+            last_executed_block: 0,
+            execution_times: Vec::new(),
+            execution_start_time: None,
+            last_execution_time: None,
+            execution_logs: Vec::new(),
             batch_submit_times: HashMap::new(),
             round_trip_latencies: Vec::new(),
             sync_logs: Vec::new(),
             block_builder_logs: Vec::new(),
             batch_logs: Vec::new(),
             derivation_logs: Vec::new(),
+            node_role: "Unknown".to_string(),
+            producer_mode: "Unknown".to_string(),
+            skip_sync: false,
+            historical_range: None,
             is_paused: false,
         }
     }
@@ -133,6 +173,14 @@ impl App {
         self.blocks_processed = 0;
         self.batches_submitted = 0;
         self.batches_derived = 0;
+        self.blocks_fetched = 0;
+        self.blocks_executed = 0;
+        self.last_fetched_block = 0;
+        self.last_executed_block = 0;
+        self.execution_times.clear();
+        self.execution_start_time = None;
+        self.last_execution_time = None;
+        self.execution_logs.clear();
         self.batch_submit_times.clear();
         self.round_trip_latencies.clear();
         self.sync_logs.clear();
@@ -146,6 +194,27 @@ impl App {
     /// When paused, the TUI will not process new events or update the display.
     pub const fn toggle_pause(&mut self) {
         self.is_paused = !self.is_paused;
+    }
+
+    /// Update node mode information.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_role` - The node role (Sequencer, Validator, or Dual)
+    /// * `producer_mode` - The producer mode (Live or Historical)
+    /// * `skip_sync` - Whether sync stage was skipped
+    /// * `historical_range` - Optional block range for historical mode
+    pub fn set_mode_info(
+        &mut self,
+        node_role: String,
+        producer_mode: String,
+        skip_sync: bool,
+        historical_range: Option<(u64, u64)>,
+    ) {
+        self.node_role = node_role;
+        self.producer_mode = producer_mode;
+        self.skip_sync = skip_sync;
+        self.historical_range = historical_range;
     }
 
     /// Add a log entry to the sync logs.
@@ -386,6 +455,87 @@ impl App {
             / self.round_trip_latencies.len() as f64;
 
         variance.sqrt()
+    }
+
+    /// Record a block execution.
+    ///
+    /// Updates execution tracking metrics and logs the execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `block_number` - The block number that was executed
+    /// * `execution_time_ms` - Time taken to execute the block in milliseconds
+    pub fn record_block_executed(&mut self, block_number: u64, execution_time_ms: u64) {
+        self.blocks_executed += 1;
+        self.last_executed_block = block_number;
+
+        // Start timing on first execution
+        if self.execution_start_time.is_none() {
+            self.execution_start_time = Some(Instant::now());
+        }
+
+        // Track when this execution happened
+        self.last_execution_time = Some(Instant::now());
+
+        // Track execution times for rate calculation
+        self.execution_times.push(execution_time_ms);
+        if self.execution_times.len() > 100 {
+            self.execution_times.remove(0);
+        }
+    }
+
+    /// Update backlog information (blocks fetched from RPC).
+    ///
+    /// # Arguments
+    ///
+    /// * `blocks_fetched` - Total blocks fetched since start
+    /// * `last_fetched_block` - The last block number fetched
+    pub const fn update_backlog(&mut self, blocks_fetched: u64, last_fetched_block: u64) {
+        self.blocks_fetched = blocks_fetched;
+        self.last_fetched_block = last_fetched_block;
+    }
+
+    /// Get the current backlog size (blocks waiting to be executed).
+    pub const fn backlog_size(&self) -> u64 {
+        self.blocks_fetched.saturating_sub(self.blocks_executed)
+    }
+
+    /// Get execution rate in blocks per second.
+    pub fn execution_rate(&self) -> f64 {
+        self.execution_start_time.map_or(0.0, |start| {
+            let elapsed = start.elapsed().as_secs_f64();
+            if elapsed > 0.0 { self.blocks_executed as f64 / elapsed } else { 0.0 }
+        })
+    }
+
+    /// Get average execution time per block in milliseconds.
+    pub fn avg_execution_time_ms(&self) -> f64 {
+        if self.execution_times.is_empty() {
+            return 0.0;
+        }
+        let sum: u64 = self.execution_times.iter().sum();
+        sum as f64 / self.execution_times.len() as f64
+    }
+
+    /// Get time since last block execution in seconds.
+    ///
+    /// Returns None if no blocks have been executed yet.
+    pub fn time_since_last_execution(&self) -> Option<Duration> {
+        self.last_execution_time.map(|t| t.elapsed())
+    }
+
+    /// Add a log entry to the execution logs.
+    ///
+    /// Log entries are kept in a circular buffer with a maximum of 100 entries.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - The log entry to add
+    pub fn log_execution(&mut self, entry: LogEntry) {
+        self.execution_logs.push(entry);
+        if self.execution_logs.len() > MAX_LOG_ENTRIES {
+            self.execution_logs.remove(0);
+        }
     }
 }
 

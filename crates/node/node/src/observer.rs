@@ -91,8 +91,12 @@ impl NodeObserver for LoggingObserver {
                     "sync completed"
                 );
             }
-            NodeEvent::BlockExecuted { block_number } => {
-                tracing::debug!(block = block_number, "block executed");
+            NodeEvent::BlockExecuted { block_number, execution_time_ms } => {
+                tracing::debug!(
+                    block = block_number,
+                    execution_ms = execution_time_ms,
+                    "block executed"
+                );
             }
             NodeEvent::BatchBuilt { batch_number, block_count } => {
                 tracing::info!(batch = batch_number, blocks = block_count, "batch built");

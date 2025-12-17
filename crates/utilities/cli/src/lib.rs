@@ -38,7 +38,7 @@ pub use montana_mode::MontanaMode;
 /// for the Montana node binary. It includes options for RPC URLs, operating mode, headless
 /// mode, sync behavior, checkpointing, logging, and batch submission.
 mod montana_cli;
-pub use montana_cli::{MontanaCli, ProducerMode};
+pub use montana_cli::MontanaCli;
 // Re-export BatchSubmissionMode from montana_batcher
 pub use montana_batcher::BatchSubmissionMode;
 

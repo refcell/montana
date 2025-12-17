@@ -34,6 +34,8 @@ pub enum NodeEvent {
     BlockExecuted {
         /// The block number that was executed
         block_number: u64,
+        /// Execution time in milliseconds
+        execution_time_ms: u64,
     },
     /// A batch has been built
     BatchBuilt {

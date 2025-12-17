@@ -4,7 +4,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod sequencer;
-pub use sequencer::{Sequencer, SequencerEvent};
+pub use sequencer::{ExecutionCallback, Sequencer, SequencerEvent};
 
 pub mod validator;
 pub use validator::{Validator, ValidatorEvent};

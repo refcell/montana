@@ -256,10 +256,12 @@ mod tests {
 
         let blocks = vec![
             montana_pipeline::L2BlockData {
+                block_number: 1,
                 timestamp: 1000,
                 transactions: vec![montana_pipeline::Bytes::from(vec![1, 2, 3, 4, 5])],
             },
             montana_pipeline::L2BlockData {
+                block_number: 2,
                 timestamp: 2000,
                 transactions: vec![montana_pipeline::Bytes::from(vec![6, 7, 8])],
             },
@@ -285,6 +287,7 @@ mod tests {
         let mut driver = BatchDriver::new(config);
 
         let blocks = vec![montana_pipeline::L2BlockData {
+            block_number: 1,
             timestamp: 1000,
             transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
         }];
@@ -303,6 +306,7 @@ mod tests {
         let mut blocks = Vec::new();
         for i in 0..5 {
             blocks.push(montana_pipeline::L2BlockData {
+                block_number: i,
                 timestamp: 1000 + i,
                 transactions: vec![montana_pipeline::Bytes::from(vec![i as u8; 10])],
             });
@@ -328,6 +332,7 @@ mod tests {
         let mut driver = BatchDriver::new(config);
 
         let blocks = vec![montana_pipeline::L2BlockData {
+            block_number: 1,
             timestamp: 1000,
             transactions: vec![montana_pipeline::Bytes::from(vec![1, 2, 3])],
         }];
@@ -343,6 +348,7 @@ mod tests {
         let mut driver = BatchDriver::new(config);
 
         let blocks = vec![montana_pipeline::L2BlockData {
+            block_number: 1,
             timestamp: 1000,
             transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
         }];
@@ -364,6 +370,7 @@ mod tests {
         let mut driver = BatchDriver::new(config);
 
         let blocks = vec![montana_pipeline::L2BlockData {
+            block_number: 1,
             timestamp: 1000,
             transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
         }];
@@ -382,6 +389,7 @@ mod tests {
 
         for i in 0..3 {
             let blocks = vec![montana_pipeline::L2BlockData {
+                block_number: i,
                 timestamp: 1000 + i,
                 transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
             }];
@@ -404,6 +412,7 @@ mod tests {
         // Add 10 blocks
         let blocks: Vec<_> = (0..10)
             .map(|i| montana_pipeline::L2BlockData {
+                block_number: i,
                 timestamp: 1000 + i,
                 transactions: vec![montana_pipeline::Bytes::from(vec![0; 200])],
             })
@@ -428,10 +437,12 @@ mod tests {
 
         let blocks = vec![
             montana_pipeline::L2BlockData {
+                block_number: 1,
                 timestamp: 1000,
                 transactions: vec![montana_pipeline::Bytes::from(vec![1, 2])],
             },
             montana_pipeline::L2BlockData {
+                block_number: 2,
                 timestamp: 2000,
                 transactions: vec![montana_pipeline::Bytes::from(vec![3, 4])],
             },
@@ -449,6 +460,7 @@ mod tests {
         assert_eq!(driver.current_size(), 0);
 
         let blocks = vec![montana_pipeline::L2BlockData {
+            block_number: 1,
             timestamp: 1000,
             transactions: vec![
                 montana_pipeline::Bytes::from(vec![0; 100]),
@@ -470,6 +482,7 @@ mod tests {
         let mut driver = BatchDriver::new(config);
 
         let blocks = vec![montana_pipeline::L2BlockData {
+            block_number: 1,
             timestamp: 1000,
             transactions: vec![montana_pipeline::Bytes::from(vec![0; size])],
         }];
@@ -487,6 +500,7 @@ mod tests {
         // Add 4 blocks (below threshold)
         let blocks: Vec<_> = (0..4)
             .map(|i| montana_pipeline::L2BlockData {
+                block_number: i,
                 timestamp: 1000 + i,
                 transactions: vec![montana_pipeline::Bytes::from(vec![0; 10])],
             })
@@ -497,6 +511,7 @@ mod tests {
 
         // Add 1 more to reach 5 (threshold)
         let block = montana_pipeline::L2BlockData {
+            block_number: 5,
             timestamp: 2000,
             transactions: vec![montana_pipeline::Bytes::from(vec![0; 10])],
         };

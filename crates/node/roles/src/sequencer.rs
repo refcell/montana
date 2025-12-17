@@ -2,7 +2,7 @@
 //!
 //! The sequencer role executes blocks and submits batches to L1.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -11,6 +11,20 @@ use montana_checkpoint::Checkpoint;
 use montana_pipeline::{BatchSink, CompressedBatch, Compressor, L2BlockData};
 
 use crate::{Role, RoleCheckpoint, TickResult};
+
+/// Callback for reporting block execution events.
+///
+/// This trait allows the sequencer to report execution metrics without
+/// depending on the TUI crate directly, avoiding cyclic dependencies.
+pub trait ExecutionCallback: Send + Sync {
+    /// Called when a block has been executed.
+    ///
+    /// # Arguments
+    ///
+    /// * `block_number` - The block number that was executed
+    /// * `execution_time_ms` - Time taken to execute the block in milliseconds
+    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64);
+}
 
 /// Events emitted by the sequencer for observer pattern.
 ///
@@ -47,9 +61,10 @@ pub enum SequencerEvent {
 /// - `S`: The batch sink implementation (e.g., blob sink, calldata sink)
 /// - `C`: The compressor implementation (e.g., Brotli, Zstd)
 ///
-/// The sequencer receives L2 blocks via a channel, batches them according
-/// to configured criteria, compresses them, and submits them to L1.
-#[derive(Debug)]
+/// The sequencer receives L2 blocks via an unbounded channel, batches them according
+/// to configured criteria, compresses them, and submits them to L1. The unbounded
+/// channel allows block fetching to be decoupled from execution - the feeder can
+/// continuously fetch blocks while the sequencer processes them at its own pace.
 pub struct Sequencer<S, C> {
     /// Batch sink for L1 submission.
     batch_sink: S,
@@ -61,10 +76,27 @@ pub struct Sequencer<S, C> {
     checkpoint: Checkpoint,
     /// Path to save checkpoints.
     checkpoint_path: PathBuf,
-    /// Channel for receiving blocks.
-    block_rx: mpsc::Receiver<L2BlockData>,
+    /// Unbounded channel for receiving blocks (decouples fetching from execution).
+    block_rx: mpsc::UnboundedReceiver<L2BlockData>,
     /// Event sender (for observers).
     event_tx: Option<mpsc::UnboundedSender<SequencerEvent>>,
+    /// Optional callback for execution events.
+    execution_callback: Option<Arc<dyn ExecutionCallback>>,
+    /// Counter for tracking blocks executed (for backlog calculation).
+    blocks_executed: u64,
+}
+
+impl<S: std::fmt::Debug, C: std::fmt::Debug> std::fmt::Debug for Sequencer<S, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sequencer")
+            .field("batch_sink", &self.batch_sink)
+            .field("compressor", &self.compressor)
+            .field("batch_driver", &self.batch_driver)
+            .field("checkpoint", &self.checkpoint)
+            .field("checkpoint_path", &self.checkpoint_path)
+            .field("blocks_executed", &self.blocks_executed)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<S, C> Sequencer<S, C>
@@ -80,7 +112,7 @@ where
     /// * `compressor` - The compressor for batch data
     /// * `batch_driver` - The batch driver managing batch building logic
     /// * `checkpoint_path` - Path to save/load checkpoints
-    /// * `block_rx` - Channel for receiving L2 blocks
+    /// * `block_rx` - Unbounded channel for receiving L2 blocks (allows decoupled fetching)
     ///
     /// # Errors
     ///
@@ -90,7 +122,7 @@ where
         compressor: C,
         batch_driver: BatchDriver,
         checkpoint_path: PathBuf,
-        block_rx: mpsc::Receiver<L2BlockData>,
+        block_rx: mpsc::UnboundedReceiver<L2BlockData>,
     ) -> eyre::Result<Self> {
         let checkpoint = Checkpoint::load(&checkpoint_path)?.map_or_else(
             || {
@@ -115,7 +147,23 @@ where
             checkpoint_path,
             block_rx,
             event_tx: None,
+            execution_callback: None,
+            blocks_executed: 0,
         })
+    }
+
+    /// Sets the execution callback for reporting block execution events.
+    ///
+    /// This callback is invoked each time a block is executed, allowing
+    /// external components (like the TUI) to track execution progress
+    /// without the sequencer depending on them directly.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - The callback to invoke on block execution
+    pub fn with_execution_callback(mut self, callback: Arc<dyn ExecutionCallback>) -> Self {
+        self.execution_callback = Some(callback);
+        self
     }
 
     /// Sets the event sender for observer notifications.
@@ -142,6 +190,7 @@ where
     /// Processes a single incoming block.
     ///
     /// Adds the block to the batch driver and checks if a batch should be submitted.
+    /// Measures execution time and emits events for TUI visibility.
     ///
     /// # Arguments
     ///
@@ -151,14 +200,25 @@ where
     ///
     /// Returns an error if batch submission fails.
     async fn process_block(&mut self, block: L2BlockData) -> eyre::Result<()> {
+        let start = Instant::now();
+
         // Add block to batch driver
         self.batch_driver.add_blocks(vec![block.clone()]);
 
-        // Emit block received event (using timestamp as a proxy for block number)
+        // Calculate execution time
+        let execution_time_ms = start.elapsed().as_millis() as u64;
+        self.blocks_executed += 1;
+
+        // Emit block executed event
         self.emit(SequencerEvent::BlockExecuted {
-            block_number: block.timestamp,
+            block_number: block.block_number,
             block_hash: [0u8; 32], // TODO: compute actual block hash
         });
+
+        // Invoke execution callback for TUI visibility
+        if let Some(ref callback) = self.execution_callback {
+            callback.on_block_executed(block.block_number, execution_time_ms);
+        }
 
         // Check if batch is ready
         if self.batch_driver.should_submit() {

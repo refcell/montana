@@ -406,6 +406,7 @@ mod tests {
 
     fn create_test_block(block_number: u64) -> L2BlockData {
         L2BlockData {
+            block_number,
             timestamp: 1000 + block_number,
             transactions: vec![
                 montana_pipeline::Bytes::from(vec![1, 2, 3, 4]),

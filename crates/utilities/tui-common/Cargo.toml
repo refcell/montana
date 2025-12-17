@@ -13,4 +13,5 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+derive_more.workspace = true
 ratatui.workspace = true

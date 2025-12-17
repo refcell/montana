@@ -4,6 +4,7 @@ use alloy::{consensus::BlockHeader, network::BlockResponse};
 use blocksource::{OpBlock, block_to_env, tx_to_op_tx};
 use chainspec::Chain;
 use database::Database;
+use derive_more::Display;
 use op_alloy::consensus::OpTxEnvelope;
 use op_revm::{DefaultOp, L1BlockInfo, OpBuilder};
 use revm::{
@@ -11,16 +12,17 @@ use revm::{
     context::CfgEnv,
     context_interface::result::{ExecutionResult, Output},
 };
-use thiserror::Error;
 use tracing::info;
 
 /// Errors that can occur during block execution
-#[derive(Debug, Error)]
+#[derive(Debug, Display)]
 pub enum ExecutorError {
     /// EVM execution error
-    #[error("EVM execution error: {0}")]
+    #[display("EVM execution error: {_0}")]
     Evm(String),
 }
+
+impl std::error::Error for ExecutorError {}
 
 /// Result of executing a single transaction
 #[derive(Debug, Clone)]

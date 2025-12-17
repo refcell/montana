@@ -70,7 +70,8 @@ struct JsonRpcResponse<T> {
 }
 
 /// JSON-RPC error structure.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, derive_more::Display)]
+#[display("{message} (code: {code})")]
 struct JsonRpcError {
     code: i64,
     message: String,

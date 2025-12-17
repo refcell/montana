@@ -34,3 +34,6 @@ ratatui.workspace = true
 # cli
 clap = { workspace = true, features = ["derive"] }
 
+# misc
+derive_more.workspace = true
+

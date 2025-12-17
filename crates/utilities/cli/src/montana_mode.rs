@@ -19,40 +19,33 @@ use clap::ValueEnum;
 /// // Display mode as string
 /// assert_eq!(MontanaMode::Dual.to_string(), "dual");
 /// ```
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, derive_more::Display)]
 pub enum MontanaMode {
     /// Executor mode - execute blocks and verify against RPC.
     ///
     /// Fetches L2 blocks, executes them locally, and verifies the results
     /// against RPC receipts. Does not submit batches to L1.
+    #[display("executor")]
     Executor,
     /// Sequencer mode - execute blocks and submit batches to L1.
     ///
     /// Runs as a full sequencer: executes L2 blocks and submits compressed
     /// batches to L1 via the batch submission pipeline.
+    #[display("sequencer")]
     Sequencer,
     /// Validator mode - derive and validate blocks from L1.
     ///
     /// Reads compressed batches from L1, derives L2 blocks, and validates
     /// the execution results.
+    #[display("validator")]
     Validator,
     /// Dual mode (default) - run both sequencer and validator concurrently.
     ///
     /// Executes L2 blocks, submits batches to L1, then derives and validates
     /// blocks from L1.
     #[default]
+    #[display("dual")]
     Dual,
-}
-
-impl std::fmt::Display for MontanaMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Executor => write!(f, "executor"),
-            Self::Sequencer => write!(f, "sequencer"),
-            Self::Validator => write!(f, "validator"),
-            Self::Dual => write!(f, "dual"),
-        }
-    }
 }
 
 #[cfg(test)]

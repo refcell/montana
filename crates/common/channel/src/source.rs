@@ -3,7 +3,16 @@
 use async_trait::async_trait;
 
 /// Raw transaction bytes (RLP-encoded, opaque to the pipeline).
-#[derive(Clone, Debug)]
+#[derive(
+    Clone,
+    Debug,
+    derive_more::Deref,
+    derive_more::DerefMut,
+    derive_more::From,
+    derive_more::Into,
+    derive_more::AsRef,
+    derive_more::AsMut,
+)]
 pub struct RawTransaction(pub Vec<u8>);
 
 /// A block's worth of transactions with metadata.
@@ -16,13 +25,13 @@ pub struct L2BlockData {
 }
 
 /// Source errors.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, derive_more::Display, derive_more::Error)]
 pub enum SourceError {
     /// RPC connection failed.
-    #[error("RPC connection failed: {0}")]
-    Connection(String),
+    #[display("RPC connection failed: {_0}")]
+    Connection(#[error(not(source))] String),
     /// No blocks available.
-    #[error("No blocks available")]
+    #[display("No blocks available")]
     Empty,
 }
 

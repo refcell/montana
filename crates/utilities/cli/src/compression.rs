@@ -21,24 +21,28 @@ use clap::ValueEnum;
 /// let algorithms: Vec<_> = CompressionAlgorithm::all_algorithms().collect();
 /// assert_eq!(algorithms.len(), 3);
 /// ```
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, derive_more::Display)]
 pub enum CompressionAlgorithm {
     /// Brotli compression (default).
     ///
     /// Provides high compression ratios, commonly used in web contexts.
     #[default]
+    #[display("brotli")]
     Brotli,
     /// Zlib (DEFLATE) compression.
     ///
     /// Widely supported compression format with good balance of speed and ratio.
+    #[display("zlib")]
     Zlib,
     /// Zstandard compression.
     ///
     /// Modern compression algorithm with tunable compression levels and fast decompression.
+    #[display("zstd")]
     Zstd,
     /// Run all compression algorithms and compare results.
     ///
     /// Executes all three compression algorithms and provides comparative metrics.
+    #[display("all")]
     All,
 }
 
@@ -59,17 +63,6 @@ impl CompressionAlgorithm {
     /// ```
     pub fn all_algorithms() -> impl Iterator<Item = Self> {
         [Self::Brotli, Self::Zlib, Self::Zstd].into_iter()
-    }
-}
-
-impl std::fmt::Display for CompressionAlgorithm {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Brotli => write!(f, "brotli"),
-            Self::Zlib => write!(f, "zlib"),
-            Self::Zstd => write!(f, "zstd"),
-            Self::All => write!(f, "all"),
-        }
     }
 }
 

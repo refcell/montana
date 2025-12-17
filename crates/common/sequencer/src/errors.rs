@@ -1,21 +1,23 @@
 //! Error types for the sequencer buffer.
 
 /// Errors that can occur when working with the block buffer.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, derive_more::Display)]
 pub enum BufferError {
     /// Buffer is at capacity and cannot accept more blocks.
-    #[error("Buffer is full (capacity: {capacity})")]
+    #[display("Buffer is full (capacity: {capacity})")]
     Full {
         /// Maximum buffer capacity.
         capacity: usize,
     },
     /// Failed to acquire buffer lock.
-    #[error("Failed to acquire buffer lock")]
+    #[display("Failed to acquire buffer lock")]
     LockFailed,
     /// Block conversion failed.
-    #[error("Block conversion failed: {0}")]
+    #[display("Block conversion failed: {_0}")]
     ConversionFailed(String),
 }
+
+impl std::error::Error for BufferError {}
 
 #[cfg(test)]
 mod tests {

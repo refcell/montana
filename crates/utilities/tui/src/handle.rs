@@ -21,9 +21,10 @@ use crate::TuiEvent;
 /// handle.send(TuiEvent::UnsafeHeadUpdated(100));
 /// handle_clone.send(TuiEvent::SafeHeadUpdated(90));
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Deref)]
 pub struct TuiHandle {
     /// Unbounded sender for TUI events
+    #[deref]
     tx: mpsc::UnboundedSender<TuiEvent>,
 }
 

@@ -1,11 +1,10 @@
 //! Error types for database operations
 
-use std::fmt;
-
+use derive_more::Display;
 use revm::database_interface::DBErrorMarker;
 
 /// Error type for database operations
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub struct DbError(pub String);
 
 impl DbError {
@@ -13,12 +12,6 @@ impl DbError {
     #[must_use]
     pub fn new(msg: impl Into<String>) -> Self {
         Self(msg.into())
-    }
-}
-
-impl fmt::Display for DbError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 

@@ -363,7 +363,9 @@ fn run_with_compressor<C: Compressor + Clone + Send + Sync + 'static>(
 }
 
 /// Callback implementation for TUI updates.
+#[derive(derive_more::Deref)]
 struct TuiCallback {
+    #[deref]
     app: Arc<Mutex<App>>,
 }
 
@@ -455,7 +457,9 @@ impl BatchSubmissionCallback for TuiCallback {
 }
 
 /// Adapter that wraps BatchContext source to implement L1BatchSource.
+#[derive(derive_more::Deref)]
 struct BatchSourceAdapter {
+    #[deref]
     context: Arc<BatchContext>,
 }
 
@@ -481,7 +485,9 @@ impl L1BatchSource for BatchSourceAdapter {
 }
 
 /// Wrapper that adapts BatchSink to montana_pipeline::BatchSink.
+#[derive(derive_more::Deref)]
 struct BatchSinkWrapper {
+    #[deref]
     inner: Arc<Box<dyn BatchSink>>,
 }
 

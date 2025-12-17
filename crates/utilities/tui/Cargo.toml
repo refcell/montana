@@ -25,3 +25,6 @@ ratatui.workspace = true
 
 # primitives
 alloy-primitives.workspace = true
+
+# macros
+derive_more.workspace = true

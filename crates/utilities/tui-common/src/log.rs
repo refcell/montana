@@ -1,14 +1,17 @@
 //! Log level and log entry types for TUI display.
 
 /// Log level for display in the TUI.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, derive_more::Display)]
 pub enum LogLevel {
     /// Informational message.
     #[default]
+    #[display("INFO")]
     Info,
     /// Warning message.
+    #[display("WARN")]
     Warn,
     /// Error message.
+    #[display("ERROR")]
     Error,
 }
 

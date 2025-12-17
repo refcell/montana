@@ -1592,8 +1592,8 @@ name = "channels"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "derive_more",
  "rstest",
- "thiserror",
  "tokio",
 ]
 
@@ -2004,6 +2004,7 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "alloy-trie",
+ "derive_more",
  "op-alloy",
  "revm",
  "serde",
@@ -2324,6 +2325,7 @@ name = "fetcher"
 version = "0.0.1"
 dependencies = [
  "clap",
+ "derive_more",
  "reqwest",
  "serde",
  "serde_json",
@@ -3310,6 +3312,7 @@ dependencies = [
  "clap",
  "crossterm",
  "database",
+ "derive_more",
  "eyre",
  "montana-batch-context",
  "montana-batcher",
@@ -3395,6 +3398,7 @@ name = "montana-cli"
 version = "0.0.1"
 dependencies = [
  "clap",
+ "derive_more",
  "tracing",
  "tracing-subscriber 0.3.22",
 ]
@@ -3445,6 +3449,7 @@ version = "0.0.1"
 dependencies = [
  "alloy-primitives",
  "crossterm",
+ "derive_more",
  "montana-tui-common",
  "ratatui",
  "tokio",
@@ -3454,6 +3459,7 @@ dependencies = [
 name = "montana-tui-common"
 version = "0.0.1"
 dependencies = [
+ "derive_more",
  "ratatui",
 ]
 
@@ -5111,8 +5117,8 @@ dependencies = [
  "async-trait",
  "blocksource",
  "channels",
+ "derive_more",
  "op-alloy",
- "thiserror",
  "tokio",
  "tracing",
 ]
@@ -5263,6 +5269,7 @@ dependencies = [
  "async-trait",
  "clap",
  "crossterm",
+ "derive_more",
  "montana-batch-context",
  "montana-batch-runner",
  "montana-brotli",
@@ -6072,10 +6079,10 @@ dependencies = [
  "blocksource",
  "chainspec",
  "database",
+ "derive_more",
  "op-alloy",
  "op-revm",
  "revm",
- "thiserror",
  "tracing",
 ]
 

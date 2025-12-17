@@ -43,6 +43,7 @@ tokio.workspace = true
 # misc
 clap.workspace = true
 crossterm = { workspace = true, features = ["event-stream"] }
+derive_more.workspace = true
 eyre.workspace = true
 ratatui.workspace = true
 thiserror.workspace = true

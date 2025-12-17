@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 # common crates
 channels.workspace = true
+derive_more.workspace = true
 
 # execution crates
 blocksource.workspace = true
@@ -28,7 +29,6 @@ async-trait.workspace = true
 tokio.workspace = true
 
 # misc
-thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

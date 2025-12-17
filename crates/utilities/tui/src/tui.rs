@@ -277,8 +277,8 @@ fn process_event(app: &mut App, event: TuiEvent) {
         TuiEvent::FinalizedUpdated(head) => {
             app.set_finalized_head(head);
         }
-        TuiEvent::ModeInfo { node_role, producer_mode, skip_sync, historical_range } => {
-            app.set_mode_info(node_role, producer_mode, skip_sync, historical_range);
+        TuiEvent::ModeInfo { node_role, start_block, skip_sync } => {
+            app.set_mode_info(node_role, start_block, skip_sync);
         }
         TuiEvent::BlockExecuted { block_number, execution_time_ms } => {
             app.record_block_executed(block_number, execution_time_ms);
@@ -782,12 +782,9 @@ fn draw_derived_blocks(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
 /// Draw the footer with controls and status.
 fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    // Build producer mode display string
-    let producer_display = if let Some((start, end)) = app.historical_range {
-        format!("{} ({}-{})", app.producer_mode, start, end)
-    } else {
-        app.producer_mode.clone()
-    };
+    // Build start block display string
+    let start_block_display =
+        app.start_block.map_or_else(|| "checkpoint".to_string(), |block| format!("#{block}"));
 
     // Build sync status display
     let sync_display = if app.skip_sync {
@@ -817,8 +814,8 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Span::styled("Mode: ", Style::default().fg(Color::DarkGray)),
         Span::styled(&app.node_role, Style::default().fg(Color::Cyan)),
         Span::raw("  |  "),
-        Span::styled("Producer: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(producer_display, Style::default().fg(Color::Blue)),
+        Span::styled("Start: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(start_block_display, Style::default().fg(Color::Blue)),
         Span::raw("  |  "),
         Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
         Span::styled(

@@ -110,12 +110,10 @@ pub struct App {
     // Mode information
     /// Node role (Sequencer, Validator, or Dual)
     pub node_role: String,
-    /// Producer mode (Live or Historical)
-    pub producer_mode: String,
+    /// Starting block number (None = from checkpoint)
+    pub start_block: Option<u64>,
     /// Whether sync stage was skipped
     pub skip_sync: bool,
-    /// Optional block range for historical mode (start, end)
-    pub historical_range: Option<(u64, u64)>,
 
     // UI state
     /// Whether the TUI is paused (no updates)
@@ -152,9 +150,8 @@ impl App {
             batch_logs: Vec::new(),
             derivation_logs: Vec::new(),
             node_role: "Unknown".to_string(),
-            producer_mode: "Unknown".to_string(),
+            start_block: None,
             skip_sync: false,
-            historical_range: None,
             is_paused: false,
         }
     }
@@ -201,20 +198,12 @@ impl App {
     /// # Arguments
     ///
     /// * `node_role` - The node role (Sequencer, Validator, or Dual)
-    /// * `producer_mode` - The producer mode (Live or Historical)
+    /// * `start_block` - The starting block number (None = from checkpoint)
     /// * `skip_sync` - Whether sync stage was skipped
-    /// * `historical_range` - Optional block range for historical mode
-    pub fn set_mode_info(
-        &mut self,
-        node_role: String,
-        producer_mode: String,
-        skip_sync: bool,
-        historical_range: Option<(u64, u64)>,
-    ) {
+    pub fn set_mode_info(&mut self, node_role: String, start_block: Option<u64>, skip_sync: bool) {
         self.node_role = node_role;
-        self.producer_mode = producer_mode;
+        self.start_block = start_block;
         self.skip_sync = skip_sync;
-        self.historical_range = historical_range;
     }
 
     /// Add a log entry to the sync logs.

@@ -17,6 +17,7 @@ use eyre::Result;
 use montana_batch_context::BatchContext;
 use montana_batcher::{Address, BatchDriver, BatcherConfig};
 use montana_brotli::BrotliCompressor;
+use montana_checkpoint::Checkpoint;
 use montana_cli::{MontanaCli, MontanaMode, init_tracing_with_level};
 use montana_node::{Node, NodeBuilder, NodeConfig, NodeRole, SyncConfig, SyncStage};
 use montana_pipeline::{Bytes, L2BlockData, NoopExecutor};
@@ -65,14 +66,10 @@ fn run_with_tui(cli: MontanaCli) -> Result<()> {
     }
     .to_string();
 
-    // Build range description for display
-    let range_display = cli.range_description();
-
     handle.send(montana_tui::TuiEvent::ModeInfo {
         node_role,
-        producer_mode: range_display,
+        start_block: cli.start,
         skip_sync: cli.skip_sync,
-        historical_range: cli.start.zip(cli.end),
     });
 
     // Clone handle for block feeder before creating observer
@@ -117,29 +114,35 @@ async fn build_node(
         .connect(&cli.rpc_url)
         .await?;
 
-    // Determine start block
+    // Determine start block:
+    // 1. Use explicit --start if provided
+    // 2. Otherwise, try loading from checkpoint file
+    // 3. Fall back to chain tip if no checkpoint exists
     let start_block = if let Some(start) = cli.start {
         start
+    } else if let Some(checkpoint) = Checkpoint::load(&cli.checkpoint_path)
+        .map_err(|e| eyre::eyre!("Failed to load checkpoint: {}", e))?
+    {
+        // Resume from checkpoint: use synced_to_block + 1 (next block to process)
+        let resume_block = checkpoint.synced_to_block.saturating_add(1);
+        tracing::info!(
+            checkpoint_block = checkpoint.synced_to_block,
+            resume_block,
+            "Resuming from checkpoint"
+        );
+        resume_block
     } else {
-        // If no start specified, get current block for live following
+        // No checkpoint found, start from chain tip
         provider.get_block_number().await?
     };
 
-    // Create block producer based on whether we have an end block
-    let block_producer = if let Some(end_block) = cli.end {
-        // Bounded range - process specific blocks
-        let historical =
-            blocksource::HistoricalRangeProducer::new(provider.clone(), start_block, end_block);
-        BlockProducerWrapper::new(historical, "historical")
-    } else {
-        // Unbounded - follow chain tip
-        let live = blocksource::LiveRpcProducer::new(
-            provider.clone(),
-            Duration::from_millis(cli.poll_interval_ms),
-            Some(start_block),
-        );
-        BlockProducerWrapper::new(live, "live")
-    };
+    // Create unified RPC block producer
+    let block_producer = blocksource::RpcBlockProducer::new(
+        provider.clone(),
+        Duration::from_millis(cli.poll_interval_ms),
+        start_block,
+    );
+    let block_producer = BlockProducerWrapper::new(block_producer, "rpc");
 
     build_node_common(cli, block_producer, tui_observer, tui_handle, provider).await
 }
@@ -187,7 +190,6 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         // This ensures true parallelism - the block feeder runs completely independently
         // of the node's main loop, preventing any blocking or starvation issues.
         let start = cli.start.unwrap_or(0);
-        let end = cli.end;
         let poll_ms = cli.poll_interval_ms;
         let feeder_tui_handle = tui_handle.clone();
         let rpc_url = cli.rpc_url.clone();
@@ -214,15 +216,9 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
                     }
                 };
 
-                if let Err(e) = run_block_feeder(
-                    feeder_provider,
-                    start,
-                    end,
-                    poll_ms,
-                    block_tx,
-                    feeder_tui_handle,
-                )
-                .await
+                if let Err(e) =
+                    run_block_feeder(feeder_provider, start, poll_ms, block_tx, feeder_tui_handle)
+                        .await
                 {
                     tracing::error!(error = %e, "Block feeder error");
                 }
@@ -287,7 +283,6 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
 async fn run_block_feeder<P: Provider<Optimism> + Clone>(
     provider: P,
     start: u64,
-    end: Option<u64>,
     poll_interval_ms: u64,
     tx: mpsc::UnboundedSender<L2BlockData>,
     tui_handle: Option<TuiHandle>,
@@ -301,11 +296,8 @@ async fn run_block_feeder<P: Provider<Optimism> + Clone>(
         // Get chain tip
         let chain_tip = provider.get_block_number().await?;
 
-        // Determine end block for this iteration
-        let target = end.unwrap_or(chain_tip).min(chain_tip);
-
-        // Fetch blocks up to target
-        while current <= target {
+        // Fetch blocks up to current chain tip
+        while current <= chain_tip {
             // Fetch block with full transactions
             let block = provider
                 .get_block_by_number(current.into())
@@ -366,19 +358,9 @@ async fn run_block_feeder<P: Provider<Optimism> + Clone>(
             tokio::task::yield_now().await;
         }
 
-        // If we have a bounded range and reached the end, we're done
-        if let Some(end_block) = end
-            && current > end_block
-        {
-            tracing::info!("Completed block range {}-{}", start, end_block);
-            break;
-        }
-
         // Wait before polling for new blocks
         tokio::time::sleep(Duration::from_millis(poll_interval_ms)).await;
     }
-
-    Ok(())
 }
 
 /// Convert MontanaMode to NodeRole.

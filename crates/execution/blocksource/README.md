@@ -4,17 +4,47 @@ Block source abstractions for aggregating blocks from multiple data sources.
 
 ## Overview
 
-This crate provides a unified interface for receiving blocks from various sources such as RPC polling, P2P gossip, and Engine API. It handles block conversion and provides producers for both historical and live block data.
+This crate provides a unified interface for receiving blocks from various sources. It handles block conversion and provides producers for fetching and streaming blocks to the execution layer.
 
 ## Core Components
 
 | Component | Description |
 |-----------|-------------|
 | `BlockProducer` | Trait for producing blocks from any source |
-| `HistoricalRangeProducer` | Producer for fetching historical block ranges |
-| `LiveRpcProducer` | Producer for live blocks via RPC polling |
+| `RpcBlockProducer` | Fetches blocks from L2 RPC and streams them via channel |
+| `ChannelBlockProducer` | Receives blocks from a channel (used in derivation pipeline) |
 | `RpcBlockSource` | RPC-backed block source implementation |
 | `OpBlock` | Base stack block type with all necessary fields |
+
+## Block Producers
+
+### RpcBlockProducer
+
+Fetches blocks from an L2 RPC endpoint and sends them to a channel. Used during the sync stage and by the sequencer role.
+
+```rust,ignore
+use blocksource::RpcBlockProducer;
+
+// Create producer that fetches blocks from RPC
+let producer = RpcBlockProducer::new(rpc_url, start_block, tx).await?;
+
+// Start producing blocks
+producer.start().await?;
+```
+
+### ChannelBlockProducer
+
+Receives blocks from a channel. Used by the validator role to consume blocks derived from L1.
+
+```rust,ignore
+use blocksource::ChannelBlockProducer;
+
+// Create producer that receives blocks from a channel
+let producer = ChannelBlockProducer::new(rx);
+
+// Start receiving blocks
+producer.start().await?;
+```
 
 ## Modules
 

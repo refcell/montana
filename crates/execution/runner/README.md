@@ -4,27 +4,43 @@ Block execution runner for Optimism (Base) blocks.
 
 This crate provides functionality for executing Optimism (Base) blocks using op-revm with an in-memory database that falls back to RPC for missing state.
 
+## Overview
+
+The runner manages block execution with the following capabilities:
+
+- **Block Execution**: Execute blocks using op-revm with Base stack specifications
+- **State Management**: In-memory database with RPC fallback for missing state
+- **Block Streaming**: Consume blocks from various producers (RPC, channels, etc.)
+- **Progress Tracking**: Report execution progress and metrics
+
+## Architecture
+
+The execution runner operates in the **sync + handoff** model:
+
+1. **Sync Stage**: Fetches and executes historical blocks from RPC to catch up to the chain tip
+2. **Active Stage**: Continuously executes new blocks as they arrive (from RPC or derivation pipeline)
+
 ## Usage
 
 ```rust,ignore
-use runner::{Execution, ProducerMode};
-use std::time::Duration;
+use runner::Execution;
+use blocksource::RpcBlockProducer;
 
-// Live mode - poll for new blocks
-let mode = ProducerMode::Live {
-    poll_interval: Duration::from_secs(2),
-    start_block: None,
-};
+// Create block producer (fetches blocks from RPC)
+let (tx, rx) = channel::unbounded();
+let producer = RpcBlockProducer::new(rpc_url, start_block, tx).await?;
 
-let execution = Execution::new("https://mainnet.base.org".to_string(), mode);
-execution.start().await?;
+// Create execution runner
+let execution = Execution::new(rpc_url, rx);
 
-// Historical mode - fetch a range of blocks
-let mode = ProducerMode::Historical {
-    start: 1000000,
-    end: 1000010,
-};
+// Start execution
+tokio::spawn(async move {
+    producer.start().await
+});
 
-let execution = Execution::new("https://mainnet.base.org".to_string(), mode);
 execution.start().await?;
 ```
+
+## License
+
+Licensed under the MIT license.

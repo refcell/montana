@@ -6,14 +6,12 @@ use crate::{BatchSubmissionMode, MontanaMode};
 
 /// Montana node CLI arguments.
 ///
-/// The node can operate in two modes based on the `--skip-sync` flag:
-/// - **Sync mode** (default): Catches up to the chain tip before processing
-/// - **Skip-sync mode**: Starts processing immediately without catching up
+/// The node operates in sync + handoff mode by default:
+/// - **Sync stage**: Catches up to the chain tip from the starting block
+/// - **Active stage**: Sequencer/Validator roles process new blocks
 ///
-/// Block range can be specified with `--start` and `--end`:
-/// - If both are specified: Process that specific block range
-/// - If only `--start`: Process from start block to chain tip (and follow)
-/// - If neither: Process from checkpoint (or genesis) to chain tip (and follow)
+/// Use `--skip-sync` to bypass the sync stage (for re-execution from a specific block).
+/// Use `--start` to specify a starting block (defaults to checkpoint or genesis).
 #[derive(Parser, Debug, Clone)]
 #[command(name = "montana", about = "Montana Base Stack Node")]
 pub struct MontanaCli {
@@ -32,8 +30,8 @@ pub struct MontanaCli {
     /// Skip sync stage and start processing blocks immediately.
     ///
     /// When enabled, the node skips the sync stage and begins processing
-    /// blocks directly. Use with --start/--end to re-execute a specific
-    /// block range without sync overhead.
+    /// blocks directly. Use with --start to re-execute from a specific
+    /// block without sync overhead.
     #[arg(long)]
     pub skip_sync: bool,
 
@@ -43,13 +41,6 @@ pub struct MontanaCli {
     /// If not specified, starts from checkpoint or genesis.
     #[arg(long)]
     pub start: Option<u64>,
-
-    /// Ending block number (inclusive).
-    ///
-    /// If specified, processing stops after this block.
-    /// If not specified, follows the chain tip indefinitely.
-    #[arg(long)]
-    pub end: Option<u64>,
 
     /// Poll interval in milliseconds when following chain tip.
     #[arg(long, default_value = "2000")]
@@ -78,23 +69,4 @@ pub struct MontanaCli {
     /// L1 RPC URL (for remote batch mode)
     #[arg(long, env = "L1_RPC_URL")]
     pub l1_rpc_url: Option<String>,
-}
-
-impl MontanaCli {
-    /// Returns true if this is a bounded block range (has an end block).
-    #[must_use]
-    pub const fn is_bounded_range(&self) -> bool {
-        self.end.is_some()
-    }
-
-    /// Returns the block range description for display.
-    #[must_use]
-    pub fn range_description(&self) -> String {
-        match (self.start, self.end) {
-            (Some(start), Some(end)) => format!("{}-{}", start, end),
-            (Some(start), None) => format!("{}->tip", start),
-            (None, Some(end)) => format!("0-{}", end),
-            (None, None) => "tip".to_string(),
-        }
-    }
 }

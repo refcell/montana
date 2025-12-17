@@ -5,7 +5,7 @@ use montana_batcher::BatchSubmissionMode;
 use montana_cli::MontanaMode;
 
 /// CLI arguments
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "montana", about = "Execute Base blocks using op-revm")]
 pub(crate) struct Args {
     /// RPC URL for the Base node
@@ -23,12 +23,16 @@ pub(crate) struct Args {
     #[arg(long, default_value = "anvil")]
     pub batch_mode: BatchSubmissionMode,
 
+    /// Disable the TUI interface (TUI is enabled by default)
+    #[arg(long, default_value = "false")]
+    pub no_tui: bool,
+
     /// Block producer mode (live or historical)
     #[command(subcommand)]
     pub producer: ProducerMode,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 pub(crate) enum ProducerMode {
     /// Poll for live blocks
     Live {

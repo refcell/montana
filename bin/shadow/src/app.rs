@@ -6,44 +6,7 @@
 use std::{collections::HashMap, time::Instant};
 
 use montana_batch_context::BatchSubmissionMode;
-
-/// Log level for display.
-#[derive(Clone, Debug, Default)]
-pub(crate) enum LogLevel {
-    /// Informational message.
-    #[default]
-    Info,
-    /// Warning message.
-    Warn,
-    /// Error message.
-    Error,
-}
-
-/// A log entry for display in the TUI.
-#[derive(Clone, Debug)]
-pub(crate) struct LogEntry {
-    /// The log level.
-    pub(crate) level: LogLevel,
-    /// The log message.
-    pub(crate) message: String,
-}
-
-impl LogEntry {
-    /// Create a new info log entry.
-    pub(crate) fn info(message: impl Into<String>) -> Self {
-        Self { level: LogLevel::Info, message: message.into() }
-    }
-
-    /// Create a new warning log entry.
-    pub(crate) fn warn(message: impl Into<String>) -> Self {
-        Self { level: LogLevel::Warn, message: message.into() }
-    }
-
-    /// Create a new error log entry.
-    pub(crate) fn error(message: impl Into<String>) -> Self {
-        Self { level: LogLevel::Error, message: message.into() }
-    }
-}
+pub(crate) use montana_tui_common::{LogEntry, LogLevel};
 
 /// Statistics for display in the header.
 #[derive(Clone, Debug, Default)]

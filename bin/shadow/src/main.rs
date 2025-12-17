@@ -27,6 +27,7 @@ use montana_pipeline::{
     CompressedBatch, Compressor, L1BatchSource, NoopExecutor, SourceError as PipelineSourceError,
     SubmissionReceipt,
 };
+use montana_tui_common::{format_bytes, truncate_url};
 use montana_zlib::ZlibCompressor;
 use montana_zstd::ZstdCompressor;
 use ratatui::{
@@ -779,26 +780,6 @@ fn render_logs(logs: &[LogEntry], max_lines: usize) -> Vec<Line<'static>> {
             ])
         })
         .collect()
-}
-
-/// Format bytes as human-readable string.
-fn format_bytes(bytes: usize) -> String {
-    if bytes < 1024 {
-        format!("{} B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    }
-}
-
-/// Truncate a URL for display.
-fn truncate_url(url: &str, max_len: usize) -> String {
-    if url.len() <= max_len {
-        url.to_string()
-    } else {
-        format!("{}...", &url[..max_len.saturating_sub(3)])
-    }
 }
 
 /// Parse a hex address string into an Address.

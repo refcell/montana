@@ -3308,6 +3308,7 @@ dependencies = [
  "async-trait",
  "blocksource",
  "clap",
+ "crossterm",
  "database",
  "eyre",
  "montana-batch-context",
@@ -3316,7 +3317,9 @@ dependencies = [
  "montana-cli",
  "montana-derivation-runner",
  "montana-pipeline",
+ "montana-tui",
  "op-alloy",
+ "ratatui",
  "runner",
  "sequencer",
  "thiserror",
@@ -3434,6 +3437,24 @@ dependencies = [
  "rstest",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "montana-tui"
+version = "0.0.1"
+dependencies = [
+ "alloy-primitives",
+ "crossterm",
+ "montana-tui-common",
+ "ratatui",
+ "tokio",
+]
+
+[[package]]
+name = "montana-tui-common"
+version = "0.0.1"
+dependencies = [
+ "ratatui",
 ]
 
 [[package]]
@@ -5247,6 +5268,7 @@ dependencies = [
  "montana-brotli",
  "montana-derivation-runner",
  "montana-pipeline",
+ "montana-tui-common",
  "montana-zlib",
  "montana-zstd",
  "ratatui",

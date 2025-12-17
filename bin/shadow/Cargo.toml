@@ -19,6 +19,7 @@ montana-batch-runner.workspace = true
 montana-brotli.workspace = true
 montana-derivation-runner.workspace = true
 montana-pipeline.workspace = true
+montana-tui-common.workspace = true
 montana-zlib.workspace = true
 montana-zstd.workspace = true
 

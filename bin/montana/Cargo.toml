@@ -34,6 +34,7 @@ montana-pipeline.workspace = true
 
 # utilities
 montana-cli.workspace = true
+montana-tui.workspace = true
 
 # async
 async-trait.workspace = true
@@ -41,7 +42,9 @@ tokio.workspace = true
 
 # misc
 clap.workspace = true
+crossterm = { workspace = true, features = ["event-stream"] }
 eyre.workspace = true
+ratatui.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -14,6 +14,14 @@ pub struct DerivationMetrics {
     pub blocks_derived: u64,
     /// Total bytes decompressed.
     pub bytes_decompressed: u64,
+    /// The batch number of the most recently derived batch.
+    pub current_batch_number: u64,
+    /// Number of blocks in the most recently derived batch.
+    pub blocks_in_current_batch: u64,
+    /// First block number in the most recently derived batch.
+    pub first_block_in_batch: u64,
+    /// Last block number in the most recently derived batch (same as finalized head).
+    pub last_block_in_batch: u64,
     /// Derivation latencies in milliseconds (for calculating avg).
     latencies_ms: Vec<u64>,
 }

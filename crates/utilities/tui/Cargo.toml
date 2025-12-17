@@ -1,0 +1,27 @@
+[package]
+name = "montana-tui"
+description = "TUI for the Montana node binary"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# internal crates
+montana-tui-common = { version = "0.0.1", path = "../tui-common" }
+
+# async
+tokio = { workspace = true, features = ["sync"] }
+
+# tui
+crossterm = { workspace = true, features = ["event-stream"] }
+ratatui.workspace = true
+
+# primitives
+alloy-primitives.workspace = true

@@ -12,13 +12,17 @@
 
 mod cli;
 
-use std::{sync::Arc, time::Duration};
+use std::{io, sync::Arc, time::Duration};
 
 use alloy::providers::{Provider, ProviderBuilder};
 use montana_batch_context::{BatchContext, BatchSubmissionMode, L1BatchSourceAdapter};
 use blocksource::{BlockProducer, HistoricalRangeProducer, LiveRpcProducer};
 use clap::Parser;
 use cli::{Args, ProducerMode};
+use crossterm::{
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
 use database::{CachedDatabase, RPCDatabase};
 use eyre::Result;
 use montana_batcher::{Address, BatcherConfig};
@@ -26,6 +30,7 @@ use montana_brotli::BrotliCompressor;
 use montana_cli::MontanaMode;
 use montana_derivation_runner::{DerivationConfig, DerivationRunner};
 use montana_pipeline::{CompressedBatch, Compressor, NoopExecutor};
+use montana_tui::{TuiEvent, TuiHandle, create_tui};
 use op_alloy::network::Optimism;
 use runner::{ExecutedBlock, Execution, verification};
 use tokio::sync::mpsc;
@@ -39,15 +44,66 @@ const DERIVATION_POLL_INTERVAL_MS: u64 = 50;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::level_filters::LevelFilter::INFO.into()),
-        )
-        .init();
-
     let args = Args::parse();
 
+    if !args.no_tui {
+        run_with_tui(args)
+    } else {
+        // Initialize tracing only in non-TUI mode
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive(tracing::level_filters::LevelFilter::INFO.into()),
+            )
+            .init();
+        run_without_tui(args).await
+    }
+}
+
+/// Run without TUI (existing tracing-based behavior).
+async fn run_without_tui(args: Args) -> Result<()> {
+    run_with_handle(args, None).await
+}
+
+/// Run with TUI interface.
+fn run_with_tui(args: Args) -> Result<()> {
+    // Setup terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+
+    // Create TUI and handle
+    let (tui, handle) = create_tui();
+
+    // Create a new tokio runtime for async work
+    let rt = tokio::runtime::Runtime::new()?;
+
+    // Clone args for the async task
+    let async_args = args;
+    let async_handle = handle;
+
+    // Spawn the async work in a separate thread
+    std::thread::spawn(move || {
+        rt.block_on(async move {
+            if let Err(e) = run_with_handle(async_args, Some(async_handle)).await {
+                tracing::error!(error = %e, "Montana node error");
+            }
+        });
+    });
+
+    // Run TUI (blocking) in main thread
+    let result = tui.run();
+
+    // Cleanup
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen)?;
+    ratatui::restore();
+
+    result.map_err(|e| eyre::eyre!("TUI error: {}", e))
+}
+
+/// Core logic that takes optional TUI handle.
+async fn run_with_handle(args: Args, tui_handle: Option<TuiHandle>) -> Result<()> {
     let provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .network::<Optimism>()
@@ -72,11 +128,11 @@ async fn main() -> Result<()> {
                 Duration::from_millis(*poll_interval_ms),
                 Some(start_block),
             );
-            run_executor(db, producer, provider).await
+            run_executor(db, producer, provider, tui_handle).await
         }
         (MontanaMode::Executor, ProducerMode::Historical { start, end }) => {
             let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_executor(db, producer, provider).await
+            run_executor(db, producer, provider, tui_handle).await
         }
         (MontanaMode::Sequencer, ProducerMode::Live { poll_interval_ms }) => {
             let producer = LiveRpcProducer::new(
@@ -84,15 +140,17 @@ async fn main() -> Result<()> {
                 Duration::from_millis(*poll_interval_ms),
                 Some(start_block),
             );
-            run_sequencer(db, producer, args.batch_mode).await
+            run_sequencer(db, producer, args.batch_mode, tui_handle).await
         }
         (MontanaMode::Sequencer, ProducerMode::Historical { start, end }) => {
             let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_sequencer(db, producer, args.batch_mode).await
+            run_sequencer(db, producer, args.batch_mode, tui_handle).await
         }
-        (MontanaMode::Validator, ProducerMode::Live { .. }) => run_validator(args.batch_mode).await,
+        (MontanaMode::Validator, ProducerMode::Live { .. }) => {
+            run_validator(args.batch_mode, tui_handle).await
+        }
         (MontanaMode::Validator, ProducerMode::Historical { .. }) => {
-            run_validator(args.batch_mode).await
+            run_validator(args.batch_mode, tui_handle).await
         }
         (MontanaMode::Dual, ProducerMode::Live { poll_interval_ms }) => {
             let producer = LiveRpcProducer::new(
@@ -100,17 +158,22 @@ async fn main() -> Result<()> {
                 Duration::from_millis(*poll_interval_ms),
                 Some(start_block),
             );
-            run_dual(db, producer, args.batch_mode).await
+            run_dual(db, producer, args.batch_mode, tui_handle).await
         }
         (MontanaMode::Dual, ProducerMode::Historical { start, end }) => {
             let producer = HistoricalRangeProducer::new(provider.clone(), *start, *end);
-            run_dual(db, producer, args.batch_mode).await
+            run_dual(db, producer, args.batch_mode, tui_handle).await
         }
     }
 }
 
 /// Run in executor mode: execute and verify blocks against RPC receipts.
-async fn run_executor<DB, P, Prov>(db: DB, producer: P, provider: Prov) -> Result<()>
+async fn run_executor<DB, P, Prov>(
+    db: DB,
+    producer: P,
+    provider: Prov,
+    _tui_handle: Option<TuiHandle>,
+) -> Result<()>
 where
     DB: database::Database,
     P: BlockProducer + 'static,
@@ -136,7 +199,12 @@ where
 }
 
 /// Run in sequencer mode: execute blocks and submit batches to L1.
-async fn run_sequencer<DB, P>(db: DB, producer: P, batch_mode: BatchSubmissionMode) -> Result<()>
+async fn run_sequencer<DB, P>(
+    db: DB,
+    producer: P,
+    batch_mode: BatchSubmissionMode,
+    tui_handle: Option<TuiHandle>,
+) -> Result<()>
 where
     DB: database::Database,
     P: BlockProducer + 'static,
@@ -179,8 +247,22 @@ where
     let batcher_handle = tokio::spawn(async move {
         let mut total_blocks = 0u64;
         let mut total_batches = 0u64;
+        let mut last_safe_block = 0u64;
 
         while let Some(executed) = block_rx.recv().await {
+            let block_number = executed.block.header.number;
+
+            // Emit block built event
+            if let Some(ref handle) = tui_handle {
+                handle.send(TuiEvent::BlockBuilt {
+                    number: block_number,
+                    tx_count: executed.block.transactions.len(),
+                    size_bytes: 0, // TODO: calculate actual size
+                    gas_used: executed.block.header.gas_used,
+                });
+                handle.send(TuiEvent::UnsafeHeadUpdated(block_number));
+            }
+
             // Convert block to L2BlockData for batching
             let l2_data = sequencer::op_block_to_l2_data(&executed.block);
             driver.add_blocks(vec![l2_data]);
@@ -195,6 +277,10 @@ where
 
             // Check if we should submit a batch
             while let Some(pending_batch) = driver.build_batch() {
+                // Calculate block range for this batch
+                let first_block_num = last_safe_block + 1;
+                let last_block_num = first_block_num + pending_batch.blocks.len() as u64 - 1;
+
                 info!(
                     batch_number = pending_batch.batch_number,
                     blocks = pending_batch.blocks.len(),
@@ -213,12 +299,13 @@ where
                 // Compress the batch
                 match compressor.compress(&batch_data) {
                     Ok(compressed) => {
+                        let compressed_size = compressed.len();
                         let compression_ratio =
-                            1.0 - (compressed.len() as f64 / batch_data.len().max(1) as f64);
+                            1.0 - (compressed_size as f64 / batch_data.len().max(1) as f64);
                         info!(
                             batch_number = pending_batch.batch_number,
                             uncompressed = batch_data.len(),
-                            compressed = compressed.len(),
+                            compressed = compressed_size,
                             compression_ratio = format!("{:.1}%", compression_ratio * 100.0),
                             "Batch compressed"
                         );
@@ -232,10 +319,24 @@ where
                         match sink.submit(compressed_batch).await {
                             Ok(receipt) => {
                                 total_batches += 1;
+                                last_safe_block = last_block_num;
                                 info!(
                                     batch_number = receipt.batch_number,
                                     total_batches, total_blocks, "Batch submitted successfully"
                                 );
+
+                                // Emit batch submitted event
+                                if let Some(ref handle) = tui_handle {
+                                    handle.send(TuiEvent::BatchSubmitted {
+                                        batch_number: pending_batch.batch_number,
+                                        block_count: pending_batch.blocks.len(),
+                                        first_block: first_block_num,
+                                        last_block: last_block_num,
+                                        uncompressed_size: batch_data.len(),
+                                        compressed_size,
+                                    });
+                                    handle.send(TuiEvent::SafeHeadUpdated(last_block_num));
+                                }
                             }
                             Err(e) => {
                                 tracing::error!(
@@ -293,7 +394,10 @@ where
 }
 
 /// Run in validator mode: derive and validate blocks from L1.
-async fn run_validator(batch_mode: BatchSubmissionMode) -> Result<()> {
+async fn run_validator(
+    batch_mode: BatchSubmissionMode,
+    tui_handle: Option<TuiHandle>,
+) -> Result<()> {
     info!(batch_mode = %batch_mode, "Starting in validator mode");
 
     // Create the batch context for reading from L1
@@ -328,9 +432,21 @@ async fn run_validator(batch_mode: BatchSubmissionMode) -> Result<()> {
                 info!(
                     batches_derived = metrics.batches_derived,
                     blocks_derived = metrics.blocks_derived,
+                    first_block = metrics.first_block_in_batch,
+                    last_block = metrics.last_block_in_batch,
                     bytes_decompressed = metrics.bytes_decompressed,
                     "Derived batch from L1"
                 );
+
+                // Emit batch derived event (for metrics tracking)
+                if let Some(ref handle) = tui_handle {
+                    handle.send(TuiEvent::BatchDerived {
+                        batch_number: metrics.current_batch_number,
+                        block_count: metrics.blocks_in_current_batch,
+                        first_block: metrics.first_block_in_batch,
+                        last_block: metrics.last_block_in_batch,
+                    });
+                }
             }
             Ok(None) => {
                 // No batch available, continue polling
@@ -351,8 +467,19 @@ async fn run_validator(batch_mode: BatchSubmissionMode) -> Result<()> {
     }
 }
 
+/// Information about a submitted batch, sent from sequencer to derivation task.
+struct BatchInfo {
+    batch_number: u64,
+    block_count: u64,
+}
+
 /// Run in dual mode: execute blocks, submit batches, and derive/validate concurrently.
-async fn run_dual<DB, P>(db: DB, producer: P, batch_mode: BatchSubmissionMode) -> Result<()>
+async fn run_dual<DB, P>(
+    db: DB,
+    producer: P,
+    batch_mode: BatchSubmissionMode,
+    tui_handle: Option<TuiHandle>,
+) -> Result<()>
 where
     DB: database::Database,
     P: BlockProducer + 'static,
@@ -373,6 +500,9 @@ where
 
     // Create channel for execution → batcher communication
     let (block_tx, mut block_rx) = mpsc::channel::<ExecutedBlock>(SEQUENCER_BUFFER_CAPACITY);
+
+    // Create channel for batcher → derivation communication (batch block counts)
+    let (batch_info_tx, mut batch_info_rx) = mpsc::channel::<BatchInfo>(SEQUENCER_BUFFER_CAPACITY);
 
     // Create execution client with output channel
     let execution = Execution::new(db, producer, block_tx);
@@ -395,11 +525,26 @@ where
 
     // Spawn the batcher task (sequencer side)
     let batcher_compressor = compressor.clone();
+    let batcher_tui_handle = tui_handle.clone();
     let batcher_handle = tokio::spawn(async move {
         let mut total_blocks = 0u64;
         let mut total_batches = 0u64;
+        let mut last_safe_block = 0u64;
 
         while let Some(executed) = block_rx.recv().await {
+            let block_number = executed.block.header.number;
+
+            // Emit block built event
+            if let Some(ref handle) = batcher_tui_handle {
+                handle.send(TuiEvent::BlockBuilt {
+                    number: block_number,
+                    tx_count: executed.block.transactions.len(),
+                    size_bytes: 0, // TODO: calculate actual size
+                    gas_used: executed.block.header.gas_used,
+                });
+                handle.send(TuiEvent::UnsafeHeadUpdated(block_number));
+            }
+
             let l2_data = sequencer::op_block_to_l2_data(&executed.block);
             driver.add_blocks(vec![l2_data]);
             total_blocks += 1;
@@ -411,6 +556,11 @@ where
             );
 
             while let Some(pending_batch) = driver.build_batch() {
+                // Calculate block range for this batch
+                let first_block_num = last_safe_block + 1;
+                let last_block_num = first_block_num + pending_batch.blocks.len() as u64 - 1;
+                let block_count = pending_batch.blocks.len() as u64;
+
                 info!(
                     batch_number = pending_batch.batch_number,
                     blocks = pending_batch.blocks.len(),
@@ -428,16 +578,38 @@ where
                     Ok(compressed) => {
                         let compressed_batch = CompressedBatch {
                             batch_number: pending_batch.batch_number,
-                            data: compressed,
+                            data: compressed.clone(),
                         };
 
                         match sink.submit(compressed_batch).await {
                             Ok(receipt) => {
                                 total_batches += 1;
+                                last_safe_block = last_block_num;
                                 info!(
                                     batch_number = receipt.batch_number,
                                     total_batches, "Batch submitted"
                                 );
+
+                                // Send batch info to derivation task
+                                let _ = batch_info_tx
+                                    .send(BatchInfo {
+                                        batch_number: pending_batch.batch_number,
+                                        block_count,
+                                    })
+                                    .await;
+
+                                // Emit batch submitted event
+                                if let Some(ref handle) = batcher_tui_handle {
+                                    handle.send(TuiEvent::BatchSubmitted {
+                                        batch_number: pending_batch.batch_number,
+                                        block_count: pending_batch.blocks.len(),
+                                        first_block: first_block_num,
+                                        last_block: last_block_num,
+                                        uncompressed_size: batch_data.len(),
+                                        compressed_size: compressed.len(),
+                                    });
+                                    handle.send(TuiEvent::SafeHeadUpdated(last_block_num));
+                                }
                             }
                             Err(e) => {
                                 tracing::error!(error = %e, "Failed to submit batch");
@@ -458,6 +630,7 @@ where
     // Spawn the derivation task (validator side)
     let derivation_batch_ctx = Arc::clone(&batch_ctx);
     let derivation_compressor = compressor;
+    let derivation_tui_handle = tui_handle;
     let derivation_handle = tokio::spawn(async move {
         let source = L1BatchSourceAdapter::new(&derivation_batch_ctx);
         let executor = NoopExecutor::new();
@@ -468,14 +641,32 @@ where
         let mut _total_derived = 0u64;
 
         loop {
+            // Check for batch info from sequencer (non-blocking)
+            while let Ok(batch_info) = batch_info_rx.try_recv() {
+                runner.record_batch_block_count(batch_info.batch_number, batch_info.block_count);
+            }
+
             match runner.tick().await {
                 Ok(Some(metrics)) => {
                     _total_derived += 1;
                     info!(
                         batches_derived = metrics.batches_derived,
+                        blocks_derived = metrics.blocks_derived,
+                        first_block = metrics.first_block_in_batch,
+                        last_block = metrics.last_block_in_batch,
                         bytes_decompressed = metrics.bytes_decompressed,
                         "Derived batch from L1"
                     );
+
+                    // Emit batch derived event (for metrics tracking)
+                    if let Some(ref handle) = derivation_tui_handle {
+                        handle.send(TuiEvent::BatchDerived {
+                            batch_number: metrics.current_batch_number,
+                            block_count: metrics.blocks_in_current_batch,
+                            first_block: metrics.first_block_in_batch,
+                            last_block: metrics.last_block_in_batch,
+                        });
+                    }
                 }
                 Ok(None) => {
                     // No batch available

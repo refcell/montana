@@ -33,6 +33,11 @@ where
     metrics: DerivationMetrics,
     /// Batch submission timestamps for latency tracking.
     submission_times: std::collections::HashMap<u64, Instant>,
+    /// Batch-to-block-count mapping for computing block numbers.
+    /// Maps batch_number to the number of blocks in that batch.
+    batch_block_counts: std::collections::HashMap<u64, u64>,
+    /// The last finalized block number.
+    last_finalized_block: u64,
     /// Whether the runner is paused.
     paused: bool,
 }
@@ -52,6 +57,31 @@ where
             config,
             metrics: DerivationMetrics::default(),
             submission_times: std::collections::HashMap::new(),
+            batch_block_counts: std::collections::HashMap::new(),
+            last_finalized_block: 0,
+            paused: false,
+        }
+    }
+
+    /// Creates a new derivation runner with a starting block number.
+    ///
+    /// Use this when resuming derivation from a non-zero block.
+    pub fn with_start_block(
+        source: S,
+        compressor: C,
+        executor: E,
+        config: DerivationConfig,
+        start_block: u64,
+    ) -> Self {
+        Self {
+            source,
+            compressor,
+            executor,
+            config,
+            metrics: DerivationMetrics::default(),
+            submission_times: std::collections::HashMap::new(),
+            batch_block_counts: std::collections::HashMap::new(),
+            last_finalized_block: start_block,
             paused: false,
         }
     }
@@ -81,6 +111,19 @@ where
     /// This should be called when a batch is submitted, before it's derived.
     pub fn record_submission(&mut self, batch_number: u64, submit_time: Instant) {
         self.submission_times.insert(batch_number, submit_time);
+    }
+
+    /// Record the block count for a submitted batch.
+    ///
+    /// This should be called from the sequencer side when a batch is submitted,
+    /// so that when the batch is later derived, we know how many blocks it contains.
+    pub fn record_batch_block_count(&mut self, batch_number: u64, block_count: u64) {
+        self.batch_block_counts.insert(batch_number, block_count);
+    }
+
+    /// Get the last finalized block number.
+    pub const fn last_finalized_block(&self) -> u64 {
+        self.last_finalized_block
     }
 
     /// Get a reference to the accumulated metrics.
@@ -151,10 +194,25 @@ where
             ))
         })?;
 
+        // Get the block count for this batch (if recorded by sequencer)
+        // Default to 1 if not recorded (e.g., validator-only mode)
+        let blocks_in_batch = self.batch_block_counts.remove(&batch_number).unwrap_or(1);
+
+        // Compute the block range for this batch
+        let first_block = self.last_finalized_block + 1;
+        let last_block = self.last_finalized_block + blocks_in_batch;
+
+        // Update the finalized head
+        self.last_finalized_block = last_block;
+
         // Update metrics
         self.metrics.batches_derived += 1;
-        self.metrics.blocks_derived += 1;
+        self.metrics.blocks_derived += blocks_in_batch;
         self.metrics.bytes_decompressed += decompressed_size as u64;
+        self.metrics.current_batch_number = batch_number;
+        self.metrics.blocks_in_current_batch = blocks_in_batch;
+        self.metrics.first_block_in_batch = first_block;
+        self.metrics.last_block_in_batch = last_block;
 
         // Calculate latency if we have a submission timestamp
         if let Some(submit_time) = self.submission_times.remove(&batch_number) {

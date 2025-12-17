@@ -62,6 +62,8 @@ montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
 
 # utilities crates
 montana-cli = { version = "0.0.1", path = "crates/utilities/cli" }
+montana-tui = { version = "0.0.1", path = "crates/utilities/tui" }
+montana-tui-common = { version = "0.0.1", path = "crates/utilities/tui-common" }
 
 # common crates
 chainspec = { path = "crates/common/chainspec" }

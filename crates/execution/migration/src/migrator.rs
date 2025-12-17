@@ -400,6 +400,11 @@ impl Migrator {
         Ok(total_stats)
     }
 
+    /// Get the current state root of the destination database.
+    pub fn state_root(&self) -> alloy_primitives::B256 {
+        self.destination.state_root()
+    }
+
     /// Close the migrator and release database handles.
     ///
     /// # Errors

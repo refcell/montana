@@ -69,23 +69,20 @@ fn main() -> Result<()> {
     // Run migration
     let stats = migrator.migrate_all()?;
 
+    // Get state root before closing
+    let state_root = migrator.state_root();
+
     info!(
         accounts = stats.accounts_migrated,
         account_errors = stats.account_errors,
         storage_slots = stats.storage_slots_migrated,
         storage_errors = stats.storage_errors,
+        %state_root,
         "migration complete"
     );
 
-    // Print summary
-    println!("\n=== Migration Summary ===");
-    println!("Accounts migrated:      {}", stats.accounts_migrated);
-    println!("Account errors:         {}", stats.account_errors);
-    println!("Storage slots migrated: {}", stats.storage_slots_migrated);
-    println!("Storage errors:         {}", stats.storage_errors);
-
     if stats.account_errors > 0 || stats.storage_errors > 0 {
-        println!("\nWarning: Some entries failed to migrate. Check logs for details.");
+        tracing::warn!("some entries failed to migrate, check logs for details");
     }
 
     // Close migrator

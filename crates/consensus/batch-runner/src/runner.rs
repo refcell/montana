@@ -408,8 +408,8 @@ mod tests {
         L2BlockData {
             timestamp: 1000 + block_number,
             transactions: vec![
-                montana_pipeline::RawTransaction(vec![1, 2, 3, 4]),
-                montana_pipeline::RawTransaction(vec![5, 6, 7, 8]),
+                montana_pipeline::Bytes::from(vec![1, 2, 3, 4]),
+                montana_pipeline::Bytes::from(vec![5, 6, 7, 8]),
             ],
         }
     }

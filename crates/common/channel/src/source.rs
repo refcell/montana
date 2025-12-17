@@ -1,28 +1,7 @@
 //! Data source traits and types.
 
 use async_trait::async_trait;
-
-/// Raw transaction bytes (RLP-encoded, opaque to the pipeline).
-#[derive(
-    Clone,
-    Debug,
-    derive_more::Deref,
-    derive_more::DerefMut,
-    derive_more::From,
-    derive_more::Into,
-    derive_more::AsRef,
-    derive_more::AsMut,
-)]
-pub struct RawTransaction(pub Vec<u8>);
-
-/// A block's worth of transactions with metadata.
-#[derive(Clone, Debug)]
-pub struct L2BlockData {
-    /// Block timestamp.
-    pub timestamp: u64,
-    /// Block transactions.
-    pub transactions: Vec<RawTransaction>,
-}
+use primitives::L2BlockData;
 
 /// Source errors.
 #[derive(Debug, derive_more::Display, derive_more::Error)]
@@ -50,82 +29,10 @@ pub trait BatchSource: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use primitives::Bytes;
     use rstest::rstest;
 
     use super::*;
-
-    #[test]
-    fn raw_transaction_new() {
-        let data = vec![1, 2, 3, 4, 5];
-        let tx = RawTransaction(data.clone());
-        assert_eq!(tx.0, data);
-    }
-
-    #[rstest]
-    #[case(vec![], "empty transaction")]
-    #[case(vec![0x00], "single byte")]
-    #[case(vec![0xf8, 0x65, 0x80], "RLP prefix")]
-    #[case(vec![0u8; 1000], "large transaction")]
-    fn raw_transaction_various_sizes(#[case] data: Vec<u8>, #[case] _description: &str) {
-        let tx = RawTransaction(data.clone());
-        assert_eq!(tx.0.len(), data.len());
-    }
-
-    #[test]
-    fn raw_transaction_clone() {
-        let tx = RawTransaction(vec![1, 2, 3]);
-        let cloned = tx.clone();
-        assert_eq!(cloned.0, tx.0);
-    }
-
-    #[test]
-    fn raw_transaction_debug() {
-        let tx = RawTransaction(vec![1, 2, 3]);
-        let debug_str = format!("{:?}", tx);
-        assert!(debug_str.contains("RawTransaction"));
-    }
-
-    #[test]
-    fn l2_block_data_new() {
-        let block = L2BlockData { timestamp: 1234567890, transactions: vec![] };
-        assert_eq!(block.timestamp, 1234567890);
-        assert!(block.transactions.is_empty());
-    }
-
-    #[rstest]
-    #[case(0, 0, "genesis block")]
-    #[case(1234567890, 1, "single tx block")]
-    #[case(u64::MAX, 100, "far future with many txs")]
-    fn l2_block_data_various(
-        #[case] timestamp: u64,
-        #[case] tx_count: usize,
-        #[case] _description: &str,
-    ) {
-        let transactions: Vec<RawTransaction> =
-            (0..tx_count).map(|i| RawTransaction(vec![i as u8])).collect();
-        let block = L2BlockData { timestamp, transactions };
-        assert_eq!(block.timestamp, timestamp);
-        assert_eq!(block.transactions.len(), tx_count);
-    }
-
-    #[test]
-    fn l2_block_data_clone() {
-        let block =
-            L2BlockData { timestamp: 1000, transactions: vec![RawTransaction(vec![1, 2, 3])] };
-        let cloned = block.clone();
-        assert_eq!(cloned.timestamp, block.timestamp);
-        assert_eq!(cloned.transactions.len(), block.transactions.len());
-        assert_eq!(cloned.transactions[0].0, block.transactions[0].0);
-    }
-
-    #[test]
-    fn l2_block_data_debug() {
-        let block = L2BlockData { timestamp: 1000, transactions: vec![] };
-        let debug_str = format!("{:?}", block);
-        assert!(debug_str.contains("L2BlockData"));
-        assert!(debug_str.contains("timestamp"));
-        assert!(debug_str.contains("transactions"));
-    }
 
     #[rstest]
     #[case("connection refused", "RPC connection failed: connection refused")]
@@ -173,7 +80,7 @@ mod tests {
         let mut source = MockBatchSource {
             blocks: vec![L2BlockData {
                 timestamp: 1000,
-                transactions: vec![RawTransaction(vec![1, 2, 3])],
+                transactions: vec![Bytes::from(vec![1, 2, 3])],
             }],
         };
 

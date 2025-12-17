@@ -4,7 +4,7 @@
 //! for fetching L2 blocks from an Ethereum-compatible RPC endpoint.
 
 use async_trait::async_trait;
-use montana_pipeline::{L2BlockData, RawTransaction};
+use montana_pipeline::{Bytes, L2BlockData};
 use serde::{Deserialize, Serialize};
 
 use crate::{BlockSource, BlockSourceError};
@@ -120,7 +120,7 @@ impl BlockSource for RpcBlockSource {
         let transactions = block
             .transactions
             .iter()
-            .filter_map(|tx| hex_to_bytes(&tx.input).ok().map(RawTransaction))
+            .filter_map(|tx| hex_to_bytes(&tx.input).ok().map(Bytes::from))
             .collect();
 
         Ok(L2BlockData { timestamp, transactions })

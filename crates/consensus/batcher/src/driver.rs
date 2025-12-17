@@ -47,7 +47,7 @@ impl BatchDriver {
     pub fn add_blocks(&mut self, blocks: Vec<montana_pipeline::L2BlockData>) {
         for block in blocks {
             // Calculate the size contribution of this block's transactions
-            let block_size: usize = block.transactions.iter().map(|tx| tx.0.len()).sum();
+            let block_size: usize = block.transactions.iter().map(|tx| tx.len()).sum();
             self.current_size += block_size;
             self.pending_blocks.push_back(block);
         }
@@ -82,7 +82,7 @@ impl BatchDriver {
             .pending_blocks
             .iter()
             .flat_map(|block| &block.transactions)
-            .map(|tx| tx.0.len())
+            .map(|tx| tx.len())
             .sum();
 
         let batch = PendingBatch {
@@ -90,7 +90,7 @@ impl BatchDriver {
             uncompressed_size: blocks
                 .iter()
                 .flat_map(|block| &block.transactions)
-                .map(|tx| tx.0.len())
+                .map(|tx| tx.len())
                 .sum(),
             blocks,
         };
@@ -171,11 +171,11 @@ mod tests {
         let blocks = vec![
             montana_pipeline::L2BlockData {
                 timestamp: 1000,
-                transactions: vec![montana_pipeline::RawTransaction(vec![1, 2, 3, 4, 5])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![1, 2, 3, 4, 5])],
             },
             montana_pipeline::L2BlockData {
                 timestamp: 2000,
-                transactions: vec![montana_pipeline::RawTransaction(vec![6, 7, 8])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![6, 7, 8])],
             },
         ];
 
@@ -200,7 +200,7 @@ mod tests {
 
         let blocks = vec![montana_pipeline::L2BlockData {
             timestamp: 1000,
-            transactions: vec![montana_pipeline::RawTransaction(vec![0; 1001])],
+            transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
         }];
 
         driver.add_blocks(blocks);
@@ -218,7 +218,7 @@ mod tests {
         for i in 0..5 {
             blocks.push(montana_pipeline::L2BlockData {
                 timestamp: 1000 + i,
-                transactions: vec![montana_pipeline::RawTransaction(vec![i as u8; 10])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![i as u8; 10])],
             });
         }
 
@@ -243,7 +243,7 @@ mod tests {
 
         let blocks = vec![montana_pipeline::L2BlockData {
             timestamp: 1000,
-            transactions: vec![montana_pipeline::RawTransaction(vec![1, 2, 3])],
+            transactions: vec![montana_pipeline::Bytes::from(vec![1, 2, 3])],
         }];
 
         driver.add_blocks(blocks);
@@ -258,7 +258,7 @@ mod tests {
 
         let blocks = vec![montana_pipeline::L2BlockData {
             timestamp: 1000,
-            transactions: vec![montana_pipeline::RawTransaction(vec![0; 1001])],
+            transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
         }];
 
         driver.add_blocks(blocks);
@@ -279,7 +279,7 @@ mod tests {
 
         let blocks = vec![montana_pipeline::L2BlockData {
             timestamp: 1000,
-            transactions: vec![montana_pipeline::RawTransaction(vec![0; 1001])],
+            transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
         }];
 
         driver.add_blocks(blocks);
@@ -297,7 +297,7 @@ mod tests {
         for i in 0..3 {
             let blocks = vec![montana_pipeline::L2BlockData {
                 timestamp: 1000 + i,
-                transactions: vec![montana_pipeline::RawTransaction(vec![0; 1001])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![0; 1001])],
             }];
 
             driver.add_blocks(blocks);
@@ -319,7 +319,7 @@ mod tests {
         let blocks: Vec<_> = (0..10)
             .map(|i| montana_pipeline::L2BlockData {
                 timestamp: 1000 + i,
-                transactions: vec![montana_pipeline::RawTransaction(vec![0; 200])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![0; 200])],
             })
             .collect();
 
@@ -343,11 +343,11 @@ mod tests {
         let blocks = vec![
             montana_pipeline::L2BlockData {
                 timestamp: 1000,
-                transactions: vec![montana_pipeline::RawTransaction(vec![1, 2])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![1, 2])],
             },
             montana_pipeline::L2BlockData {
                 timestamp: 2000,
-                transactions: vec![montana_pipeline::RawTransaction(vec![3, 4])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![3, 4])],
             },
         ];
 
@@ -365,8 +365,8 @@ mod tests {
         let blocks = vec![montana_pipeline::L2BlockData {
             timestamp: 1000,
             transactions: vec![
-                montana_pipeline::RawTransaction(vec![0; 100]),
-                montana_pipeline::RawTransaction(vec![0; 200]),
+                montana_pipeline::Bytes::from(vec![0; 100]),
+                montana_pipeline::Bytes::from(vec![0; 200]),
             ],
         }];
 
@@ -385,7 +385,7 @@ mod tests {
 
         let blocks = vec![montana_pipeline::L2BlockData {
             timestamp: 1000,
-            transactions: vec![montana_pipeline::RawTransaction(vec![0; size])],
+            transactions: vec![montana_pipeline::Bytes::from(vec![0; size])],
         }];
 
         driver.add_blocks(blocks);
@@ -402,7 +402,7 @@ mod tests {
         let blocks: Vec<_> = (0..4)
             .map(|i| montana_pipeline::L2BlockData {
                 timestamp: 1000 + i,
-                transactions: vec![montana_pipeline::RawTransaction(vec![0; 10])],
+                transactions: vec![montana_pipeline::Bytes::from(vec![0; 10])],
             })
             .collect();
 
@@ -412,7 +412,7 @@ mod tests {
         // Add 1 more to reach 5 (threshold)
         let block = montana_pipeline::L2BlockData {
             timestamp: 2000,
-            transactions: vec![montana_pipeline::RawTransaction(vec![0; 10])],
+            transactions: vec![montana_pipeline::Bytes::from(vec![0; 10])],
         };
 
         driver.add_blocks(vec![block]);

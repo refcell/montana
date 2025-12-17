@@ -1,28 +1,7 @@
 //! Data sink traits and types.
 
 use async_trait::async_trait;
-
-/// Compressed batch ready for submission.
-#[derive(Clone, Debug)]
-pub struct CompressedBatch {
-    /// Batch number.
-    pub batch_number: u64,
-    /// Compressed data.
-    pub data: Vec<u8>,
-}
-
-/// Result of a successful submission.
-#[derive(Clone, Debug)]
-pub struct SubmissionReceipt {
-    /// Batch number.
-    pub batch_number: u64,
-    /// Transaction hash.
-    pub tx_hash: [u8; 32],
-    /// L1 block number.
-    pub l1_block: u64,
-    /// Blob hash (if blob submission).
-    pub blob_hash: Option<[u8; 32]>,
-}
+use primitives::{CompressedBatch, SubmissionReceipt};
 
 /// Sink errors.
 #[derive(Debug, thiserror::Error)]
@@ -80,102 +59,6 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-
-    #[test]
-    fn compressed_batch_new() {
-        let batch = CompressedBatch { batch_number: 42, data: vec![1, 2, 3, 4, 5] };
-        assert_eq!(batch.batch_number, 42);
-        assert_eq!(batch.data, vec![1, 2, 3, 4, 5]);
-    }
-
-    #[rstest]
-    #[case(0, vec![], "empty batch")]
-    #[case(1, vec![0u8; 128 * 1024], "max size batch")]
-    #[case(u64::MAX, vec![0xFF], "max batch number")]
-    fn compressed_batch_various(
-        #[case] batch_number: u64,
-        #[case] data: Vec<u8>,
-        #[case] _description: &str,
-    ) {
-        let batch = CompressedBatch { batch_number, data: data.clone() };
-        assert_eq!(batch.batch_number, batch_number);
-        assert_eq!(batch.data.len(), data.len());
-    }
-
-    #[test]
-    fn compressed_batch_clone() {
-        let batch = CompressedBatch { batch_number: 1, data: vec![1, 2, 3] };
-        let cloned = batch.clone();
-        assert_eq!(cloned.batch_number, batch.batch_number);
-        assert_eq!(cloned.data, batch.data);
-    }
-
-    #[test]
-    fn compressed_batch_debug() {
-        let batch = CompressedBatch { batch_number: 1, data: vec![1, 2, 3] };
-        let debug_str = format!("{:?}", batch);
-        assert!(debug_str.contains("CompressedBatch"));
-        assert!(debug_str.contains("batch_number"));
-        assert!(debug_str.contains("data"));
-    }
-
-    #[test]
-    fn submission_receipt_new() {
-        let receipt = SubmissionReceipt {
-            batch_number: 1,
-            tx_hash: [0xABu8; 32],
-            l1_block: 100,
-            blob_hash: Some([0xCDu8; 32]),
-        };
-        assert_eq!(receipt.batch_number, 1);
-        assert_eq!(receipt.tx_hash, [0xABu8; 32]);
-        assert_eq!(receipt.l1_block, 100);
-        assert_eq!(receipt.blob_hash, Some([0xCDu8; 32]));
-    }
-
-    #[rstest]
-    #[case(0, 0, None, "genesis calldata")]
-    #[case(1, 100, Some([0u8; 32]), "blob submission")]
-    #[case(u64::MAX, u64::MAX, None, "max values")]
-    fn submission_receipt_various(
-        #[case] batch_number: u64,
-        #[case] l1_block: u64,
-        #[case] blob_hash: Option<[u8; 32]>,
-        #[case] _description: &str,
-    ) {
-        let receipt = SubmissionReceipt { batch_number, tx_hash: [0u8; 32], l1_block, blob_hash };
-        assert_eq!(receipt.batch_number, batch_number);
-        assert_eq!(receipt.l1_block, l1_block);
-        assert_eq!(receipt.blob_hash, blob_hash);
-    }
-
-    #[test]
-    fn submission_receipt_clone() {
-        let receipt = SubmissionReceipt {
-            batch_number: 1,
-            tx_hash: [0xABu8; 32],
-            l1_block: 100,
-            blob_hash: Some([0xCDu8; 32]),
-        };
-        let cloned = receipt.clone();
-        assert_eq!(cloned.batch_number, receipt.batch_number);
-        assert_eq!(cloned.tx_hash, receipt.tx_hash);
-        assert_eq!(cloned.l1_block, receipt.l1_block);
-        assert_eq!(cloned.blob_hash, receipt.blob_hash);
-    }
-
-    #[test]
-    fn submission_receipt_debug() {
-        let receipt = SubmissionReceipt {
-            batch_number: 1,
-            tx_hash: [0u8; 32],
-            l1_block: 100,
-            blob_hash: None,
-        };
-        let debug_str = format!("{:?}", receipt);
-        assert!(debug_str.contains("SubmissionReceipt"));
-        assert!(debug_str.contains("tx_hash"));
-    }
 
     #[rstest]
     #[case("connection refused", "L1 connection failed: connection refused")]

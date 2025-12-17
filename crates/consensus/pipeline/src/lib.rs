@@ -4,19 +4,21 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod source;
-pub use source::{BatchSource, L1BatchSource, L2BlockData, RawTransaction, SourceError};
+pub use source::{BatchSource, Bytes, L1BatchSource, L2BlockData, SourceError};
 
 mod execute;
 pub use execute::{ExecutePayload, ExecutePayloadError, NoopExecutor};
 
 mod sink;
-pub use sink::{BatchSink, CompressedBatch, L2BlockSink, SinkError, SubmissionReceipt};
+pub use sink::{BatchSink, L2BlockSink, SinkError};
 
 mod compressor;
 pub use compressor::{CompressionConfig, CompressionError, Compressor};
 
 mod codec;
-pub use codec::{BatchCodec, BatchHeader, CodecError};
+pub use codec::{BatchCodec, CodecError};
+// Re-export primitives types for backwards compatibility
+pub use primitives::{BatchHeader, CompressedBatch, SubmissionReceipt};
 
 mod error;
 pub use error::PipelineError;

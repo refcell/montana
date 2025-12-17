@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 // Re-export types from channels crate
-pub use channels::{BatchSource, L2BlockData, RawTransaction, SourceError};
+pub use channels::{BatchSource, Bytes, L2BlockData, SourceError};
 
 /// Source of compressed batches from L1.
 #[async_trait]

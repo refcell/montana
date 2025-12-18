@@ -520,18 +520,34 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     // Determine sync status and build content
     let (status_line, details) = match app.sync_state {
         SyncState::Idle => {
-            let status = Line::from(vec![
-                Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
-                Span::styled("IDLE", Style::default().fg(Color::DarkGray)),
-            ]);
-            let details = vec![
-                Line::from(""),
-                Line::from(vec![Span::styled(
-                    "Waiting for sync...",
-                    Style::default().fg(Color::DarkGray),
-                )]),
-            ];
-            (status, details)
+            if app.skip_sync {
+                // Sync was skipped via --skip-sync flag
+                let status = Line::from(vec![
+                    Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("SKIPPED", Style::default().fg(Color::Magenta).bold()),
+                ]);
+                let details = vec![
+                    Line::from(""),
+                    Line::from(vec![Span::styled(
+                        "Sync skipped via --skip-sync",
+                        Style::default().fg(Color::Magenta),
+                    )]),
+                ];
+                (status, details)
+            } else {
+                let status = Line::from(vec![
+                    Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("IDLE", Style::default().fg(Color::DarkGray)),
+                ]);
+                let details = vec![
+                    Line::from(""),
+                    Line::from(vec![Span::styled(
+                        "Waiting for sync...",
+                        Style::default().fg(Color::DarkGray),
+                    )]),
+                ];
+                (status, details)
+            }
         }
         SyncState::Syncing { current_block, target_block, blocks_per_second, eta, .. } => {
             let progress = app.sync_progress_percent();

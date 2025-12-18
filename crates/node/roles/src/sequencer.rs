@@ -2,7 +2,7 @@
 //!
 //! The sequencer role executes blocks and submits batches to L1.
 
-use std::{path::PathBuf, sync::Arc, time::Instant};
+use std::{collections::BinaryHeap, path::PathBuf, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
 use montana_batcher::BatcherConfig;
@@ -12,6 +12,68 @@ use primitives::{OpBlock, OpBlockBatch};
 use tokio::sync::mpsc;
 
 use crate::{Role, RoleCheckpoint, TickResult};
+
+/// Maximum blocks per batch when heavily backlogged (200+ blocks behind).
+const MAX_BLOCKS_HEAVY_BACKLOG: usize = 100;
+/// Maximum blocks per batch when moderately backlogged (50-200 blocks behind).
+const MAX_BLOCKS_MODERATE_BACKLOG: usize = 50;
+/// Maximum blocks per batch when lightly backlogged (10-50 blocks behind).
+const MAX_BLOCKS_LIGHT_BACKLOG: usize = 25;
+/// Threshold for heavy backlog.
+const HEAVY_BACKLOG_THRESHOLD: usize = 200;
+/// Threshold for moderate backlog.
+const MODERATE_BACKLOG_THRESHOLD: usize = 50;
+/// Threshold for light backlog.
+const LIGHT_BACKLOG_THRESHOLD: usize = 10;
+/// Maximum concurrent batch preparations (compression workers).
+const MAX_CONCURRENT_PREPARATIONS: usize = 4;
+
+/// A batch that has been prepared (serialized and compressed) and is ready for submission.
+///
+/// This struct holds all the data needed to submit a batch to L1, allowing
+/// the expensive compression work to be done in parallel while maintaining
+/// proper ordering for submission.
+#[derive(Debug)]
+struct PreparedBatch {
+    /// The batch number (used for ordering).
+    batch_number: u64,
+    /// The compressed batch data ready for submission.
+    compressed_batch: CompressedBatch,
+    /// Uncompressed size for metrics.
+    uncompressed_size: usize,
+    /// Compressed size for metrics.
+    compressed_size: usize,
+    /// Block count in this batch.
+    block_count: usize,
+    /// First block number in the batch.
+    first_block: u64,
+    /// Last block number in the batch.
+    last_block: u64,
+    /// Transaction counts per block (for TUI callback).
+    block_tx_counts: Vec<usize>,
+}
+
+// Implement ordering for the priority queue (min-heap by batch_number)
+impl PartialEq for PreparedBatch {
+    fn eq(&self, other: &Self) -> bool {
+        self.batch_number == other.batch_number
+    }
+}
+
+impl Eq for PreparedBatch {}
+
+impl PartialOrd for PreparedBatch {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PreparedBatch {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reverse ordering for min-heap (lower batch_number = higher priority)
+        other.batch_number.cmp(&self.batch_number)
+    }
+}
 
 /// Callback for reporting block execution events.
 ///
@@ -100,11 +162,18 @@ pub enum SequencerEvent {
 /// for the validator to deserialize. The unbounded channel allows block fetching to be
 /// decoupled from execution - the feeder can continuously fetch blocks while the
 /// sequencer processes them at its own pace.
+///
+/// ## Parallel Batch Preparation
+///
+/// When the sequencer falls behind, it spawns parallel compression workers to prepare
+/// multiple batches concurrently. The expensive work (serialization + compression) happens
+/// in parallel, while submission to L1 remains sequential to maintain proper ordering.
+/// This architecture allows the sequencer to catch up quickly when backlogged.
 pub struct Sequencer<S, C> {
     /// Batch sink for L1 submission.
     batch_sink: S,
-    /// Compressor for batch data.
-    compressor: C,
+    /// Compressor for batch data (wrapped in Arc for sharing with worker tasks).
+    compressor: Arc<C>,
     /// Batcher configuration for batch submission criteria.
     batcher_config: BatcherConfig,
     /// Checkpoint for resumption.
@@ -119,8 +188,10 @@ pub struct Sequencer<S, C> {
     current_batch_size: usize,
     /// Last batch submission time.
     last_submission: Instant,
-    /// Next batch number to submit.
+    /// Next batch number to assign to a preparation task.
     next_batch_number: u64,
+    /// Next batch number expected for submission (for ordering).
+    next_submission_number: u64,
     /// Event sender (for observers).
     event_tx: Option<mpsc::UnboundedSender<SequencerEvent>>,
     /// Optional callback for execution events.
@@ -129,6 +200,14 @@ pub struct Sequencer<S, C> {
     batch_callback: Option<Arc<dyn BatchCallback>>,
     /// Counter for tracking blocks executed (for backlog calculation).
     blocks_executed: u64,
+    /// Receiver for prepared batches from compression workers.
+    prepared_rx: mpsc::UnboundedReceiver<Result<PreparedBatch, String>>,
+    /// Sender for prepared batches (cloned to workers).
+    prepared_tx: mpsc::UnboundedSender<Result<PreparedBatch, String>>,
+    /// Number of batches currently being prepared by workers.
+    in_flight_preparations: usize,
+    /// Priority queue of prepared batches waiting for submission (ordered by batch_number).
+    ready_batches: BinaryHeap<PreparedBatch>,
 }
 
 impl<S: std::fmt::Debug, C: std::fmt::Debug> std::fmt::Debug for Sequencer<S, C> {
@@ -143,6 +222,9 @@ impl<S: std::fmt::Debug, C: std::fmt::Debug> std::fmt::Debug for Sequencer<S, C>
             .field("pending_blocks", &self.pending_blocks.len())
             .field("current_batch_size", &self.current_batch_size)
             .field("next_batch_number", &self.next_batch_number)
+            .field("next_submission_number", &self.next_submission_number)
+            .field("in_flight_preparations", &self.in_flight_preparations)
+            .field("ready_batches", &self.ready_batches.len())
             .finish_non_exhaustive()
     }
 }
@@ -150,7 +232,7 @@ impl<S: std::fmt::Debug, C: std::fmt::Debug> std::fmt::Debug for Sequencer<S, C>
 impl<S, C> Sequencer<S, C>
 where
     S: BatchSink,
-    C: Compressor,
+    C: Compressor + 'static,
 {
     /// Creates a new sequencer role.
     ///
@@ -193,9 +275,12 @@ where
             Checkpoint::default()
         };
 
+        // Create channel for prepared batches from compression workers
+        let (prepared_tx, prepared_rx) = mpsc::unbounded_channel();
+
         Ok(Self {
             batch_sink,
-            compressor,
+            compressor: Arc::new(compressor),
             batcher_config,
             checkpoint,
             checkpoint_path,
@@ -204,10 +289,15 @@ where
             current_batch_size: 0,
             last_submission: Instant::now(),
             next_batch_number: 1, // Start at 1 to avoid checkpoint skip issue with batch 0
+            next_submission_number: 1, // Must match next_batch_number initially
             event_tx: None,
             execution_callback: None,
             batch_callback: None,
             blocks_executed: 0,
+            prepared_rx,
+            prepared_tx,
+            in_flight_preparations: 0,
+            ready_batches: BinaryHeap::new(),
         })
     }
 
@@ -270,19 +360,276 @@ where
         size_ready || time_ready || blocks_ready
     }
 
-    /// Processes a single incoming block.
+    /// Calculates the dynamic maximum blocks per batch based on backlog depth.
     ///
-    /// Adds the block to the pending list and checks if a batch should be submitted.
-    /// Measures execution time and emits events for TUI visibility.
+    /// When the sequencer falls behind, we dynamically increase the batch size
+    /// to catch up faster. This reduces L1 transaction overhead and improves
+    /// overall throughput.
     ///
     /// # Arguments
     ///
-    /// * `block` - The full OpBlock to process
+    /// * `backlog_depth` - Number of blocks waiting in the channel
     ///
-    /// # Errors
+    /// # Returns
     ///
-    /// Returns an error if batch submission fails.
-    async fn process_block(&mut self, block: OpBlock) -> eyre::Result<()> {
+    /// The maximum number of blocks to include in the next batch.
+    const fn dynamic_max_blocks(&self, backlog_depth: usize) -> usize {
+        if backlog_depth >= HEAVY_BACKLOG_THRESHOLD {
+            MAX_BLOCKS_HEAVY_BACKLOG
+        } else if backlog_depth >= MODERATE_BACKLOG_THRESHOLD {
+            MAX_BLOCKS_MODERATE_BACKLOG
+        } else if backlog_depth >= LIGHT_BACKLOG_THRESHOLD {
+            MAX_BLOCKS_LIGHT_BACKLOG
+        } else {
+            // Use configured max when caught up or lightly behind
+            self.batcher_config.max_blocks_per_batch as usize
+        }
+    }
+
+    /// Estimates the current backlog depth by checking how many blocks are
+    /// waiting in the channel plus any pending blocks not yet submitted.
+    fn estimate_backlog(&self) -> usize {
+        // Channel length gives us blocks waiting to be accumulated
+        // Plus pending blocks that haven't been submitted yet
+        self.block_rx.len() + self.pending_blocks.len()
+    }
+
+    /// Spawns a compression worker task to prepare a batch in the background.
+    ///
+    /// This method takes a set of blocks, assigns them a batch number, and spawns
+    /// a tokio task to serialize and compress them. The result is sent back via
+    /// the prepared_tx channel for ordered submission.
+    ///
+    /// # Arguments
+    ///
+    /// * `blocks` - The blocks to include in this batch
+    /// * `batch_number` - The batch number to assign
+    fn spawn_preparation_worker(&self, blocks: Vec<OpBlock>, batch_number: u64) {
+        let compressor = Arc::clone(&self.compressor);
+        let tx = self.prepared_tx.clone();
+
+        // Collect metadata before moving blocks
+        let block_count = blocks.len();
+        let first_block = blocks.first().map(|b| b.header.number).unwrap_or(0);
+        let last_block = blocks.last().map(|b| b.header.number).unwrap_or(0);
+        let block_tx_counts: Vec<usize> = blocks.iter().map(|b| b.transactions.len()).collect();
+
+        tracing::debug!(
+            batch_number,
+            block_count,
+            first_block,
+            last_block,
+            "Spawning compression worker"
+        );
+
+        tokio::spawn(async move {
+            // Do the expensive work in the background task
+            let result = Self::prepare_batch_sync(
+                compressor,
+                blocks,
+                batch_number,
+                block_count,
+                first_block,
+                last_block,
+                block_tx_counts,
+            );
+
+            // Send result back to main task
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Synchronously prepares a batch (serialization + compression).
+    ///
+    /// This is the CPU-intensive work that runs in spawned tasks.
+    fn prepare_batch_sync(
+        compressor: Arc<C>,
+        blocks: Vec<OpBlock>,
+        batch_number: u64,
+        block_count: usize,
+        first_block: u64,
+        last_block: u64,
+        block_tx_counts: Vec<usize>,
+    ) -> Result<PreparedBatch, String> {
+        // Serialize the blocks as OpBlockBatch
+        let batch_payload = OpBlockBatch::new(blocks);
+        let batch_data = batch_payload
+            .to_bytes()
+            .map_err(|e| format!("Failed to serialize OpBlockBatch: {}", e))?;
+
+        let uncompressed_size = batch_data.len();
+
+        // Compress (this is the expensive part)
+        let compressed_data =
+            compressor.compress(&batch_data).map_err(|e| format!("Compression failed: {}", e))?;
+
+        let compressed_size = compressed_data.len();
+
+        tracing::debug!(
+            batch_number,
+            block_count,
+            uncompressed_size,
+            compressed_size,
+            compression_ratio =
+                format!("{:.2}x", uncompressed_size as f64 / compressed_size as f64),
+            "Batch preparation complete"
+        );
+
+        Ok(PreparedBatch {
+            batch_number,
+            compressed_batch: CompressedBatch {
+                batch_number,
+                data: compressed_data,
+                block_count: block_count as u64,
+                first_block,
+                last_block,
+            },
+            uncompressed_size,
+            compressed_size,
+            block_count,
+            first_block,
+            last_block,
+            block_tx_counts,
+        })
+    }
+
+    /// Collects completed preparations from workers and adds them to the ready queue.
+    ///
+    /// This is non-blocking - it only collects results that are already available.
+    fn collect_prepared_batches(&mut self) {
+        loop {
+            match self.prepared_rx.try_recv() {
+                Ok(Ok(prepared)) => {
+                    tracing::debug!(
+                        batch_number = prepared.batch_number,
+                        "Collected prepared batch"
+                    );
+                    self.ready_batches.push(prepared);
+                    self.in_flight_preparations = self.in_flight_preparations.saturating_sub(1);
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(error = %e, "Batch preparation failed");
+                    self.in_flight_preparations = self.in_flight_preparations.saturating_sub(1);
+                    // TODO: Handle preparation failures (retry?)
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    tracing::warn!("Prepared batch channel disconnected");
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Submits all ready batches that are in order.
+    ///
+    /// Only submits batches whose batch_number matches next_submission_number,
+    /// to maintain proper ordering on L1.
+    async fn submit_ready_batches(&mut self) -> eyre::Result<usize> {
+        let mut submitted = 0;
+
+        while let Some(prepared) = self.ready_batches.peek() {
+            if prepared.batch_number != self.next_submission_number {
+                // Next batch in queue isn't the one we need - wait for it
+                tracing::debug!(
+                    waiting_for = self.next_submission_number,
+                    next_ready = prepared.batch_number,
+                    "Waiting for in-order batch"
+                );
+                break;
+            }
+
+            // Pop and submit
+            let prepared = self.ready_batches.pop().unwrap();
+            self.submit_prepared_batch(prepared).await?;
+            submitted += 1;
+        }
+
+        Ok(submitted)
+    }
+
+    /// Submits a prepared batch to L1.
+    ///
+    /// This handles the actual L1 submission and all the bookkeeping
+    /// (checkpoint updates, callbacks, events, etc.)
+    async fn submit_prepared_batch(&mut self, prepared: PreparedBatch) -> eyre::Result<()> {
+        let batch_number = prepared.batch_number;
+
+        // Skip if already submitted (shouldn't happen with proper ordering, but be safe)
+        if self.checkpoint.should_skip_batch(batch_number) {
+            tracing::info!(batch_number, "Skipping already-submitted batch");
+            self.next_submission_number += 1;
+            return Ok(());
+        }
+
+        self.emit(SequencerEvent::BatchBuilt { batch_number, block_count: prepared.block_count });
+
+        // Submit to L1
+        let receipt = self.batch_sink.submit(prepared.compressed_batch).await?;
+
+        // Update checkpoint
+        self.checkpoint.record_batch_submitted(batch_number);
+        self.checkpoint.touch();
+        if let Some(ref path) = self.checkpoint_path {
+            self.checkpoint.save(path)?;
+        }
+
+        // Update internal state
+        self.next_submission_number += 1;
+        self.last_submission = Instant::now();
+
+        self.emit(SequencerEvent::BatchSubmitted { batch_number, tx_hash: receipt.tx_hash });
+
+        // Invoke batch callback for TUI visibility
+        if let Some(ref callback) = self.batch_callback {
+            tracing::debug!(
+                batch_number,
+                block_count = prepared.block_count,
+                first_block = prepared.first_block,
+                last_block = prepared.last_block,
+                uncompressed_size = prepared.uncompressed_size,
+                compressed_size = prepared.compressed_size,
+                l1_block = receipt.l1_block,
+                "Invoking batch callback for TUI"
+            );
+            callback.on_batch_submitted(
+                batch_number,
+                prepared.block_count,
+                prepared.first_block,
+                prepared.last_block,
+                prepared.uncompressed_size,
+                prepared.compressed_size,
+                &prepared.block_tx_counts,
+                receipt.l1_block,
+            );
+        }
+
+        tracing::info!(
+            batch_number,
+            block_count = prepared.block_count,
+            first_block = prepared.first_block,
+            last_block = prepared.last_block,
+            tx_hash = hex::encode(receipt.tx_hash),
+            l1_block = receipt.l1_block,
+            "Batch submitted to L1"
+        );
+
+        Ok(())
+    }
+
+    /// Accumulates a single incoming block without triggering batch submission.
+    ///
+    /// This method adds the block to the pending list, emits events, and invokes
+    /// callbacks, but does NOT check or trigger batch submission. The caller
+    /// (typically `tick()`) is responsible for deciding when to submit.
+    ///
+    /// This separation allows `tick()` to accumulate multiple blocks when backlogged
+    /// before submitting a batch, enabling proper batching of blocks.
+    ///
+    /// # Arguments
+    ///
+    /// * `block` - The full OpBlock to accumulate
+    fn accumulate_block(&mut self, block: OpBlock) {
         let start = Instant::now();
         let block_number = block.header.number;
         let tx_count = block.transactions.len();
@@ -296,7 +643,7 @@ where
             tx_count,
             block_size,
             gas_used,
-            "Processing block in sequencer"
+            "Accumulating block in sequencer"
         );
 
         // Add block to pending list
@@ -318,145 +665,11 @@ where
             callback.on_block_executed(block_number, execution_time_ms, gas_used);
         }
 
-        // Check if batch is ready
-        let should = self.should_submit();
         tracing::debug!(
-            should_submit = should,
             pending_count = self.pending_blocks.len(),
             current_size = self.current_batch_size,
-            "Checking if batch should be submitted"
+            "Block accumulated, deferring submission check to tick()"
         );
-        if should {
-            self.submit_pending_batch().await?;
-        }
-
-        Ok(())
-    }
-
-    /// Submits a pending batch to L1.
-    ///
-    /// Builds the batch, serializes as OpBlockBatch, compresses it, and submits it to the batch
-    /// sink. Updates the checkpoint after successful submission.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Serialization fails
-    /// - Compression fails
-    /// - Submission to L1 fails
-    /// - Checkpoint save fails
-    async fn submit_pending_batch(&mut self) -> eyre::Result<()> {
-        if self.pending_blocks.is_empty() {
-            return Ok(());
-        }
-
-        let batch_number = self.next_batch_number;
-
-        // Skip if already submitted
-        if self.checkpoint.should_skip_batch(batch_number) {
-            tracing::info!(batch_number, "Skipping already-submitted batch");
-            self.pending_blocks.clear();
-            self.current_batch_size = 0;
-            return Ok(());
-        }
-
-        // Take blocks up to max_blocks_per_batch
-        let max_blocks = self.batcher_config.max_blocks_per_batch as usize;
-        let blocks_to_submit: Vec<OpBlock> = if self.pending_blocks.len() > max_blocks {
-            self.pending_blocks.drain(..max_blocks).collect()
-        } else {
-            std::mem::take(&mut self.pending_blocks)
-        };
-
-        let block_count = blocks_to_submit.len();
-        let first_block = blocks_to_submit.first().map(|b| b.header.number).unwrap_or(0);
-        let last_block = blocks_to_submit.last().map(|b| b.header.number).unwrap_or(0);
-
-        // Collect transaction counts for each block
-        let block_tx_counts: Vec<usize> =
-            blocks_to_submit.iter().map(|b| b.transactions.len()).collect();
-
-        // Serialize the blocks as OpBlockBatch
-        let batch_payload = OpBlockBatch::new(blocks_to_submit);
-        let batch_data = batch_payload
-            .to_bytes()
-            .map_err(|e| eyre::eyre!("Failed to serialize OpBlockBatch: {}", e))?;
-
-        let uncompressed_size = batch_data.len();
-
-        // Compress
-        let compressed_data = self.compressor.compress(&batch_data)?;
-        let compressed_size = compressed_data.len();
-
-        self.emit(SequencerEvent::BatchBuilt { batch_number, block_count });
-
-        // Submit
-        let compressed_batch = CompressedBatch {
-            batch_number,
-            data: compressed_data,
-            block_count: block_count as u64,
-            first_block,
-            last_block,
-        };
-
-        let receipt = self.batch_sink.submit(compressed_batch).await?;
-
-        // Update checkpoint (only save if persistence is enabled)
-        self.checkpoint.record_batch_submitted(batch_number);
-        self.checkpoint.touch();
-        if let Some(ref path) = self.checkpoint_path {
-            self.checkpoint.save(path)?;
-        }
-
-        // Update internal state
-        self.next_batch_number += 1;
-        self.last_submission = Instant::now();
-
-        // Recalculate remaining batch size
-        self.current_batch_size = self
-            .pending_blocks
-            .iter()
-            .map(|b| serde_json::to_vec(b).map(|v| v.len()).unwrap_or(0))
-            .sum();
-
-        self.emit(SequencerEvent::BatchSubmitted { batch_number, tx_hash: receipt.tx_hash });
-
-        // Invoke batch callback for TUI visibility
-        if let Some(ref callback) = self.batch_callback {
-            tracing::debug!(
-                batch_number,
-                block_count,
-                first_block,
-                last_block,
-                uncompressed_size,
-                compressed_size,
-                l1_block = receipt.l1_block,
-                ?block_tx_counts,
-                "Invoking batch callback for TUI"
-            );
-            callback.on_batch_submitted(
-                batch_number,
-                block_count,
-                first_block,
-                last_block,
-                uncompressed_size,
-                compressed_size,
-                &block_tx_counts,
-                receipt.l1_block,
-            );
-        }
-
-        tracing::info!(
-            batch_number,
-            block_count,
-            first_block,
-            last_block,
-            tx_hash = hex::encode(receipt.tx_hash),
-            l1_block = receipt.l1_block,
-            "Batch submitted successfully"
-        );
-
-        Ok(())
     }
 }
 
@@ -464,7 +677,7 @@ where
 impl<S, C> Role for Sequencer<S, C>
 where
     S: BatchSink,
-    C: Compressor,
+    C: Compressor + 'static,
 {
     fn name(&self) -> &'static str {
         "sequencer"
@@ -483,29 +696,186 @@ where
     }
 
     async fn tick(&mut self) -> eyre::Result<TickResult> {
-        // Try to receive a block (non-blocking)
-        match self.block_rx.try_recv() {
-            Ok(block) => {
-                self.process_block(block).await?;
-                Ok(TickResult::Progress)
-            }
-            Err(mpsc::error::TryRecvError::Empty) => {
-                // No blocks available, check if we should time-submit
-                if self.should_submit() && !self.pending_blocks.is_empty() {
-                    self.submit_pending_batch().await?;
-                    Ok(TickResult::Progress)
-                } else {
-                    Ok(TickResult::Idle)
+        // =====================================================================
+        // PARALLEL BATCH PREPARATION PIPELINE
+        //
+        // This tick() implementation uses a pipelined approach:
+        // 1. Collect completed preparations from workers
+        // 2. Submit any ready batches (in order)
+        // 3. Accumulate new blocks from the channel
+        // 4. Spawn new preparation workers (up to MAX_CONCURRENT_PREPARATIONS)
+        //
+        // The key insight is that compression is CPU-intensive and can be
+        // parallelized, while submission must be sequential for ordering.
+        // =====================================================================
+
+        let mut made_progress = false;
+
+        // Phase 1: Collect completed preparations from background workers
+        self.collect_prepared_batches();
+
+        // Phase 2: Submit any ready batches that are in order
+        let submitted = self.submit_ready_batches().await?;
+        if submitted > 0 {
+            made_progress = true;
+            tracing::debug!(submitted, "Submitted ready batches");
+        }
+
+        // Phase 3: Accumulate blocks from the channel
+        let backlog = self.estimate_backlog();
+        let dynamic_max = self.dynamic_max_blocks(backlog);
+        let mut blocks_accumulated = 0;
+        let mut channel_disconnected = false;
+
+        // Accumulate blocks until we have enough for a batch
+        loop {
+            match self.block_rx.try_recv() {
+                Ok(block) => {
+                    self.accumulate_block(block);
+                    blocks_accumulated += 1;
+
+                    // Stop when we have enough for a dynamically-sized batch
+                    if self.pending_blocks.len() >= dynamic_max {
+                        break;
+                    }
                 }
-            }
-            Err(mpsc::error::TryRecvError::Disconnected) => {
-                // Block producer finished, flush remaining
-                if !self.pending_blocks.is_empty() {
-                    self.submit_pending_batch().await?;
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    channel_disconnected = true;
+                    break;
                 }
-                Ok(TickResult::Complete)
             }
         }
+
+        if blocks_accumulated > 0 {
+            made_progress = true;
+        }
+
+        // Phase 4: Spawn preparation workers for pending blocks
+        // Calculate how many workers we can spawn
+        let available_slots =
+            MAX_CONCURRENT_PREPARATIONS.saturating_sub(self.in_flight_preparations);
+
+        if available_slots > 0 && !self.pending_blocks.is_empty() {
+            let current_backlog = self.estimate_backlog();
+            let is_backlogged = current_backlog >= LIGHT_BACKLOG_THRESHOLD;
+
+            if is_backlogged {
+                // CATCH-UP MODE: Spawn multiple preparation workers in parallel
+                //
+                // When backlogged, we aggressively spawn workers to prepare
+                // multiple batches concurrently. This parallelizes the expensive
+                // compression work.
+                let mut workers_spawned = 0;
+
+                while workers_spawned < available_slots && !self.pending_blocks.is_empty() {
+                    // Calculate batch size based on remaining backlog
+                    let remaining_backlog = self.pending_blocks.len() + self.block_rx.len();
+                    let effective_max = self.dynamic_max_blocks(remaining_backlog);
+
+                    // Require at least half a batch to spawn a worker
+                    let min_for_spawn = (effective_max / 2).max(1);
+                    if self.pending_blocks.len() < min_for_spawn {
+                        break;
+                    }
+
+                    // Take blocks for this batch
+                    let batch_size = self.pending_blocks.len().min(effective_max);
+                    let blocks: Vec<OpBlock> = self.pending_blocks.drain(..batch_size).collect();
+
+                    // Assign batch number and spawn worker
+                    let batch_number = self.next_batch_number;
+                    self.next_batch_number += 1;
+
+                    tracing::info!(
+                        batch_number,
+                        block_count = blocks.len(),
+                        backlog = remaining_backlog,
+                        in_flight = self.in_flight_preparations,
+                        "CATCH-UP MODE: spawning compression worker"
+                    );
+
+                    self.spawn_preparation_worker(blocks, batch_number);
+                    self.in_flight_preparations += 1;
+                    workers_spawned += 1;
+                    made_progress = true;
+
+                    // Recalculate batch size after taking blocks
+                    self.current_batch_size = self
+                        .pending_blocks
+                        .iter()
+                        .map(|b| serde_json::to_vec(b).map(|v| v.len()).unwrap_or(0))
+                        .sum();
+                }
+            } else {
+                // NORMAL MODE: Only spawn if we meet submission criteria
+                if self.should_submit() && available_slots > 0 {
+                    let batch_size = self
+                        .pending_blocks
+                        .len()
+                        .min(self.batcher_config.max_blocks_per_batch as usize);
+                    let blocks: Vec<OpBlock> = self.pending_blocks.drain(..batch_size).collect();
+
+                    let batch_number = self.next_batch_number;
+                    self.next_batch_number += 1;
+
+                    tracing::debug!(
+                        batch_number,
+                        block_count = blocks.len(),
+                        "Normal mode: spawning compression worker"
+                    );
+
+                    self.spawn_preparation_worker(blocks, batch_number);
+                    self.in_flight_preparations += 1;
+                    made_progress = true;
+
+                    // Recalculate batch size
+                    self.current_batch_size = self
+                        .pending_blocks
+                        .iter()
+                        .map(|b| serde_json::to_vec(b).map(|v| v.len()).unwrap_or(0))
+                        .sum();
+                }
+            }
+        }
+
+        // Handle channel disconnection
+        if channel_disconnected {
+            // Block producer finished - flush remaining blocks
+            if !self.pending_blocks.is_empty() {
+                let blocks = std::mem::take(&mut self.pending_blocks);
+                let batch_number = self.next_batch_number;
+                self.next_batch_number += 1;
+
+                tracing::info!(
+                    batch_number,
+                    block_count = blocks.len(),
+                    "Channel disconnected, spawning final compression worker"
+                );
+
+                self.spawn_preparation_worker(blocks, batch_number);
+                self.in_flight_preparations += 1;
+                self.current_batch_size = 0;
+            }
+
+            // Wait for all in-flight preparations to complete
+            while self.in_flight_preparations > 0 || !self.ready_batches.is_empty() {
+                // Collect any completed preparations
+                self.collect_prepared_batches();
+
+                // Submit ready batches
+                self.submit_ready_batches().await?;
+
+                // If still waiting, yield briefly
+                if self.in_flight_preparations > 0 && self.ready_batches.is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            }
+
+            return Ok(TickResult::Complete);
+        }
+
+        if made_progress { Ok(TickResult::Progress) } else { Ok(TickResult::Idle) }
     }
 
     fn checkpoint(&self) -> RoleCheckpoint {

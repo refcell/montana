@@ -354,24 +354,41 @@ where
             self.last_l1_head = l1_head;
         }
 
-        // Poll for next batch
-        match self.batch_source.next_batch().await {
-            Ok(Some(batch)) => {
-                self.process_batch(batch).await?;
-                Ok(TickResult::Progress)
-            }
-            Ok(None) => {
-                // No batch available, idle
-                tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_interval_ms)).await;
-                Ok(TickResult::Idle)
-            }
-            Err(e) => {
-                tracing::warn!(error = ?e, "Error fetching next batch, will retry");
-                // Sleep before retrying to avoid spinning on persistent errors
-                tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_interval_ms)).await;
-                Ok(TickResult::Idle)
+        // Process all available batches (non-blocking drain)
+        // This allows the validator to catch up quickly when there's a backlog
+        let mut batches_processed = 0;
+        const MAX_BATCHES_PER_TICK: usize = 10; // Limit to avoid starving other tasks
+
+        loop {
+            match self.batch_source.next_batch().await {
+                Ok(Some(batch)) => {
+                    self.process_batch(batch).await?;
+                    batches_processed += 1;
+
+                    // Limit batches per tick to avoid blocking the event loop too long
+                    if batches_processed >= MAX_BATCHES_PER_TICK {
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    // No more batches available
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(error = ?e, "Error fetching next batch, will retry");
+                    break;
+                }
             }
         }
+
+        // If we processed batches, report progress
+        if batches_processed > 0 {
+            return Ok(TickResult::Progress);
+        }
+
+        // No batches were available, idle
+        tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_interval_ms)).await;
+        Ok(TickResult::Idle)
     }
 
     fn checkpoint(&self) -> RoleCheckpoint {

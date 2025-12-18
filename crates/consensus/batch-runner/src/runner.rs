@@ -118,6 +118,10 @@ where
     ///
     /// This function will run indefinitely, streaming blocks from the source,
     /// accumulating them into batches, and submitting through the sink.
+    ///
+    /// When the batcher is behind (backlogged), it will fetch multiple blocks
+    /// in rapid succession and combine them into larger batches for efficient
+    /// submission.
     pub async fn run(&mut self, start_block: u64) -> Result<(), BatchSubmissionError> {
         info!("Starting batch submission runner from block #{}", start_block);
 
@@ -135,99 +139,147 @@ where
                 continue;
             }
 
-            // Update chain head periodically (for TUI display)
-            if let Ok(head) = self.source.get_head().await
-                && let Some(ref callback) = self.callback
-            {
-                callback.on_chain_head_updated(head).await;
+            // Get the current chain head to determine if we're backlogged
+            let chain_head = self.source.get_head().await.unwrap_or(current_block);
+
+            // Notify callback of chain head update
+            if let Some(ref callback) = self.callback {
+                callback.on_chain_head_updated(chain_head).await;
             }
 
-            // Try to fetch the next block
-            match self.source.get_block(current_block).await {
-                Ok(block) => {
-                    // Get transaction count from the block
-                    let tx_count = block.transactions.len();
-                    // Estimate block size based on transaction count
-                    let block_size: usize = tx_count * 256; // Rough estimate
+            // Calculate how many blocks we're behind
+            let blocks_behind = chain_head.saturating_sub(current_block);
+            let is_backlogged = blocks_behind > 0;
 
-                    debug!(
-                        "Fetched block #{}: {} txs, {} bytes",
-                        current_block, tx_count, block_size
-                    );
+            if is_backlogged {
+                debug!(
+                    "Backlogged by {} blocks (current: {}, head: {}), fetching in bulk",
+                    blocks_behind, current_block, chain_head
+                );
+            }
 
-                    // Notify callback
-                    if let Some(ref callback) = self.callback {
-                        callback.on_block_processed(current_block, tx_count, block_size).await;
-                    }
+            // Fetch blocks - when backlogged, fetch up to max_blocks_per_batch at once
+            // When caught up, fetch one at a time
+            let blocks_to_fetch = if is_backlogged {
+                // Fetch enough blocks to fill a batch, but don't exceed what's available
+                std::cmp::min(
+                    self.config.max_blocks_per_batch.saturating_sub(pending_blocks.len()),
+                    blocks_behind as usize + 1, // +1 to include current_block
+                )
+            } else {
+                1
+            };
 
-                    pending_blocks.push(block);
-                    pending_size += block_size;
+            let mut blocks_fetched = 0;
+            let mut fetch_failed = false;
 
-                    // Check if we should submit a batch
-                    let should_submit = pending_blocks.len() >= self.config.max_blocks_per_batch
-                        || pending_size >= self.config.target_batch_size;
+            for offset in 0..blocks_to_fetch {
+                let block_num = current_block + offset as u64;
 
-                    if should_submit && !pending_blocks.is_empty() {
-                        let submission_result =
-                            self.submit_batch(batch_number, &pending_blocks, pending_size).await;
+                match self.source.get_block(block_num).await {
+                    Ok(block) => {
+                        // Get transaction count from the block
+                        let tx_count = block.transactions.len();
+                        // Estimate block size based on transaction count
+                        let block_size: usize = tx_count * 256; // Rough estimate
 
-                        match submission_result {
-                            Ok(tx_hash) => {
-                                info!(
-                                    "Submitted batch #{}: {} blocks, {} bytes compressed",
-                                    batch_number,
-                                    pending_blocks.len(),
-                                    self.metrics.bytes_compressed
-                                );
+                        debug!(
+                            "Fetched block #{}: {} txs, {} bytes",
+                            block_num, tx_count, block_size
+                        );
 
-                                // Notify callback
-                                if let Some(ref callback) = self.callback {
-                                    callback
-                                        .on_batch_submitted(
-                                            batch_number,
-                                            pending_blocks.len(),
-                                            pending_size,
-                                            self.metrics.bytes_compressed as usize,
-                                            tx_hash,
-                                        )
-                                        .await;
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to submit batch #{}: {}", batch_number, e);
-
-                                // Notify callback
-                                if let Some(ref callback) = self.callback {
-                                    callback.on_batch_failed(batch_number, &e).await;
-                                }
-
-                                // Return error if fatal
-                                if e.is_fatal() {
-                                    return Err(e);
-                                }
-                            }
+                        // Notify callback
+                        if let Some(ref callback) = self.callback {
+                            callback.on_block_processed(block_num, tx_count, block_size).await;
                         }
 
-                        batch_number += 1;
+                        pending_blocks.push(block);
+                        pending_size += block_size;
+                        blocks_fetched += 1;
 
-                        // Clear pending
-                        pending_blocks.clear();
-                        pending_size = 0;
+                        // Check if we should submit mid-fetch (hit size limit)
+                        if pending_size >= self.config.target_batch_size {
+                            break;
+                        }
                     }
+                    Err(e) => {
+                        if Self::is_block_not_found(&e) {
+                            debug!("Block #{} not available yet", block_num);
+                        } else {
+                            warn!("Error fetching block #{}: {:?}", block_num, e);
+                        }
+                        fetch_failed = true;
+                        break;
+                    }
+                }
+            }
 
-                    current_block += 1;
-                    self.metrics.latest_block = current_block;
-                }
-                Err(e) => {
-                    // Block not available yet
-                    if Self::is_block_not_found(&e) {
-                        debug!("Block #{} not available yet, waiting...", current_block);
-                    } else {
-                        warn!("Error fetching block #{}: {:?}", current_block, e);
+            // Update current block based on how many we fetched
+            if blocks_fetched > 0 {
+                current_block += blocks_fetched as u64;
+                self.metrics.latest_block = current_block;
+            }
+
+            // Check if we should submit a batch
+            // Submit when:
+            // 1. We've reached max blocks per batch, OR
+            // 2. We've reached target batch size, OR
+            // 3. We're caught up (not backlogged) and have pending blocks
+            let should_submit = pending_blocks.len() >= self.config.max_blocks_per_batch
+                || pending_size >= self.config.target_batch_size
+                || (!is_backlogged && !pending_blocks.is_empty() && fetch_failed);
+
+            if should_submit && !pending_blocks.is_empty() {
+                let submission_result =
+                    self.submit_batch(batch_number, &pending_blocks, pending_size).await;
+
+                match submission_result {
+                    Ok(tx_hash) => {
+                        info!(
+                            "Submitted batch #{}: {} blocks, {} bytes compressed",
+                            batch_number,
+                            pending_blocks.len(),
+                            self.metrics.bytes_compressed
+                        );
+
+                        // Notify callback
+                        if let Some(ref callback) = self.callback {
+                            callback
+                                .on_batch_submitted(
+                                    batch_number,
+                                    pending_blocks.len(),
+                                    pending_size,
+                                    self.metrics.bytes_compressed as usize,
+                                    tx_hash,
+                                )
+                                .await;
+                        }
                     }
-                    // Wait before retrying
-                    sleep(poll_interval).await;
+                    Err(e) => {
+                        error!("Failed to submit batch #{}: {}", batch_number, e);
+
+                        // Notify callback
+                        if let Some(ref callback) = self.callback {
+                            callback.on_batch_failed(batch_number, &e).await;
+                        }
+
+                        // Return error if fatal
+                        if e.is_fatal() {
+                            return Err(e);
+                        }
+                    }
                 }
+
+                batch_number += 1;
+
+                // Clear pending
+                pending_blocks.clear();
+                pending_size = 0;
+            }
+
+            // Only sleep when we're caught up or failed to fetch
+            if blocks_fetched == 0 || (!is_backlogged && fetch_failed) {
+                sleep(poll_interval).await;
             }
         }
     }

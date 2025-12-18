@@ -1,144 +1,387 @@
 //! `TrieDB` wrapper for Ethereum state trie database operations
 //!
 //! Provides a thin wrapper around the triedb crate for managing
-//! Ethereum account and storage state.
+//! Ethereum account and storage state, implementing the revm `Database` traits.
 
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, RwLock},
+};
 
+use alloy::{
+    consensus::constants::KECCAK_EMPTY,
+    primitives::{Address, B256, U256},
+};
+use revm::{
+    bytecode::Bytecode,
+    database_interface::{Database as RevmDatabase, DatabaseCommit, DatabaseRef},
+    state::{AccountInfo, EvmState},
+};
 pub use triedb::{
-    account::Account,
-    database::{Database, OpenError},
+    account::Account as TrieAccount,
+    database::{Database as TrieDb, OpenError},
     path::{AddressPath, StoragePath},
 };
+
+use crate::{errors::DbError, traits::Database};
+
+/// A wrapper around `triedb::Database` that implements revm's `Database` traits.
+///
+/// This allows using a TrieDB database with revm for EVM execution.
+/// Since TrieDB only stores code hashes (not actual bytecode), this wrapper
+/// maintains an in-memory code cache that maps code hashes to bytecode.
+#[derive(Clone, Debug)]
+pub struct TrieDatabase {
+    /// The underlying TrieDB database
+    inner: Arc<TrieDb>,
+    /// Code cache: code_hash -> bytecode (TrieDB only stores hashes)
+    code: Arc<RwLock<HashMap<B256, Bytecode>>>,
+    /// Block hashes cache: block_number -> hash
+    block_hashes: Arc<RwLock<HashMap<u64, B256>>>,
+}
+
+impl TrieDatabase {
+    /// Create a new `TrieDatabase` wrapper around an existing `TrieDb`.
+    #[must_use]
+    pub fn new(db: TrieDb) -> Self {
+        Self {
+            inner: Arc::new(db),
+            code: Arc::new(RwLock::new(HashMap::new())),
+            block_hashes: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Open an existing TrieDB database at the given path.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be opened.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, OpenError> {
+        let db = TrieDb::open(path)?;
+        Ok(Self::new(db))
+    }
+
+    /// Create a new TrieDB database at the given path.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be created.
+    pub fn create(path: impl AsRef<Path>) -> Result<Self, OpenError> {
+        let db = TrieDb::create_new(path)?;
+        Ok(Self::new(db))
+    }
+
+    /// Get a reference to the underlying TrieDB database.
+    #[must_use]
+    pub fn inner(&self) -> &TrieDb {
+        &self.inner
+    }
+
+    /// Insert bytecode into the code cache.
+    ///
+    /// This should be called when deploying contracts or loading code from
+    /// an external source, as TrieDB only stores code hashes.
+    pub fn insert_code(&self, code_hash: B256, bytecode: Bytecode) {
+        if let Ok(mut code_cache) = self.code.write() {
+            code_cache.insert(code_hash, bytecode);
+        }
+    }
+
+    /// Insert a block hash into the block hash cache.
+    pub fn insert_block_hash(&self, block_number: u64, hash: B256) {
+        if let Ok(mut hashes) = self.block_hashes.write() {
+            hashes.insert(block_number, hash);
+        }
+    }
+
+    /// Get the number of cached code entries.
+    #[must_use]
+    pub fn cached_code_count(&self) -> usize {
+        self.code.read().map(|c| c.len()).unwrap_or(0)
+    }
+
+    /// Get the number of cached block hashes.
+    #[must_use]
+    pub fn cached_block_hashes_count(&self) -> usize {
+        self.block_hashes.read().map(|h| h.len()).unwrap_or(0)
+    }
+}
+
+impl DatabaseRef for TrieDatabase {
+    type Error = DbError;
+
+    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        let address_path = AddressPath::for_address(address);
+
+        let mut tx = self
+            .inner
+            .begin_ro()
+            .map_err(|e| DbError::new(format!("Failed to begin read transaction: {e}")))?;
+
+        let account = tx
+            .get_account(&address_path)
+            .map_err(|e| DbError::new(format!("Failed to get account {address}: {e}")))?;
+
+        tx.commit().map_err(|e| DbError::new(format!("Failed to commit read transaction: {e}")))?;
+
+        match account {
+            Some(acc) => {
+                // Get code from cache if it exists
+                let code = self
+                    .code
+                    .read()
+                    .map_err(|e| DbError::new(format!("Code cache lock poisoned: {e}")))?
+                    .get(&acc.code_hash)
+                    .cloned();
+
+                Ok(Some(AccountInfo {
+                    nonce: acc.nonce,
+                    balance: acc.balance,
+                    code_hash: acc.code_hash,
+                    code,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        // Check code cache
+        let code_cache =
+            self.code.read().map_err(|e| DbError::new(format!("Code cache lock poisoned: {e}")))?;
+
+        if let Some(code) = code_cache.get(&code_hash) {
+            return Ok(code.clone());
+        }
+
+        // If not in cache, return empty bytecode (code should have been loaded separately)
+        // This is similar to how RPCDatabase handles it
+        Ok(Bytecode::default())
+    }
+
+    fn storage_ref(&self, address: Address, slot: U256) -> Result<U256, Self::Error> {
+        let storage_path = StoragePath::for_address_and_slot(address, slot.into());
+
+        let mut tx = self
+            .inner
+            .begin_ro()
+            .map_err(|e| DbError::new(format!("Failed to begin read transaction: {e}")))?;
+
+        let value = tx
+            .get_storage_slot(&storage_path)
+            .map_err(|e| DbError::new(format!("Failed to get storage {address}:{slot}: {e}")))?;
+
+        tx.commit().map_err(|e| DbError::new(format!("Failed to commit read transaction: {e}")))?;
+
+        Ok(value.unwrap_or(U256::ZERO))
+    }
+
+    fn block_hash_ref(&self, block_number: u64) -> Result<B256, Self::Error> {
+        // Check block hash cache
+        let hashes = self
+            .block_hashes
+            .read()
+            .map_err(|e| DbError::new(format!("Block hash cache lock poisoned: {e}")))?;
+
+        if let Some(hash) = hashes.get(&block_number) {
+            return Ok(*hash);
+        }
+
+        // If not in cache, return zero hash (block hashes should be loaded separately)
+        Ok(B256::ZERO)
+    }
+}
+
+impl RevmDatabase for TrieDatabase {
+    type Error = DbError;
+
+    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.basic_ref(address)
+    }
+
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.code_by_hash_ref(code_hash)
+    }
+
+    fn storage(&mut self, address: Address, slot: U256) -> Result<U256, Self::Error> {
+        self.storage_ref(address, slot)
+    }
+
+    fn block_hash(&mut self, block_number: u64) -> Result<B256, Self::Error> {
+        self.block_hash_ref(block_number)
+    }
+}
+
+impl DatabaseCommit for TrieDatabase {
+    fn commit(&mut self, changes: EvmState) {
+        // Begin a write transaction and commit all changes
+        let Ok(mut tx) = self.inner.begin_rw() else {
+            tracing::error!("Failed to begin write transaction for commit");
+            return;
+        };
+
+        for (address, account) in changes {
+            let address_path = AddressPath::for_address(address);
+
+            // Handle account updates
+            if account.is_selfdestructed() {
+                // Delete the account
+                if let Err(e) = tx.set_account(address_path.clone(), None) {
+                    tracing::error!("Failed to delete account {address}: {e}");
+                }
+            } else {
+                // Update or create the account
+                let trie_account = TrieAccount::new(
+                    account.info.nonce,
+                    account.info.balance,
+                    // Note: storage_root is computed by TrieDB, we pass a placeholder
+                    // The actual storage root will be updated when we commit storage changes
+                    B256::ZERO,
+                    account.info.code_hash,
+                );
+
+                if let Err(e) = tx.set_account(address_path.clone(), Some(trie_account)) {
+                    tracing::error!("Failed to set account {address}: {e}");
+                }
+
+                // Cache the code if present
+                if let Some(ref code) = account.info.code
+                    && !code.is_empty()
+                    && account.info.code_hash != KECCAK_EMPTY
+                {
+                    if let Ok(mut code_cache) = self.code.write() {
+                        code_cache.insert(account.info.code_hash, code.clone());
+                    }
+                }
+            }
+
+            // Handle storage updates
+            for (slot, value) in account.storage {
+                let storage_path = StoragePath::for_address_and_slot(address, slot.into());
+
+                let storage_value = if value.present_value.is_zero() {
+                    None // Delete zero storage values
+                } else {
+                    Some(value.present_value)
+                };
+
+                if let Err(e) = tx.set_storage_slot(storage_path, storage_value) {
+                    tracing::error!("Failed to set storage {address}:{slot}: {e}");
+                }
+            }
+        }
+
+        // Commit the transaction
+        if let Err(e) = tx.commit() {
+            tracing::error!("Failed to commit transaction: {e}");
+        }
+    }
+}
+
+impl Database for TrieDatabase {
+    fn commit_block(&mut self) {
+        // TrieDB commits happen per-transaction via DatabaseCommit::commit()
+        // This method can be used for any block-level bookkeeping if needed
+    }
+}
 
 /// Opens an existing `TrieDB` database at the given path.
 ///
 /// # Errors
 /// Returns an error if the database cannot be opened.
-pub fn open(path: impl AsRef<Path>) -> Result<Database, OpenError> {
-    Database::open(path)
+#[deprecated(note = "Use TrieDatabase::open() instead")]
+pub fn open(path: impl AsRef<Path>) -> Result<TrieDb, OpenError> {
+    TrieDb::open(path)
 }
 
 /// Creates a new `TrieDB` database at the given path.
 ///
 /// # Errors
 /// Returns an error if the database cannot be created.
-pub fn create(path: impl AsRef<Path>) -> Result<Database, OpenError> {
-    Database::create_new(path)
+#[deprecated(note = "Use TrieDatabase::create() instead")]
+pub fn create(path: impl AsRef<Path>) -> Result<TrieDb, OpenError> {
+    TrieDb::create_new(path)
 }
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{Address, B256, U256};
+    use alloy::primitives::{Address, U256};
     use alloy_trie::{EMPTY_ROOT_HASH, KECCAK_EMPTY};
+    use revm::{
+        bytecode::Bytecode,
+        state::{Account, EvmStorageSlot},
+    };
 
     use super::*;
 
     #[test]
-    fn test_insert_get_delete_account() {
-        // Create a temporary directory for the database
+    fn test_trie_database() {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("test_db");
 
-        // Create a new database
-        let db = create(&db_path).expect("failed to create database");
+        // 1. Create database
+        let mut db = TrieDatabase::create(&db_path).expect("failed to create database");
 
-        // Create a test address and account
-        let address = Address::repeat_byte(0x42);
-        let address_path = AddressPath::for_address(address);
-        let account = Account::new(1, U256::from(1000), EMPTY_ROOT_HASH, KECCAK_EMPTY);
+        let alice = Address::repeat_byte(0x01);
+        let bob = Address::repeat_byte(0x02);
 
-        // INSERT: Begin a read-write transaction and insert the account
-        {
-            let mut tx = db.begin_rw().expect("failed to begin rw transaction");
-            tx.set_account(address_path.clone(), Some(account.clone()))
-                .expect("failed to set account");
-            tx.commit().expect("failed to commit");
-        }
+        let alice_code = Bytecode::new_raw(vec![0x60, 0x42, 0x00].into());
+        let alice_code_hash = alice_code.hash_slow();
 
-        // GET: Verify the account was inserted
-        {
-            let mut tx = db.begin_ro().expect("failed to begin ro transaction");
-            let retrieved = tx.get_account(&address_path).expect("failed to get account");
-            assert!(retrieved.is_some());
-            let retrieved = retrieved.expect("account should exist");
-            assert_eq!(retrieved.nonce, account.nonce);
-            assert_eq!(retrieved.balance, account.balance);
-            assert_eq!(retrieved.code_hash, account.code_hash);
-            tx.commit().expect("failed to commit ro transaction");
-        }
+        // 2. Write accounts
+        let mut changes: EvmState = EvmState::default();
 
-        // DELETE: Remove the account by setting it to None
-        {
-            let mut tx = db.begin_rw().expect("failed to begin rw transaction");
-            tx.set_account(address_path.clone(), None).expect("failed to delete account");
-            tx.commit().expect("failed to commit");
-        }
+        let mut alice_account = Account::new_not_existing(0);
+        alice_account.info.nonce = 1;
+        alice_account.info.balance = U256::from(1_000_000);
+        alice_account.info.code_hash = alice_code_hash;
+        alice_account.info.code = Some(alice_code.clone());
+        alice_account.mark_touch();
 
-        // Verify the account was deleted
-        {
-            let mut tx = db.begin_ro().expect("failed to begin ro transaction");
-            let retrieved = tx.get_account(&address_path).expect("failed to get account");
-            assert_eq!(retrieved, None);
-            tx.commit().expect("failed to commit ro transaction");
-        }
+        // 3. Write storage for accounts
+        alice_account.storage.insert(U256::from(0), EvmStorageSlot::new(U256::from(42), 0));
+        alice_account.storage.insert(U256::from(1), EvmStorageSlot::new(U256::from(100), 0));
+        alice_account.storage.insert(U256::from(100), EvmStorageSlot::new(U256::from(999), 0));
+        changes.insert(alice, alice_account);
 
-        // Clean up
-        db.close().expect("failed to close database");
-    }
+        let mut bob_account = Account::new_not_existing(0);
+        bob_account.info.nonce = 5;
+        bob_account.info.balance = U256::from(500_000);
+        bob_account.info.code_hash = KECCAK_EMPTY;
+        bob_account.mark_touch();
+        bob_account.storage.insert(U256::from(0), EvmStorageSlot::new(U256::from(1), 0));
+        changes.insert(bob, bob_account);
 
-    #[test]
-    fn test_insert_get_delete_storage() {
-        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("test_storage_db");
+        // 4. Commit
+        db.commit(changes);
 
-        let db = create(&db_path).expect("failed to create database");
+        // 5. Check state root
+        let state_root = db.inner().state_root();
+        assert_ne!(state_root, EMPTY_ROOT_HASH, "state root should not be empty");
 
-        let address = Address::repeat_byte(0x42);
-        let storage_key = B256::repeat_byte(0x01);
-        let storage_value = U256::from(12345);
-        let storage_path = StoragePath::for_address_and_slot(address, storage_key);
+        // 6. Read state for accounts
+        let alice_info = db.basic_ref(alice).expect("failed to get alice").expect("alice exists");
+        assert_eq!(alice_info.nonce, 1);
+        assert_eq!(alice_info.balance, U256::from(1_000_000));
+        assert_eq!(alice_info.code_hash, alice_code_hash);
+        assert!(alice_info.code.is_some());
+        assert_eq!(alice_info.code.unwrap().original_bytes(), alice_code.original_bytes());
 
-        // First insert an account (required for storage)
-        let account = Account::new(0, U256::ZERO, EMPTY_ROOT_HASH, KECCAK_EMPTY);
-        {
-            let mut tx = db.begin_rw().expect("failed to begin rw transaction");
-            tx.set_account(AddressPath::for_address(address), Some(account))
-                .expect("failed to set account");
-            tx.commit().expect("failed to commit");
-        }
+        let bob_info = db.basic_ref(bob).expect("failed to get bob").expect("bob exists");
+        assert_eq!(bob_info.nonce, 5);
+        assert_eq!(bob_info.balance, U256::from(500_000));
+        assert_eq!(bob_info.code_hash, KECCAK_EMPTY);
 
-        // INSERT storage slot
-        {
-            let mut tx = db.begin_rw().expect("failed to begin rw transaction");
-            tx.set_storage_slot(storage_path.clone(), Some(storage_value))
-                .expect("failed to set storage");
-            tx.commit().expect("failed to commit");
-        }
+        // 7. Read storage
+        assert_eq!(db.storage_ref(alice, U256::from(0)).unwrap(), U256::from(42));
+        assert_eq!(db.storage_ref(alice, U256::from(1)).unwrap(), U256::from(100));
+        assert_eq!(db.storage_ref(alice, U256::from(100)).unwrap(), U256::from(999));
+        assert_eq!(db.storage_ref(alice, U256::from(999)).unwrap(), U256::ZERO);
 
-        // GET storage slot
-        {
-            let mut tx = db.begin_ro().expect("failed to begin ro transaction");
-            let retrieved = tx.get_storage_slot(&storage_path).expect("failed to get storage");
-            assert_eq!(retrieved, Some(storage_value));
-            tx.commit().expect("failed to commit");
-        }
+        assert_eq!(db.storage_ref(bob, U256::from(0)).unwrap(), U256::from(1));
+        assert_eq!(db.storage_ref(bob, U256::from(1)).unwrap(), U256::ZERO);
 
-        // DELETE storage slot
-        {
-            let mut tx = db.begin_rw().expect("failed to begin rw transaction");
-            tx.set_storage_slot(storage_path.clone(), None).expect("failed to delete storage");
-            tx.commit().expect("failed to commit");
-        }
-
-        // Verify deletion
-        {
-            let mut tx = db.begin_ro().expect("failed to begin ro transaction");
-            let retrieved = tx.get_storage_slot(&storage_path).expect("failed to get storage");
-            assert_eq!(retrieved, None);
-            tx.commit().expect("failed to commit");
-        }
-
-        db.close().expect("failed to close database");
+        // Non-existent account
+        let unknown = Address::repeat_byte(0xFF);
+        assert!(db.basic_ref(unknown).expect("query failed").is_none());
     }
 }

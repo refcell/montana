@@ -15,3 +15,4 @@ pub mod traits;
 pub use traits::{Database, DatabaseCommit};
 
 pub mod triedb;
+pub use triedb::TrieDatabase;

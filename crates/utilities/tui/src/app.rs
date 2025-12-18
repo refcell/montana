@@ -89,6 +89,12 @@ pub struct App {
     /// Total number of batches derived from L1
     pub batches_derived: u64,
 
+    // Transaction tracking
+    /// Total transactions received by the sequencer
+    pub transactions_received: u64,
+    /// Timestamp when first transaction was received (for rate calculation)
+    pub tx_tracking_start_time: Option<Instant>,
+
     // Execution tracking
     /// Total blocks fetched (for backlog calculation)
     pub blocks_fetched: u64,
@@ -183,6 +189,8 @@ impl App {
             blocks_processed: 0,
             batches_submitted: 0,
             batches_derived: 0,
+            transactions_received: 0,
+            tx_tracking_start_time: None,
             blocks_fetched: 0,
             blocks_executed: 0,
             last_fetched_block: 0,
@@ -231,6 +239,8 @@ impl App {
         self.blocks_processed = 0;
         self.batches_submitted = 0;
         self.batches_derived = 0;
+        self.transactions_received = 0;
+        self.tx_tracking_start_time = None;
         self.blocks_fetched = 0;
         self.blocks_executed = 0;
         self.last_fetched_block = 0;
@@ -451,6 +461,36 @@ impl App {
     /// * `head` - The new finalized head block number
     pub const fn set_finalized_head(&mut self, head: u64) {
         self.finalized_head = head;
+    }
+
+    /// Record transactions received by the sequencer.
+    ///
+    /// This tracks the total number of transactions seen in built blocks,
+    /// used to calculate the transactions per second rate.
+    ///
+    /// # Arguments
+    ///
+    /// * `tx_count` - Number of transactions received
+    pub fn record_transactions_received(&mut self, tx_count: usize) {
+        // Start timing on first transaction
+        if self.tx_tracking_start_time.is_none() && tx_count > 0 {
+            self.tx_tracking_start_time = Some(Instant::now());
+        }
+        self.transactions_received += tx_count as u64;
+    }
+
+    /// Get transactions per second rate.
+    ///
+    /// Returns the rate of transactions received by the sequencer.
+    pub fn transactions_per_second(&self) -> f64 {
+        self.tx_tracking_start_time.map_or(0.0, |start| {
+            let elapsed = start.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                self.transactions_received as f64 / elapsed
+            } else {
+                0.0
+            }
+        })
     }
 
     /// Record a batch submission time.

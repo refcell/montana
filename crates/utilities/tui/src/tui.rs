@@ -238,6 +238,8 @@ fn process_event(app: &mut App, event: TuiEvent) {
         }
         TuiEvent::BlockBuilt { number, tx_count, size_bytes, gas_used } => {
             app.set_unsafe_head(number);
+            // Track transactions received by the sequencer
+            app.record_transactions_received(tx_count);
             app.log_block(LogEntry::info(format!(
                 "Block #{}: {} txs, {} bytes, {} gas",
                 number,
@@ -543,7 +545,7 @@ fn draw_chain_state(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Chain State ")
+                .title(" L2 Chain State ")
                 .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
@@ -697,7 +699,7 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let avg_latency = app.avg_latency_ms();
     let stddev = app.latency_stddev_ms();
-    let blocks_per_sec = if avg_latency > 0.0 { 1000.0 / avg_latency } else { 0.0 };
+    let txs_per_sec = app.transactions_per_second();
     let avg_compression = app.avg_compression_ratio();
     let compression_stddev = app.compression_stddev();
     let mgas_per_sec = app.mgas_per_second();
@@ -759,10 +761,10 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             ),
         ]),
         Line::from(vec![
-            Span::styled("Blocks/s:       ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Txs/s:          ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                if blocks_per_sec > 0.0 {
-                    format!("{:.2}", blocks_per_sec)
+                if txs_per_sec > 0.0 {
+                    format!("{:.1}", txs_per_sec)
                 } else {
                     "--".to_string()
                 },

@@ -259,13 +259,17 @@ impl TuiDerivationCallback {
 impl DerivationCallback for TuiDerivationCallback {
     fn on_batch_derived(
         &self,
-        _batch_number: u64,
-        _block_count: usize,
-        _first_block: u64,
-        _last_block: u64,
+        batch_number: u64,
+        block_count: usize,
+        first_block: u64,
+        last_block: u64,
     ) {
-        // Block-level events are now sent via on_block_derived
-        // This callback is used only for batch-level processing
+        self.handle.send(TuiEvent::BatchDerived {
+            batch_number,
+            block_count: block_count as u64,
+            first_block,
+            last_block,
+        });
     }
 
     fn on_block_derived(

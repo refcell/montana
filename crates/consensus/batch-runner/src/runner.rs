@@ -3,7 +3,8 @@
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use montana_pipeline::{BatchSink, CompressedBatch, Compressor, L2BlockData};
+use montana_pipeline::{BatchSink, CompressedBatch, Compressor};
+use primitives::{OpBlock, OpBlockBatch};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
@@ -122,7 +123,7 @@ where
 
         let mut current_block = start_block;
         let mut batch_number = 0u64;
-        let mut pending_blocks: Vec<L2BlockData> = Vec::new();
+        let mut pending_blocks: Vec<OpBlock> = Vec::new();
         let mut pending_size = 0usize;
 
         let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
@@ -144,8 +145,10 @@ where
             // Try to fetch the next block
             match self.source.get_block(current_block).await {
                 Ok(block) => {
-                    let block_size: usize = block.transactions.iter().map(|tx| tx.0.len()).sum();
+                    // Get transaction count from the block
                     let tx_count = block.transactions.len();
+                    // Estimate block size based on transaction count
+                    let block_size: usize = tx_count * 256; // Rough estimate
 
                     debug!(
                         "Fetched block #{}: {} txs, {} bytes",
@@ -238,13 +241,16 @@ where
     async fn submit_batch(
         &mut self,
         batch_number: u64,
-        blocks: &[L2BlockData],
+        blocks: &[OpBlock],
         _original_size: usize,
     ) -> Result<[u8; 32], BatchSubmissionError> {
         let start_time = Instant::now();
 
-        // Encode blocks into raw batch data
-        let raw_data = Self::encode_blocks(blocks);
+        // Serialize the blocks using OpBlockBatch
+        let batch_payload = OpBlockBatch::new(blocks.to_vec());
+        let raw_data = batch_payload.to_bytes().map_err(|e| {
+            BatchSubmissionError::CompressionFailed(format!("Serialization failed: {}", e))
+        })?;
         let actual_size = raw_data.len();
 
         // Compress the batch
@@ -264,10 +270,10 @@ where
             ratio * 100.0
         );
 
-        // Create the batch
+        // Create the batch with block metadata from OpBlock headers
         let block_count = blocks.len() as u64;
-        let first_block = blocks.first().map(|b| b.block_number).unwrap_or(0);
-        let last_block = blocks.last().map(|b| b.block_number).unwrap_or(0);
+        let first_block = blocks.first().map(|b| b.header.number).unwrap_or(0);
+        let last_block = blocks.last().map(|b| b.header.number).unwrap_or(0);
         let batch = CompressedBatch {
             batch_number,
             data: compressed,
@@ -295,17 +301,6 @@ where
         self.metrics.record_latency(elapsed.as_millis() as u64);
 
         Ok(receipt.tx_hash)
-    }
-
-    /// Encode blocks into raw batch data.
-    fn encode_blocks(blocks: &[L2BlockData]) -> Vec<u8> {
-        let mut raw_batch = Vec::new();
-        for block in blocks {
-            for tx in &block.transactions {
-                raw_batch.extend_from_slice(&tx.0);
-            }
-        }
-        raw_batch
     }
 }
 
@@ -335,22 +330,22 @@ mod tests {
 
     // Mock block source for testing
     struct MockBlockSource {
-        blocks: Vec<L2BlockData>,
+        blocks: Vec<OpBlock>,
         index: Arc<Mutex<usize>>,
     }
 
     impl MockBlockSource {
-        fn new(blocks: Vec<L2BlockData>) -> Self {
+        fn new(blocks: Vec<OpBlock>) -> Self {
             Self { blocks, index: Arc::new(Mutex::new(0)) }
         }
     }
 
     #[async_trait]
     impl BlockSource for MockBlockSource {
-        async fn get_block(&mut self, _block_number: u64) -> Result<L2BlockData, BlockSourceError> {
+        async fn get_block(&mut self, block_number: u64) -> Result<OpBlock, BlockSourceError> {
             let mut idx = self.index.lock().unwrap();
             if *idx >= self.blocks.len() {
-                return Err(BlockSourceError::BlockNotFound(_block_number));
+                return Err(BlockSourceError::BlockNotFound(block_number));
             }
             let result = self.blocks[*idx].clone();
             *idx += 1;
@@ -413,17 +408,6 @@ mod tests {
         }
     }
 
-    fn create_test_block(block_number: u64) -> L2BlockData {
-        L2BlockData {
-            block_number,
-            timestamp: 1000 + block_number,
-            transactions: vec![
-                montana_pipeline::Bytes::from(vec![1, 2, 3, 4]),
-                montana_pipeline::Bytes::from(vec![5, 6, 7, 8]),
-            ],
-        }
-    }
-
     #[test]
     fn runner_debug() {
         let source = MockBlockSource::new(vec![]);
@@ -468,21 +452,5 @@ mod tests {
         // Test mutable access
         runner.metrics_mut().batches_submitted = 10;
         assert_eq!(runner.metrics().batches_submitted, 10);
-    }
-
-    #[test]
-    fn encode_blocks() {
-        let blocks = vec![create_test_block(1), create_test_block(2)];
-
-        let encoded =
-            BatchSubmissionRunner::<MockBlockSource, MockCompressor, MockBatchSink>::encode_blocks(
-                &blocks,
-            );
-
-        // Each block has 2 transactions of 4 bytes each = 8 bytes per block
-        // 2 blocks = 16 bytes
-        assert_eq!(encoded.len(), 16);
-        assert_eq!(&encoded[0..4], &[1, 2, 3, 4]);
-        assert_eq!(&encoded[4..8], &[5, 6, 7, 8]);
     }
 }

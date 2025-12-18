@@ -16,14 +16,16 @@ use montana_adapters::{
     HarnessProgressAdapter, TuiBatchCallback, TuiDerivationCallback, TuiExecutionCallback,
 };
 use montana_batch_context::BatchContext;
-use montana_batcher::{Address, BatchDriver, BatcherConfig};
+use montana_batcher::{Address, BatcherConfig};
 use montana_block_feeder::run_block_feeder;
 use montana_brotli::BrotliCompressor;
 use montana_checkpoint::Checkpoint;
 use montana_cli::{MontanaCli, MontanaMode};
 use montana_harness::Harness;
 use montana_node::{Node, NodeBuilder, NodeConfig, SyncConfig, SyncStage};
-use montana_pipeline::{L2BlockData, NoopExecutor};
+use montana_pipeline::NoopExecutor;
+use primitives::OpBlock;
+use primitives::OpBlockBatch;
 use montana_roles::{Sequencer, Validator};
 use montana_tui::{TuiEvent, TuiHandle, TuiObserver, create_tui};
 use op_alloy::network::Optimism;
@@ -222,9 +224,10 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
     // Create node builder
     let mut builder = NodeBuilder::new().with_config(config.clone());
 
-    // Create unbounded channel for blocks to decouple block fetching from execution
+    // Create unbounded channel for full OpBlocks to decouple block fetching from execution
     // This allows the block feeder to continuously fetch blocks without blocking on executor pace
-    let (block_tx, block_rx) = mpsc::unbounded_channel::<L2BlockData>();
+    // Using OpBlock preserves all block information for serialization in batches
+    let (block_tx, block_rx) = mpsc::unbounded_channel::<OpBlock>();
 
     // Add sync stage OR spawn block feeder based on skip_sync
     if cli.skip_sync {
@@ -305,7 +308,6 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         } else {
             BatcherConfig::default()
         };
-        let batch_driver = BatchDriver::new(batcher_config.clone());
         let compressor = BrotliCompressor::default();
 
         // Wrap the batch context sink in an adapter to bridge the two BatchSink traits
@@ -316,7 +318,7 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
             if cli.with_harness { None } else { Some(cli.checkpoint_path.clone()) };
 
         let mut sequencer =
-            Sequencer::new(sink_adapter, compressor, batch_driver, checkpoint_path, block_rx)?;
+            Sequencer::new(sink_adapter, compressor, batcher_config.clone(), checkpoint_path, block_rx)?;
 
         // Wire up callbacks for TUI visibility if available
         if let Some(ref handle) = tui_handle {
@@ -355,7 +357,7 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         // We need to create an owned adapter, not a reference-based one
         let source = BatchSourceAdapter::new(Arc::clone(&batch_ctx));
         let compressor = BrotliCompressor::default();
-        let executor = NoopExecutor::new();
+        let executor: NoopExecutor<OpBlockBatch> = NoopExecutor::new();
 
         // In harness mode, disable checkpoint persistence for fresh starts every time
         let checkpoint_path =

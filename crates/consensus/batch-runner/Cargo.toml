@@ -13,13 +13,13 @@ workspace = true
 
 [dependencies]
 montana-pipeline = { workspace = true }
+primitives = { workspace = true }
+alloy = { workspace = true }
+op-alloy = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

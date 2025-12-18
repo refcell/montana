@@ -5,6 +5,7 @@
 
 use std::{io, sync::Arc};
 
+use alloy::providers::ProviderBuilder;
 use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -23,6 +24,8 @@ use montana_pipeline::{
 use montana_tui_common::{format_bytes, truncate_url};
 use montana_zlib::ZlibCompressor;
 use montana_zstd::ZstdCompressor;
+use op_alloy::network::Optimism;
+use primitives::OpBlockBatch;
 use ratatui::{
     DefaultTerminal,
     layout::{Constraint, Direction, Layout, Rect},
@@ -162,9 +165,23 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
     let derivation_config = DerivationConfig::builder().poll_interval_ms(50).build();
 
     // Get starting block
+    let rpc_for_head = args.rpc.clone();
     let start_block = args.start.unwrap_or_else(|| {
         rt.block_on(async {
-            let source = RpcBlockSource::new(args.rpc.clone());
+            let provider = match ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .network::<Optimism>()
+                .connect(&rpc_for_head)
+                .await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    let mut app_guard = app.lock().await;
+                    app_guard.log_batch(LogEntry::error(format!("Failed to connect: {}", e)));
+                    return 0;
+                }
+            };
+            let source = RpcBlockSource::new(provider, rpc_for_head);
             match source.get_head().await {
                 Ok(head) => {
                     let mut app_guard = app.lock().await;
@@ -238,20 +255,37 @@ fn run_with_compressor<C: Compressor + Clone + Send + Sync + 'static>(
     let callback_app = Arc::clone(&app);
     let callback = TuiCallback::new(callback_app);
 
-    // Create batch submission runner
-    let block_source = RpcBlockSource::new(rpc_url);
-    let sink_wrapper = BatchSinkWrapper::new(batch_context.sink_arc());
-    let batch_runner =
-        BatchSubmissionRunner::new(block_source, compressor.clone(), sink_wrapper, batch_config)
-            .with_callback(callback);
-    let batch_runner = Arc::new(Mutex::new(batch_runner));
+    // Create the provider and block source
+    let rpc_url_clone = rpc_url.clone();
+    let (batch_runner, derivation_runner) = rt.block_on(async {
+        let provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .network::<Optimism>()
+            .connect(&rpc_url_clone)
+            .await
+            .expect("Failed to connect to RPC");
 
-    // Create derivation runner
-    let source_adapter = BatchSourceAdapter::new(Arc::clone(&batch_context));
-    let executor = NoopExecutor::new();
-    let derivation_runner =
-        DerivationRunner::new(source_adapter, compressor, executor, derivation_config);
-    let derivation_runner = Arc::new(Mutex::new(derivation_runner));
+        // Create batch submission runner
+        let block_source = RpcBlockSource::new(provider, rpc_url_clone);
+        let sink_wrapper = BatchSinkWrapper::new(batch_context.sink_arc());
+        let batch_runner = BatchSubmissionRunner::new(
+            block_source,
+            compressor.clone(),
+            sink_wrapper,
+            batch_config,
+        )
+        .with_callback(callback);
+        let batch_runner = Arc::new(Mutex::new(batch_runner));
+
+        // Create derivation runner
+        let source_adapter = BatchSourceAdapter::new(Arc::clone(&batch_context));
+        let executor: NoopExecutor<OpBlockBatch> = NoopExecutor::new();
+        let derivation_runner =
+            DerivationRunner::new(source_adapter, compressor, executor, derivation_config);
+        let derivation_runner = Arc::new(Mutex::new(derivation_runner));
+
+        (batch_runner, derivation_runner)
+    });
 
     // Spawn batch submission task
     let batch_task_runner = Arc::clone(&batch_runner);

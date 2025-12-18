@@ -7,6 +7,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use montana_checkpoint::Checkpoint;
+use primitives::OpBlockBatch;
 use tokio::sync::mpsc;
 
 use crate::{Role, RoleCheckpoint, TickResult};
@@ -126,7 +127,7 @@ impl<S, C, E> Validator<S, C, E>
 where
     S: montana_pipeline::L1BatchSource + Send + Sync,
     C: montana_pipeline::Compressor + Send + Sync,
-    E: montana_pipeline::ExecutePayload<Payload = Vec<u8>> + Send + Sync,
+    E: montana_pipeline::ExecutePayload<Payload = OpBlockBatch> + Send + Sync,
 {
     /// Creates a new validator instance.
     ///
@@ -263,10 +264,14 @@ where
         // Decompress
         let decompressed = self.compressor.decompress(&batch.data)?;
 
+        // Deserialize the OpBlockBatch from the decompressed data
+        let block_batch = OpBlockBatch::from_bytes(&decompressed)
+            .map_err(|e| eyre::eyre!("Failed to deserialize OpBlockBatch: {}", e))?;
+
         self.emit(ValidatorEvent::BatchDerived { batch_number: batch.batch_number, block_count });
 
-        // Execute
-        self.executor.execute(decompressed)?;
+        // Execute with the full block data
+        self.executor.execute(block_batch)?;
 
         // Update checkpoint (only save if persistence is enabled)
         self.checkpoint.record_batch_derived(batch.batch_number);
@@ -317,7 +322,7 @@ impl<S, C, E> Role for Validator<S, C, E>
 where
     S: montana_pipeline::L1BatchSource + Send + Sync,
     C: montana_pipeline::Compressor + Send + Sync,
-    E: montana_pipeline::ExecutePayload<Payload = Vec<u8>> + Send + Sync,
+    E: montana_pipeline::ExecutePayload<Payload = OpBlockBatch> + Send + Sync,
 {
     fn name(&self) -> &'static str {
         "validator"

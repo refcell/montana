@@ -14,5 +14,8 @@ pub use compressed_batch::CompressedBatch;
 mod l2_block_data;
 pub use l2_block_data::L2BlockData;
 
+mod op_block;
+pub use op_block::{OpBlock, OpBlockBatch};
+
 mod submission_receipt;
 pub use submission_receipt::SubmissionReceipt;

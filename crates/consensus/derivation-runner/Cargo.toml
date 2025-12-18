@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 montana-pipeline = { workspace = true }
 montana-checkpoint = { workspace = true }
+primitives = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
 thiserror = { workspace = true }

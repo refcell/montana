@@ -153,10 +153,11 @@ harness-headless *ARGS:
 harness-sync BLOCKS='100' *ARGS:
     cargo run --release -p montana -- --with-harness --harness-initial-blocks {{BLOCKS}} {{ARGS}}
 
-# Run montana with test harness and fast block time
+# Run montana with test harness and fast block time (default 50ms blocks)
 # Uses --skip-sync to feed blocks directly to sequencer for batch submissions
+# Poll interval matches block time for responsive updates
 harness-fast *ARGS:
-    cargo run --release -p montana -- --with-harness --harness-block-time-ms 50 --skip-sync --start 1 {{ARGS}}
+    cargo run --release -p montana -- --with-harness --skip-sync --start 1 --poll-interval-ms 50 {{ARGS}}
 
 # Run the migration tool to migrate a Reth MDBX database to TrieDB
 migrate SOURCE DEST *ARGS:

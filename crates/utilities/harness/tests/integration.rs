@@ -332,3 +332,135 @@ async fn test_spawn_if_enabled_error_without_rpc() {
         "Error should mention RPC URL requirement"
     );
 }
+
+/// Test that anvil produces blocks at approximately the correct sub-second rate.
+///
+/// This test verifies that `block_time_f64` is correctly configured with anvil
+/// by measuring actual block production timing.
+#[ignore = "requires anvil"]
+#[tokio::test]
+async fn test_harness_50ms_block_time() {
+    use std::time::Instant;
+
+    let config = HarnessConfig {
+        block_time_ms: 50, // 50ms block time (20 blocks per second)
+        tx_per_block: 10,
+        initial_delay_blocks: 0, // No initial blocks - we want to measure production rate
+        accounts: 5,
+    };
+
+    let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
+    let rpc_url = harness.rpc_url();
+
+    let provider =
+        ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil RPC");
+
+    // Wait a moment for anvil to stabilize
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Get initial block number
+    let initial_block = provider.get_block_number().await.expect("Failed to get block number");
+
+    // Measure how many blocks are produced in 2 seconds
+    // With 50ms block time, we expect ~40 blocks in 2 seconds
+    let start = Instant::now();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let elapsed = start.elapsed();
+
+    let final_block = provider.get_block_number().await.expect("Failed to get block number");
+    let blocks_produced = final_block.saturating_sub(initial_block);
+
+    // Calculate actual blocks per second
+    let blocks_per_second = blocks_produced as f64 / elapsed.as_secs_f64();
+
+    // With 50ms block time, we expect 20 blocks/sec
+    // Allow a tolerance of ±30% to account for timing variance
+    let expected_blocks_per_second = 1000.0 / 50.0; // 20 blocks/sec
+    let min_expected = expected_blocks_per_second * 0.7; // 14 blocks/sec
+    let max_expected = expected_blocks_per_second * 1.3; // 26 blocks/sec
+
+    println!(
+        "Block production rate: {:.2} blocks/sec (expected: {:.2}, range: {:.2}-{:.2})",
+        blocks_per_second, expected_blocks_per_second, min_expected, max_expected
+    );
+    println!(
+        "Produced {} blocks in {:.2}s (initial: {}, final: {})",
+        blocks_produced,
+        elapsed.as_secs_f64(),
+        initial_block,
+        final_block
+    );
+
+    assert!(
+        blocks_per_second >= min_expected,
+        "Block production too slow: {:.2} blocks/sec, expected at least {:.2}. \
+         Produced {} blocks in {:.2}s. This suggests block_time_f64 may not be working correctly.",
+        blocks_per_second,
+        min_expected,
+        blocks_produced,
+        elapsed.as_secs_f64()
+    );
+
+    assert!(
+        blocks_per_second <= max_expected,
+        "Block production too fast: {:.2} blocks/sec, expected at most {:.2}",
+        blocks_per_second,
+        max_expected
+    );
+}
+
+/// Test that initial block generation with 50ms block time works correctly.
+///
+/// This test verifies that the harness can generate initial blocks quickly
+/// when using sub-second block times.
+#[ignore = "requires anvil"]
+#[tokio::test]
+async fn test_harness_50ms_initial_blocks() {
+    use std::time::Instant;
+
+    let initial_blocks = 10;
+    let block_time_ms = 50;
+
+    let config = HarnessConfig {
+        block_time_ms,
+        tx_per_block: 10,
+        initial_delay_blocks: initial_blocks,
+        accounts: 5,
+    };
+
+    // Measure how long it takes to spawn (which includes initial block generation)
+    let start = Instant::now();
+    let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
+    let spawn_time = start.elapsed();
+
+    let rpc_url = harness.rpc_url();
+    let provider =
+        ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil RPC");
+
+    // Verify we have the initial blocks
+    let block_number = provider.get_block_number().await.expect("Failed to get block number");
+    assert!(
+        block_number >= initial_blocks,
+        "Expected at least {} initial blocks, got {}",
+        initial_blocks,
+        block_number
+    );
+
+    // With 50ms block time and 10 blocks, should take ~500ms for block generation
+    // Plus setup overhead, let's say max 3 seconds is reasonable
+    let max_expected_time = Duration::from_secs(3);
+
+    println!(
+        "Harness spawn with {} initial blocks ({}ms block time) took {:?}",
+        initial_blocks, block_time_ms, spawn_time
+    );
+    println!("Block number after spawn: {} (expected >= {})", block_number, initial_blocks);
+
+    assert!(
+        spawn_time < max_expected_time,
+        "Harness spawn took too long: {:?}, expected < {:?}. \
+         This suggests block_time_f64 may not be working correctly for initial block generation.",
+        spawn_time,
+        max_expected_time
+    );
+}

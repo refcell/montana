@@ -9,7 +9,7 @@ pub struct HarnessConfig {
     /// Anvil block time in milliseconds.
     ///
     /// Lower values create faster block production.
-    /// Default: 1000ms (1 second)
+    /// Default: 50ms
     pub block_time_ms: u64,
 
     /// Number of transactions to generate per block.
@@ -34,7 +34,7 @@ pub struct HarnessConfig {
 
 impl Default for HarnessConfig {
     fn default() -> Self {
-        Self { block_time_ms: 1000, tx_per_block: 1000, initial_delay_blocks: 10, accounts: 10 }
+        Self { block_time_ms: 50, tx_per_block: 1000, initial_delay_blocks: 10, accounts: 10 }
     }
 }
 
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn config_default() {
         let config = HarnessConfig::default();
-        assert_eq!(config.block_time_ms, 1000);
+        assert_eq!(config.block_time_ms, 50);
         assert_eq!(config.tx_per_block, 1000);
         assert_eq!(config.initial_delay_blocks, 10);
         assert_eq!(config.accounts, 10);

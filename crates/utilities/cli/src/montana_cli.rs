@@ -90,7 +90,7 @@ pub struct MontanaCli {
     ///
     /// Controls how fast blocks are produced in harness mode.
     /// Only used when --with-harness is enabled.
-    #[arg(long, default_value = "1000")]
+    #[arg(long, default_value = "50")]
     pub harness_block_time_ms: u64,
 
     /// Initial blocks to generate before starting (creates sync backlog).

@@ -165,12 +165,12 @@ impl Harness {
             p.report_started(total_blocks);
         }
 
-        // Calculate block time in seconds (minimum 1 second for anvil)
-        let block_time_secs = (config.block_time_ms / 1000).max(1);
+        // Calculate block time in seconds (supports sub-second via f64)
+        let block_time_secs = config.block_time_ms as f64 / 1000.0;
 
-        // Spawn anvil with configured block time
+        // Spawn anvil with configured block time (block_time_f64 supports sub-second intervals)
         let anvil = alloy::node_bindings::Anvil::new()
-            .block_time(block_time_secs)
+            .block_time_f64(block_time_secs)
             .try_spawn()
             .map_err(|e| eyre::eyre!("Failed to spawn anvil: {}", e))?;
 
@@ -192,6 +192,13 @@ impl Harness {
         // Create provider with first signer for initial block generation
         let wallet = EthereumWallet::from(signers[0].clone());
         let provider = ProviderBuilder::new().wallet(wallet).connect(&rpc_url).await?;
+
+        // Set a faster poll interval for sub-second block times
+        // Default is 250ms for local transports, but we need faster polling to match our block time
+        // Use the configured block time as the poll interval (minimum 10ms to avoid spinning)
+        let poll_interval = Duration::from_millis(config.block_time_ms.max(10));
+        provider.client().set_poll_interval(poll_interval);
+        tracing::debug!(?poll_interval, "Set provider poll interval for fast block times");
 
         // Generate initial blocks if configured
         if total_blocks > 0 {

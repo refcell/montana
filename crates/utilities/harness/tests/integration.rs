@@ -490,7 +490,7 @@ async fn test_harness_dumps_initial_state() {
 
     let config = HarnessConfig {
         block_time_ms: 1000,
-        tx_per_block: 0, // No transactions to get clean genesis state
+        tx_per_block: 0,         // No transactions to get clean genesis state
         initial_delay_blocks: 0, // No initial blocks - we want clean genesis state
         accounts: 10,
         use_default_genesis: false, // Don't use default - we're testing dump functionality
@@ -541,7 +541,7 @@ async fn test_harness_loads_state_from_file() {
     {
         let config = HarnessConfig {
             block_time_ms: 1000,
-            tx_per_block: 0, // No transactions
+            tx_per_block: 0,         // No transactions
             initial_delay_blocks: 0, // No initial blocks for clean genesis
             accounts: 10,
             use_default_genesis: false, // Testing dump functionality
@@ -591,7 +591,8 @@ async fn test_harness_loads_state_from_file() {
             dump_initial_state: false, // Load state, don't overwrite
         };
 
-        let harness = Harness::spawn(config).await.expect("Failed to spawn harness with loaded state");
+        let harness =
+            Harness::spawn(config).await.expect("Failed to spawn harness with loaded state");
         let rpc_url = harness.rpc_url();
 
         let provider =
@@ -602,17 +603,11 @@ async fn test_harness_loads_state_from_file() {
         assert!(chain_id > 0, "Chain ID should be positive");
 
         let block_number = provider.get_block_number().await.expect("Failed to get block number");
-        println!(
-            "Loaded instance - Chain ID: {}, Block number: {}",
-            chain_id, block_number
-        );
+        println!("Loaded instance - Chain ID: {}, Block number: {}", chain_id, block_number);
 
         // The instance should have loaded the state successfully
         // Block number should be 0 since we dumped at genesis with no initial blocks
-        assert_eq!(
-            block_number, 0,
-            "Block number should be 0 when loading fresh genesis state"
-        );
+        assert_eq!(block_number, 0, "Block number should be 0 when loading fresh genesis state");
     }
 }
 
@@ -691,7 +686,8 @@ async fn test_harness_state_preserves_accounts() {
             dump_initial_state: false,
         };
 
-        let harness = Harness::spawn(config).await.expect("Failed to spawn harness with loaded state");
+        let harness =
+            Harness::spawn(config).await.expect("Failed to spawn harness with loaded state");
         let rpc_url = harness.rpc_url();
 
         let provider =
@@ -702,11 +698,7 @@ async fn test_harness_state_preserves_accounts() {
             provider.get_accounts().await.expect("Failed to get accounts");
 
         // Verify same accounts
-        assert_eq!(
-            addresses.len(),
-            loaded_accounts.len(),
-            "Should have same number of accounts"
-        );
+        assert_eq!(addresses.len(), loaded_accounts.len(), "Should have same number of accounts");
 
         for (i, (original, loaded)) in addresses.iter().zip(loaded_accounts.iter()).enumerate() {
             assert_eq!(
@@ -720,7 +712,8 @@ async fn test_harness_state_preserves_accounts() {
         for (i, (account, original_balance)) in
             loaded_accounts.iter().zip(original_balances.iter()).enumerate()
         {
-            let loaded_balance = provider.get_balance(*account).await.expect("Failed to get balance");
+            let loaded_balance =
+                provider.get_balance(*account).await.expect("Failed to get balance");
 
             assert_eq!(
                 *original_balance, loaded_balance,
@@ -750,7 +743,8 @@ async fn test_harness_default_genesis() {
     // Use default config which has use_default_genesis: true
     let config = HarnessConfig::default();
 
-    let harness = Harness::spawn(config).await.expect("Failed to spawn harness with default genesis");
+    let harness =
+        Harness::spawn(config).await.expect("Failed to spawn harness with default genesis");
     let rpc_url = harness.rpc_url();
 
     let provider =

@@ -4,7 +4,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod config;
-pub use config::{HarnessConfig, DEFAULT_GENESIS_STATE};
+pub use config::{DEFAULT_GENESIS_STATE, HarnessConfig};
 
 mod harness;
 pub use harness::Harness;

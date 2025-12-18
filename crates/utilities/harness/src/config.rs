@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn default_genesis_state_is_valid_json() {
         // Verify the embedded genesis state is valid JSON
-        let _: serde_json::Value =
-            serde_json::from_str(DEFAULT_GENESIS_STATE).expect("DEFAULT_GENESIS_STATE should be valid JSON");
+        let _: serde_json::Value = serde_json::from_str(DEFAULT_GENESIS_STATE)
+            .expect("DEFAULT_GENESIS_STATE should be valid JSON");
     }
 }

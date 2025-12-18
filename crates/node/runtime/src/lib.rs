@@ -386,4 +386,3 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
 
     builder.build()
 }
-

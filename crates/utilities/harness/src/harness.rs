@@ -219,9 +219,8 @@ impl Harness {
             tracing::info!("Starting Anvil fresh (no genesis state)");
         }
 
-        let anvil = anvil_builder
-            .try_spawn()
-            .map_err(|e| eyre::eyre!("Failed to spawn anvil: {}", e))?;
+        let anvil =
+            anvil_builder.try_spawn().map_err(|e| eyre::eyre!("Failed to spawn anvil: {}", e))?;
 
         let rpc_url = anvil.endpoint();
         tracing::info!(rpc_url = %rpc_url, "Anvil started");

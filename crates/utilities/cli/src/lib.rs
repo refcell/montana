@@ -55,3 +55,10 @@ pub use montana_cli::MontanaCli;
 /// string-based log level.
 mod tracing_init;
 pub use crate::tracing_init::{init_tracing, init_tracing_with_level};
+
+/// Ctrl+C signal handler utilities.
+///
+/// The [`install_ctrlc_handler`] function installs a handler that exits on Ctrl+C.
+/// The [`wait_for_ctrlc`] function waits for Ctrl+C and returns, allowing custom handling.
+mod ctrlc;
+pub use crate::ctrlc::{install_ctrlc_handler, wait_for_ctrlc};

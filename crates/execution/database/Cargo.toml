@@ -6,7 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-alloy.workspace = true
+alloy = { workspace = true, features = ["genesis"] }
 op-alloy.workspace = true
 revm.workspace = true
 tokio.workspace = true

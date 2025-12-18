@@ -249,7 +249,10 @@ impl<DB> Database for CachedDatabase<DB>
 where
     DB: Database,
 {
-    fn commit_block(&mut self) {
-        self.inner.commit_block();
+    fn commit_block(
+        &mut self,
+        transaction_changes: Vec<EvmState>,
+    ) -> Result<alloy::primitives::B256, crate::errors::DbError> {
+        self.inner.commit_block(transaction_changes)
     }
 }

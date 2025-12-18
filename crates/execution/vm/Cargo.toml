@@ -18,5 +18,9 @@ revm.workspace = true
 derive_more.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+alloy-trie.workspace = true
+
 [lints]
 workspace = true

@@ -302,7 +302,10 @@ impl<P: Provider<Optimism> + Clone> DatabaseCommit for RPCDatabase<P> {
 }
 
 impl<P: Provider<Optimism> + Clone> Database for RPCDatabase<P> {
-    fn commit_block(&mut self) {
+    fn commit_block(
+        &mut self,
+        _transaction_changes: Vec<EvmState>,
+    ) -> Result<B256, crate::errors::DbError> {
         // Save current block's cache to disk
         self.save_file_cache();
 
@@ -310,5 +313,8 @@ impl<P: Provider<Optimism> + Clone> Database for RPCDatabase<P> {
         let new_block = self.state_block.fetch_add(1, Ordering::AcqRel) + 1;
         let file_cache = Self::load_cache_for_block(new_block);
         *self.file_cache.write().unwrap() = file_cache;
+
+        // RPCDatabase doesn't compute state roots
+        Ok(B256::ZERO)
     }
 }

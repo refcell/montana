@@ -3,7 +3,16 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-mod execution;
-pub use execution::{ExecutedBlock, Execution};
+use blocksource::OpBlock;
+use vm::BlockResult;
+
+/// An executed block with its execution result
+#[derive(Debug, Clone)]
+pub struct ExecutedBlock {
+    /// The original block
+    pub block: OpBlock,
+    /// The execution result
+    pub result: BlockResult,
+}
 
 pub mod verification;

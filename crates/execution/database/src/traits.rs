@@ -3,6 +3,8 @@
 pub use revm::database_interface::{
     DBErrorMarker, Database as RevmDatabase, DatabaseCommit, DatabaseRef,
 };
+use revm::state::EvmState;
+use alloy::primitives::B256;
 
 use crate::errors::DbError;
 
@@ -11,6 +13,6 @@ use crate::errors::DbError;
 pub trait Database:
     RevmDatabase<Error = DbError> + DatabaseCommit + DatabaseRef<Error = DbError> + Clone
 {
-    /// Commits the current block state.
-    fn commit_block(&mut self);
+    /// Commits the block state changes and returns the new state root.
+    fn commit_block(&mut self, transaction_changes: Vec<EvmState>) -> Result<B256, DbError>;
 }

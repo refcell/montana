@@ -5027,9 +5027,6 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "blocksource",
- "chainspec",
- "database",
- "eyre",
  "op-alloy",
  "tokio",
  "tracing",
@@ -6289,6 +6286,7 @@ name = "vm"
 version = "0.0.1"
 dependencies = [
  "alloy",
+ "alloy-trie",
  "blocksource",
  "chainspec",
  "database",
@@ -6296,6 +6294,7 @@ dependencies = [
  "op-alloy",
  "op-revm",
  "revm",
+ "tempfile",
  "tracing",
 ]
 

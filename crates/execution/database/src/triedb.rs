@@ -5,12 +5,14 @@
 
 use std::{
     collections::HashMap,
+    io::ErrorKind,
     path::Path,
     sync::{Arc, RwLock},
 };
 
 use alloy::{
     consensus::constants::KECCAK_EMPTY,
+    genesis::Genesis,
     primitives::{Address, B256, U256},
 };
 use revm::{
@@ -42,38 +44,94 @@ pub struct TrieDatabase {
 }
 
 impl TrieDatabase {
-    /// Create a new `TrieDatabase` wrapper around an existing `TrieDb`.
-    #[must_use]
-    pub fn new(db: TrieDb) -> Self {
-        Self {
-            inner: Arc::new(db),
-            code: Arc::new(RwLock::new(HashMap::new())),
-            block_hashes: Arc::new(RwLock::new(HashMap::new())),
+    /// Open an existing TrieDB database or create a new one with genesis state.
+    ///
+    /// If the database exists at `path`, it will be opened. If it does not exist,
+    /// a new database will be created and initialized with the provided `genesis` state.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be opened or created.
+    pub fn open_or_create(path: impl AsRef<Path>, genesis: &Genesis) -> Result<Self, OpenError> {
+        match TrieDb::open(&path) {
+            Ok(db) => Ok(Self {
+                inner: Arc::new(db),
+                code: Arc::new(RwLock::new(HashMap::new())),
+                block_hashes: Arc::new(RwLock::new(HashMap::new())),
+            }),
+            Err(OpenError::IO(e)) if e.kind() == ErrorKind::NotFound => {
+                let db = TrieDb::create_new(&path)?;
+                let trie_db = Self {
+                    inner: Arc::new(db),
+                    code: Arc::new(RwLock::new(HashMap::new())),
+                    block_hashes: Arc::new(RwLock::new(HashMap::new())),
+                };
+                trie_db.apply_genesis(genesis)?;
+                Ok(trie_db)
+            }
+            Err(e) => Err(e),
         }
     }
 
-    /// Open an existing TrieDB database at the given path.
-    ///
-    /// # Errors
-    /// Returns an error if the database cannot be opened.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, OpenError> {
-        let db = TrieDb::open(path)?;
-        Ok(Self::new(db))
-    }
+    /// Apply genesis allocations to the database.
+    fn apply_genesis(&self, genesis: &Genesis) -> Result<(), OpenError> {
+        let mut tx = self.inner.begin_rw().map_err(|e| {
+            OpenError::IO(std::io::Error::other(format!("Failed to begin write transaction: {e}")))
+        })?;
 
-    /// Create a new TrieDB database at the given path.
-    ///
-    /// # Errors
-    /// Returns an error if the database cannot be created.
-    pub fn create(path: impl AsRef<Path>) -> Result<Self, OpenError> {
-        let db = TrieDb::create_new(path)?;
-        Ok(Self::new(db))
-    }
+        for (address, account) in &genesis.alloc {
+            let address_path = AddressPath::for_address(*address);
 
-    /// Get a reference to the underlying TrieDB database.
-    #[must_use]
-    pub fn inner(&self) -> &TrieDb {
-        &self.inner
+            // Compute code hash if code is present
+            let code_hash = if let Some(ref code) = account.code {
+                let bytecode = Bytecode::new_raw(code.clone());
+                let hash = bytecode.hash_slow();
+                // Cache the code
+                if let Ok(mut code_cache) = self.code.write() {
+                    code_cache.insert(hash, bytecode);
+                }
+                hash
+            } else {
+                KECCAK_EMPTY
+            };
+
+            let trie_account = TrieAccount::new(
+                account.nonce.unwrap_or(0),
+                account.balance,
+                B256::ZERO, // storage_root computed by TrieDB
+                code_hash,
+            );
+
+            tx.set_account(address_path.clone(), Some(trie_account)).map_err(|e| {
+                OpenError::IO(std::io::Error::other(format!(
+                    "Failed to set genesis account {address}: {e}"
+                )))
+            })?;
+
+            // Apply storage if present
+            if let Some(ref storage) = account.storage {
+                for (slot, value) in storage {
+                    let storage_path = StoragePath::for_address_and_slot(*address, *slot);
+
+                    let storage_value = if *value == B256::ZERO {
+                        None
+                    } else {
+                        Some(U256::from_be_bytes(value.0))
+                    };
+
+                    tx.set_storage_slot(storage_path, storage_value).map_err(|e| {
+                        OpenError::IO(std::io::Error::other(format!(
+                            "Failed to set genesis storage {address}:{slot}: {e}"
+                        )))
+                    })?;
+                }
+            }
+        }
+
+        tx.commit().map_err(|e| {
+            OpenError::IO(std::io::Error::other(format!("Failed to commit genesis state: {e}")))
+        })?;
+
+        Ok(())
     }
 
     /// Insert bytecode into the code cache.
@@ -103,6 +161,12 @@ impl TrieDatabase {
     #[must_use]
     pub fn cached_block_hashes_count(&self) -> usize {
         self.block_hashes.read().map(|h| h.len()).unwrap_or(0)
+    }
+
+    /// Get the current state root.
+    #[must_use]
+    pub fn state_root(&self) -> B256 {
+        self.inner.state_root()
     }
 }
 
@@ -212,99 +276,89 @@ impl RevmDatabase for TrieDatabase {
 }
 
 impl DatabaseCommit for TrieDatabase {
-    fn commit(&mut self, changes: EvmState) {
+    fn commit(&mut self, _changes: EvmState) {
+        // handled by cachedb
+    }
+}
+
+impl Database for TrieDatabase {
+    fn commit_block(&mut self, transaction_changes: Vec<EvmState>) -> Result<B256, DbError> {
         // Begin a write transaction and commit all changes
-        let Ok(mut tx) = self.inner.begin_rw() else {
-            tracing::error!("Failed to begin write transaction for commit");
-            return;
-        };
+        let mut tx = self
+            .inner
+            .begin_rw()
+            .map_err(|e| DbError::new(format!("Failed to begin write transaction: {e}")))?;
 
-        for (address, account) in changes {
-            let address_path = AddressPath::for_address(address);
+        for changes in transaction_changes {
+            for (address, account) in changes {
+                let address_path = AddressPath::for_address(address);
 
-            // Handle account updates
-            if account.is_selfdestructed() {
-                // Delete the account
-                if let Err(e) = tx.set_account(address_path.clone(), None) {
-                    tracing::error!("Failed to delete account {address}: {e}");
-                }
-            } else {
-                // Update or create the account
-                let trie_account = TrieAccount::new(
-                    account.info.nonce,
-                    account.info.balance,
-                    // Note: storage_root is computed by TrieDB, we pass a placeholder
-                    // The actual storage root will be updated when we commit storage changes
-                    B256::ZERO,
-                    account.info.code_hash,
-                );
+                // Handle account updates
+                if account.is_selfdestructed() {
+                    // Delete the account
+                    tx.set_account(address_path.clone(), None).map_err(|e| {
+                        crate::errors::DbError::new(format!(
+                            "Failed to delete account {address}: {e}"
+                        ))
+                    })?;
+                } else {
+                    // Update or create the account
+                    let trie_account = TrieAccount::new(
+                        account.info.nonce,
+                        account.info.balance,
+                        // Note: storage_root is computed by TrieDB, we pass a placeholder
+                        // The actual storage root will be updated when we commit storage changes
+                        B256::ZERO,
+                        account.info.code_hash,
+                    );
 
-                if let Err(e) = tx.set_account(address_path.clone(), Some(trie_account)) {
-                    tracing::error!("Failed to set account {address}: {e}");
-                }
+                    tx.set_account(address_path.clone(), Some(trie_account)).map_err(|e| {
+                        crate::errors::DbError::new(format!("Failed to set account {address}: {e}"))
+                    })?;
 
-                // Cache the code if present
-                if let Some(ref code) = account.info.code
-                    && !code.is_empty()
-                    && account.info.code_hash != KECCAK_EMPTY
-                {
-                    if let Ok(mut code_cache) = self.code.write() {
-                        code_cache.insert(account.info.code_hash, code.clone());
+                    // Cache the code if present
+                    if let Some(ref code) = account.info.code
+                        && !code.is_empty()
+                        && account.info.code_hash != KECCAK_EMPTY
+                    {
+                        if let Ok(mut code_cache) = self.code.write() {
+                            code_cache.insert(account.info.code_hash, code.clone());
+                        }
                     }
                 }
-            }
 
-            // Handle storage updates
-            for (slot, value) in account.storage {
-                let storage_path = StoragePath::for_address_and_slot(address, slot.into());
+                // Handle storage updates
+                for (slot, value) in account.storage {
+                    let storage_path = StoragePath::for_address_and_slot(address, slot.into());
 
-                let storage_value = if value.present_value.is_zero() {
-                    None // Delete zero storage values
-                } else {
-                    Some(value.present_value)
-                };
+                    let storage_value = if value.present_value.is_zero() {
+                        None // Delete zero storage values
+                    } else {
+                        Some(value.present_value)
+                    };
 
-                if let Err(e) = tx.set_storage_slot(storage_path, storage_value) {
-                    tracing::error!("Failed to set storage {address}:{slot}: {e}");
+                    tx.set_storage_slot(storage_path, storage_value).map_err(|e| {
+                        DbError::new(format!("Failed to set storage {address}:{slot}: {e}"))
+                    })?;
                 }
             }
         }
 
         // Commit the transaction
-        if let Err(e) = tx.commit() {
-            tracing::error!("Failed to commit transaction: {e}");
-        }
+        tx.commit().map_err(|e| DbError::new(format!("Failed to commit transaction: {e}")))?;
+
+        Ok(self.inner.state_root())
     }
-}
-
-impl Database for TrieDatabase {
-    fn commit_block(&mut self) {
-        // TrieDB commits happen per-transaction via DatabaseCommit::commit()
-        // This method can be used for any block-level bookkeeping if needed
-    }
-}
-
-/// Opens an existing `TrieDB` database at the given path.
-///
-/// # Errors
-/// Returns an error if the database cannot be opened.
-#[deprecated(note = "Use TrieDatabase::open() instead")]
-pub fn open(path: impl AsRef<Path>) -> Result<TrieDb, OpenError> {
-    TrieDb::open(path)
-}
-
-/// Creates a new `TrieDB` database at the given path.
-///
-/// # Errors
-/// Returns an error if the database cannot be created.
-#[deprecated(note = "Use TrieDatabase::create() instead")]
-pub fn create(path: impl AsRef<Path>) -> Result<TrieDb, OpenError> {
-    TrieDb::create_new(path)
 }
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{Address, U256};
+    use std::collections::BTreeMap;
+
+    use alloy::{
+        genesis::{Genesis, GenesisAccount},
+        primitives::{Address, Bytes, U256},
+    };
     use alloy_trie::{EMPTY_ROOT_HASH, KECCAK_EMPTY};
     use revm::{
         bytecode::Bytecode,
@@ -313,13 +367,112 @@ mod tests {
 
     use super::*;
 
+    fn empty_genesis() -> Genesis {
+        Genesis::default()
+    }
+
     #[test]
-    fn test_trie_database() {
+    fn test_open_or_create_new_database() {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("test_db");
 
-        // 1. Create database
-        let mut db = TrieDatabase::create(&db_path).expect("failed to create database");
+        // Create a genesis with some accounts
+        let alice = Address::repeat_byte(0x01);
+        let bob = Address::repeat_byte(0x02);
+
+        let mut alloc = BTreeMap::new();
+        alloc.insert(
+            alice,
+            GenesisAccount {
+                balance: U256::from(1_000_000),
+                nonce: Some(1),
+                code: Some(Bytes::from(vec![0x60, 0x42, 0x00])),
+                storage: None,
+                private_key: None,
+            },
+        );
+        alloc.insert(
+            bob,
+            GenesisAccount {
+                balance: U256::from(500_000),
+                nonce: Some(5),
+                code: None,
+                storage: Some(BTreeMap::from([(B256::ZERO, B256::from(U256::from(1)))])),
+                private_key: None,
+            },
+        );
+
+        let genesis = Genesis { alloc, ..Default::default() };
+
+        // 1. Create database with genesis
+        let db =
+            TrieDatabase::open_or_create(&db_path, &genesis).expect("failed to create database");
+
+        // 2. Verify state root is not empty
+        let state_root = db.state_root();
+        assert_ne!(state_root, EMPTY_ROOT_HASH, "state root should not be empty");
+
+        // 3. Verify genesis accounts were applied
+        let alice_info = db.basic_ref(alice).expect("failed to get alice").expect("alice exists");
+        assert_eq!(alice_info.nonce, 1);
+        assert_eq!(alice_info.balance, U256::from(1_000_000));
+        assert!(alice_info.code.is_some());
+
+        let bob_info = db.basic_ref(bob).expect("failed to get bob").expect("bob exists");
+        assert_eq!(bob_info.nonce, 5);
+        assert_eq!(bob_info.balance, U256::from(500_000));
+        assert_eq!(bob_info.code_hash, KECCAK_EMPTY);
+
+        // 4. Verify genesis storage was applied
+        assert_eq!(db.storage_ref(bob, U256::from(0)).unwrap(), U256::from(1));
+    }
+
+    #[test]
+    fn test_open_or_create_existing_database() {
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("test_db");
+
+        let alice = Address::repeat_byte(0x01);
+
+        let mut alloc = BTreeMap::new();
+        alloc
+            .insert(alice, GenesisAccount { balance: U256::from(1_000_000), ..Default::default() });
+        let genesis = Genesis { alloc, ..Default::default() };
+
+        // Create the database first
+        let db1 =
+            TrieDatabase::open_or_create(&db_path, &genesis).expect("failed to create database");
+        let state_root1 = db1.state_root();
+        drop(db1);
+
+        // Re-open the database - genesis should NOT be re-applied
+        let different_genesis = Genesis {
+            alloc: BTreeMap::from([(
+                alice,
+                GenesisAccount { balance: U256::from(999_999_999), ..Default::default() },
+            )]),
+            ..Default::default()
+        };
+        let db2 = TrieDatabase::open_or_create(&db_path, &different_genesis)
+            .expect("failed to open database");
+        let state_root2 = db2.state_root();
+
+        // State roots should match (genesis wasn't re-applied)
+        assert_eq!(state_root1, state_root2);
+
+        // Balance should be original, not from the "different" genesis
+        let alice_info = db2.basic_ref(alice).expect("query failed").expect("alice exists");
+        assert_eq!(alice_info.balance, U256::from(1_000_000));
+    }
+
+    #[test]
+    fn test_trie_database_commit() {
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("test_db");
+
+        // 1. Create database with empty genesis
+        let mut db = TrieDatabase::open_or_create(&db_path, &empty_genesis())
+            .expect("failed to create database");
 
         let alice = Address::repeat_byte(0x01);
         let bob = Address::repeat_byte(0x02);
@@ -327,7 +480,7 @@ mod tests {
         let alice_code = Bytecode::new_raw(vec![0x60, 0x42, 0x00].into());
         let alice_code_hash = alice_code.hash_slow();
 
-        // 2. Write accounts
+        // 2. Write accounts via commit
         let mut changes: EvmState = EvmState::default();
 
         let mut alice_account = Account::new_not_existing(0);
@@ -351,11 +504,10 @@ mod tests {
         bob_account.storage.insert(U256::from(0), EvmStorageSlot::new(U256::from(1), 0));
         changes.insert(bob, bob_account);
 
-        // 4. Commit
-        db.commit(changes);
+        // 4. Commit block
+        let state_root = db.commit_block(vec![changes]).expect("commit_block failed");
 
         // 5. Check state root
-        let state_root = db.inner().state_root();
         assert_ne!(state_root, EMPTY_ROOT_HASH, "state root should not be empty");
 
         // 6. Read state for accounts

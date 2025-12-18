@@ -101,7 +101,7 @@ where
         // Commit all transaction changes at once and get the state root
         let state_root = self
             .db
-            .commit_block(transaction_changes)
+            .commit_block(block_number, transaction_changes)
             .map_err(|e| ExecutorError::Database(e.to_string()))?;
 
         Ok(BlockResult { block_number, tx_results, state_root })
@@ -175,7 +175,7 @@ mod tests {
     };
     use alloy_trie::EMPTY_ROOT_HASH;
     use chainspec::BASE_MAINNET;
-    use database::{CachedDatabase, TrieDatabase};
+    use database::{CachedDatabase, RocksDbKvDatabase, TrieDatabase};
     use op_alloy::{consensus::OpTxEnvelope, rpc_types::Transaction as OpTransaction};
     use revm::DatabaseRef;
 
@@ -289,15 +289,20 @@ mod tests {
     fn test_execute_block_with_eth_transfer() {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("test_db");
+        let kvdb_path = temp_dir.path().join("kvdb");
 
         // Create genesis with prefunded accounts
         let genesis = test_genesis();
         let alice = address!("0x1111111111111111111111111111111111111111");
         let bob = address!("0x2222222222222222222222222222222222222222");
 
+        // Create RocksDB key-value database
+        let kvdb =
+            RocksDbKvDatabase::open_or_create(&kvdb_path, &genesis).expect("failed to create kvdb");
+
         // Create TrieDatabase with genesis
-        let trie_db =
-            TrieDatabase::open_or_create(&db_path, &genesis).expect("failed to create database");
+        let trie_db = TrieDatabase::open_or_create(&db_path, &genesis, kvdb.clone())
+            .expect("failed to create database");
 
         // Wrap in CachedDatabase
         let cached_db = CachedDatabase::new(trie_db);
@@ -341,8 +346,8 @@ mod tests {
         drop(cached_db);
 
         // Re-open the database to verify state was persisted
-        let trie_db =
-            TrieDatabase::open_or_create(&db_path, &genesis).expect("failed to re-open database");
+        let trie_db = TrieDatabase::open_or_create(&db_path, &genesis, kvdb)
+            .expect("failed to re-open database");
 
         // Alice should have:
         // - Balance reduced by transfer_value + gas_cost

@@ -251,8 +251,9 @@ where
 {
     fn commit_block(
         &mut self,
+        block_number: u64,
         transaction_changes: Vec<EvmState>,
     ) -> Result<alloy::primitives::B256, crate::errors::DbError> {
-        self.inner.commit_block(transaction_changes)
+        self.inner.commit_block(block_number, transaction_changes)
     }
 }

@@ -3,12 +3,7 @@
 //! Provides a thin wrapper around the triedb crate for managing
 //! Ethereum account and storage state, implementing the revm `Database` traits.
 
-use std::{
-    collections::HashMap,
-    io::ErrorKind,
-    path::Path,
-    sync::{Arc, RwLock},
-};
+use std::{io::ErrorKind, path::Path, sync::Arc};
 
 use alloy::{
     consensus::constants::KECCAK_EMPTY,
@@ -26,24 +21,26 @@ pub use triedb::{
     path::{AddressPath, StoragePath},
 };
 
-use crate::{errors::DbError, traits::Database};
+use crate::{
+    errors::DbError,
+    kvdb::{Header, KeyValueDatabase},
+    traits::Database,
+};
 
 /// A wrapper around `triedb::Database` that implements revm's `Database` traits.
 ///
 /// This allows using a TrieDB database with revm for EVM execution.
 /// Since TrieDB only stores code hashes (not actual bytecode), this wrapper
-/// maintains an in-memory code cache that maps code hashes to bytecode.
+/// uses a [`KeyValueDatabase`] for persistent code storage and block hash lookups.
 #[derive(Clone, Debug)]
-pub struct TrieDatabase {
+pub struct TrieDatabase<KV: KeyValueDatabase> {
     /// The underlying TrieDB database
     inner: Arc<TrieDb>,
-    /// Code cache: code_hash -> bytecode (TrieDB only stores hashes)
-    code: Arc<RwLock<HashMap<B256, Bytecode>>>,
-    /// Block hashes cache: block_number -> hash
-    block_hashes: Arc<RwLock<HashMap<u64, B256>>>,
+    /// Key-value database for code and block hashes
+    kvdb: KV,
 }
 
-impl TrieDatabase {
+impl<KV: KeyValueDatabase> TrieDatabase<KV> {
     /// Open an existing TrieDB database or create a new one with genesis state.
     ///
     /// If the database exists at `path`, it will be opened. If it does not exist,
@@ -51,20 +48,16 @@ impl TrieDatabase {
     ///
     /// # Errors
     /// Returns an error if the database cannot be opened or created.
-    pub fn open_or_create(path: impl AsRef<Path>, genesis: &Genesis) -> Result<Self, OpenError> {
+    pub fn open_or_create(
+        path: impl AsRef<Path>,
+        genesis: &Genesis,
+        kvdb: KV,
+    ) -> Result<Self, OpenError> {
         match TrieDb::open(&path) {
-            Ok(db) => Ok(Self {
-                inner: Arc::new(db),
-                code: Arc::new(RwLock::new(HashMap::new())),
-                block_hashes: Arc::new(RwLock::new(HashMap::new())),
-            }),
+            Ok(db) => Ok(Self { inner: Arc::new(db), kvdb }),
             Err(OpenError::IO(e)) if e.kind() == ErrorKind::NotFound => {
                 let db = TrieDb::create_new(&path)?;
-                let trie_db = Self {
-                    inner: Arc::new(db),
-                    code: Arc::new(RwLock::new(HashMap::new())),
-                    block_hashes: Arc::new(RwLock::new(HashMap::new())),
-                };
+                let trie_db = Self { inner: Arc::new(db), kvdb };
                 trie_db.apply_genesis(genesis)?;
                 Ok(trie_db)
             }
@@ -85,10 +78,12 @@ impl TrieDatabase {
             let code_hash = if let Some(ref code) = account.code {
                 let bytecode = Bytecode::new_raw(code.clone());
                 let hash = bytecode.hash_slow();
-                // Cache the code
-                if let Ok(mut code_cache) = self.code.write() {
-                    code_cache.insert(hash, bytecode);
-                }
+                // Store code in the key-value database
+                self.kvdb.set_code(&hash, code).map_err(|e| {
+                    OpenError::IO(std::io::Error::other(format!(
+                        "Failed to store genesis code: {e}"
+                    )))
+                })?;
                 hash
             } else {
                 KECCAK_EMPTY
@@ -131,36 +126,21 @@ impl TrieDatabase {
             OpenError::IO(std::io::Error::other(format!("Failed to commit genesis state: {e}")))
         })?;
 
+        // Store genesis header (block 0) with the computed state root
+        let header = Header::new(self.inner.state_root());
+        self.kvdb.set_header(0, &header).map_err(|e| {
+            OpenError::IO(std::io::Error::other(format!("Failed to store genesis header: {e}")))
+        })?;
+
         Ok(())
     }
 
-    /// Insert bytecode into the code cache.
+    /// Insert bytecode into the key-value database.
     ///
     /// This should be called when deploying contracts or loading code from
     /// an external source, as TrieDB only stores code hashes.
-    pub fn insert_code(&self, code_hash: B256, bytecode: Bytecode) {
-        if let Ok(mut code_cache) = self.code.write() {
-            code_cache.insert(code_hash, bytecode);
-        }
-    }
-
-    /// Insert a block hash into the block hash cache.
-    pub fn insert_block_hash(&self, block_number: u64, hash: B256) {
-        if let Ok(mut hashes) = self.block_hashes.write() {
-            hashes.insert(block_number, hash);
-        }
-    }
-
-    /// Get the number of cached code entries.
-    #[must_use]
-    pub fn cached_code_count(&self) -> usize {
-        self.code.read().map(|c| c.len()).unwrap_or(0)
-    }
-
-    /// Get the number of cached block hashes.
-    #[must_use]
-    pub fn cached_block_hashes_count(&self) -> usize {
-        self.block_hashes.read().map(|h| h.len()).unwrap_or(0)
+    pub fn insert_code(&self, code_hash: B256, bytecode: Bytecode) -> Result<(), DbError> {
+        self.kvdb.set_code(&code_hash, bytecode.original_bytes().as_ref())
     }
 
     /// Get the current state root.
@@ -170,7 +150,7 @@ impl TrieDatabase {
     }
 }
 
-impl DatabaseRef for TrieDatabase {
+impl<KV: KeyValueDatabase> DatabaseRef for TrieDatabase<KV> {
     type Error = DbError;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -189,13 +169,12 @@ impl DatabaseRef for TrieDatabase {
 
         match account {
             Some(acc) => {
-                // Get code from cache if it exists
-                let code = self
-                    .code
-                    .read()
-                    .map_err(|e| DbError::new(format!("Code cache lock poisoned: {e}")))?
-                    .get(&acc.code_hash)
-                    .cloned();
+                // Get code from the key-value database
+                let code = if acc.code_hash != KECCAK_EMPTY {
+                    self.kvdb.get_code(&acc.code_hash)?.map(|bytes| Bytecode::new_raw(bytes.into()))
+                } else {
+                    None
+                };
 
                 Ok(Some(AccountInfo {
                     nonce: acc.nonce,
@@ -209,16 +188,12 @@ impl DatabaseRef for TrieDatabase {
     }
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
-        // Check code cache
-        let code_cache =
-            self.code.read().map_err(|e| DbError::new(format!("Code cache lock poisoned: {e}")))?;
-
-        if let Some(code) = code_cache.get(&code_hash) {
-            return Ok(code.clone());
+        // Check key-value database for code
+        if let Some(bytes) = self.kvdb.get_code(&code_hash)? {
+            return Ok(Bytecode::new_raw(bytes.into()));
         }
 
-        // If not in cache, return empty bytecode (code should have been loaded separately)
-        // This is similar to how RPCDatabase handles it
+        // If not found, return empty bytecode
         Ok(Bytecode::default())
     }
 
@@ -239,23 +214,14 @@ impl DatabaseRef for TrieDatabase {
         Ok(value.unwrap_or(U256::ZERO))
     }
 
-    fn block_hash_ref(&self, block_number: u64) -> Result<B256, Self::Error> {
-        // Check block hash cache
-        let hashes = self
-            .block_hashes
-            .read()
-            .map_err(|e| DbError::new(format!("Block hash cache lock poisoned: {e}")))?;
-
-        if let Some(hash) = hashes.get(&block_number) {
-            return Ok(*hash);
-        }
-
-        // If not in cache, return zero hash (block hashes should be loaded separately)
+    fn block_hash_ref(&self, _block_number: u64) -> Result<B256, Self::Error> {
+        // Block hashes are not currently stored in the key-value database.
+        // The BLOCKHASH opcode will return zero for now.
         Ok(B256::ZERO)
     }
 }
 
-impl RevmDatabase for TrieDatabase {
+impl<KV: KeyValueDatabase> RevmDatabase for TrieDatabase<KV> {
     type Error = DbError;
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -275,14 +241,18 @@ impl RevmDatabase for TrieDatabase {
     }
 }
 
-impl DatabaseCommit for TrieDatabase {
+impl<KV: KeyValueDatabase> DatabaseCommit for TrieDatabase<KV> {
     fn commit(&mut self, _changes: EvmState) {
         // handled by cachedb
     }
 }
 
-impl Database for TrieDatabase {
-    fn commit_block(&mut self, transaction_changes: Vec<EvmState>) -> Result<B256, DbError> {
+impl<KV: KeyValueDatabase> Database for TrieDatabase<KV> {
+    fn commit_block(
+        &mut self,
+        block_number: u64,
+        transaction_changes: Vec<EvmState>,
+    ) -> Result<B256, DbError> {
         // Begin a write transaction and commit all changes
         let mut tx = self
             .inner
@@ -297,9 +267,7 @@ impl Database for TrieDatabase {
                 if account.is_selfdestructed() {
                     // Delete the account
                     tx.set_account(address_path.clone(), None).map_err(|e| {
-                        crate::errors::DbError::new(format!(
-                            "Failed to delete account {address}: {e}"
-                        ))
+                        DbError::new(format!("Failed to delete account {address}: {e}"))
                     })?;
                 } else {
                     // Update or create the account
@@ -313,17 +281,16 @@ impl Database for TrieDatabase {
                     );
 
                     tx.set_account(address_path.clone(), Some(trie_account)).map_err(|e| {
-                        crate::errors::DbError::new(format!("Failed to set account {address}: {e}"))
+                        DbError::new(format!("Failed to set account {address}: {e}"))
                     })?;
 
-                    // Cache the code if present
+                    // Store the code in the key-value database if present
                     if let Some(ref code) = account.info.code
                         && !code.is_empty()
                         && account.info.code_hash != KECCAK_EMPTY
                     {
-                        if let Ok(mut code_cache) = self.code.write() {
-                            code_cache.insert(account.info.code_hash, code.clone());
-                        }
+                        self.kvdb
+                            .set_code(&account.info.code_hash, code.original_bytes().as_ref())?;
                     }
                 }
 
@@ -347,7 +314,13 @@ impl Database for TrieDatabase {
         // Commit the transaction
         tx.commit().map_err(|e| DbError::new(format!("Failed to commit transaction: {e}")))?;
 
-        Ok(self.inner.state_root())
+        let state_root = self.inner.state_root();
+
+        // Store the header for this block number
+        let header = Header::new(state_root);
+        self.kvdb.set_header(block_number, &header)?;
+
+        Ok(state_root)
     }
 }
 
@@ -366,9 +339,15 @@ mod tests {
     };
 
     use super::*;
+    use crate::kvdb::RocksDbKvDatabase;
 
     fn empty_genesis() -> Genesis {
         Genesis::default()
+    }
+
+    fn create_kvdb(path: &std::path::Path, genesis: &Genesis) -> RocksDbKvDatabase {
+        RocksDbKvDatabase::open_or_create(path.join("kvdb"), genesis)
+            .expect("failed to create kvdb")
     }
 
     #[test]
@@ -403,10 +382,11 @@ mod tests {
         );
 
         let genesis = Genesis { alloc, ..Default::default() };
+        let kvdb = create_kvdb(temp_dir.path(), &genesis);
 
         // 1. Create database with genesis
-        let db =
-            TrieDatabase::open_or_create(&db_path, &genesis).expect("failed to create database");
+        let db = TrieDatabase::open_or_create(&db_path, &genesis, kvdb.clone())
+            .expect("failed to create database");
 
         // 2. Verify state root is not empty
         let state_root = db.state_root();
@@ -425,6 +405,10 @@ mod tests {
 
         // 4. Verify genesis storage was applied
         assert_eq!(db.storage_ref(bob, U256::from(0)).unwrap(), U256::from(1));
+
+        // 5. Verify genesis header was stored
+        let header = kvdb.get_header(0).unwrap().expect("genesis header should exist");
+        assert_eq!(header.state_root, state_root);
     }
 
     #[test]
@@ -438,10 +422,11 @@ mod tests {
         alloc
             .insert(alice, GenesisAccount { balance: U256::from(1_000_000), ..Default::default() });
         let genesis = Genesis { alloc, ..Default::default() };
+        let kvdb = create_kvdb(temp_dir.path(), &genesis);
 
         // Create the database first
-        let db1 =
-            TrieDatabase::open_or_create(&db_path, &genesis).expect("failed to create database");
+        let db1 = TrieDatabase::open_or_create(&db_path, &genesis, kvdb.clone())
+            .expect("failed to create database");
         let state_root1 = db1.state_root();
         drop(db1);
 
@@ -453,7 +438,7 @@ mod tests {
             )]),
             ..Default::default()
         };
-        let db2 = TrieDatabase::open_or_create(&db_path, &different_genesis)
+        let db2 = TrieDatabase::open_or_create(&db_path, &different_genesis, kvdb)
             .expect("failed to open database");
         let state_root2 = db2.state_root();
 
@@ -470,8 +455,11 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("test_db");
 
+        let genesis = empty_genesis();
+        let kvdb = create_kvdb(temp_dir.path(), &genesis);
+
         // 1. Create database with empty genesis
-        let mut db = TrieDatabase::open_or_create(&db_path, &empty_genesis())
+        let mut db = TrieDatabase::open_or_create(&db_path, &genesis, kvdb.clone())
             .expect("failed to create database");
 
         let alice = Address::repeat_byte(0x01);
@@ -505,7 +493,7 @@ mod tests {
         changes.insert(bob, bob_account);
 
         // 4. Commit block
-        let state_root = db.commit_block(vec![changes]).expect("commit_block failed");
+        let state_root = db.commit_block(1, vec![changes]).expect("commit_block failed");
 
         // 5. Check state root
         assert_ne!(state_root, EMPTY_ROOT_HASH, "state root should not be empty");
@@ -535,5 +523,9 @@ mod tests {
         // Non-existent account
         let unknown = Address::repeat_byte(0xFF);
         assert!(db.basic_ref(unknown).expect("query failed").is_none());
+
+        // 8. Verify header was stored for block 1
+        let header = kvdb.get_header(1).unwrap().expect("block 1 header should exist");
+        assert_eq!(header.state_root, state_root);
     }
 }

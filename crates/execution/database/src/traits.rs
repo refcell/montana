@@ -14,5 +14,9 @@ pub trait Database:
     RevmDatabase<Error = DbError> + DatabaseCommit + DatabaseRef<Error = DbError> + Clone
 {
     /// Commits the block state changes and returns the new state root.
-    fn commit_block(&mut self, transaction_changes: Vec<EvmState>) -> Result<B256, DbError>;
+    fn commit_block(
+        &mut self,
+        block_number: u64,
+        transaction_changes: Vec<EvmState>,
+    ) -> Result<B256, DbError>;
 }

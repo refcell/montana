@@ -137,3 +137,6 @@ triedb = { git = "https://github.com/base/triedb" }
 
 # libmdbx - ONLY for use in the migration crate
 libmdbx = "0.6.4"
+
+# rocksdb - key-value store
+rocksdb = "0.22"

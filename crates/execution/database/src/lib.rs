@@ -8,6 +8,9 @@ pub use cached::CachedDatabase;
 
 pub mod errors;
 
+pub mod kvdb;
+pub use kvdb::{Header, KeyValueDatabase, RocksDbKvDatabase};
+
 pub mod remote;
 pub use remote::RPCDatabase;
 

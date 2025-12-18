@@ -207,4 +207,79 @@ pub enum TuiEvent {
         /// Number of transactions in the block
         tx_count: usize,
     },
+
+    /// Harness initialization progress.
+    ///
+    /// This event is sent during harness startup while generating initial blocks.
+    /// It allows the TUI to show progress instead of appearing empty.
+    HarnessInitProgress {
+        /// Current block being generated (1-indexed)
+        current_block: u64,
+        /// Total blocks to generate
+        total_blocks: u64,
+        /// Status message
+        message: String,
+    },
+
+    /// Harness initialization complete.
+    ///
+    /// This event signals that the initial block generation is finished.
+    /// After this, only new blocks (after init) will be logged to the
+    /// harness activity panel to avoid re-printing init blocks.
+    HarnessInitComplete {
+        /// The final block number generated during initialization
+        final_block: u64,
+    },
+
+    /// Sequencer service initialized with config.
+    ///
+    /// Logs startup information to the batch submission column.
+    SequencerInit {
+        /// Last batch submitted from checkpoint
+        checkpoint_batch: u64,
+        /// Min batch size threshold
+        min_batch_size: usize,
+        /// Batch interval in seconds
+        batch_interval_secs: u64,
+        /// Max blocks per batch
+        max_blocks_per_batch: u16,
+    },
+
+    /// Validator service initialized with config.
+    ///
+    /// Logs startup information to the derivation column.
+    ValidatorInit {
+        /// Last batch derived from checkpoint
+        checkpoint_batch: u64,
+    },
+
+    /// Execution pipeline initialized.
+    ///
+    /// Logs startup information to the execution column.
+    ExecutionInit {
+        /// Starting block number
+        start_block: u64,
+        /// Last executed block from checkpoint
+        checkpoint_block: u64,
+        /// Whether this is harness mode
+        harness_mode: bool,
+    },
+
+    /// Block builder initialized.
+    ///
+    /// Logs startup information to the block builder column.
+    BlockBuilderInit {
+        /// RPC URL being used
+        rpc_url: String,
+        /// Poll interval in ms
+        poll_interval_ms: u64,
+    },
+
+    /// Waiting for chain to produce blocks (harness mode).
+    ///
+    /// Shown when services are ready but waiting for chain activity.
+    WaitingForChain {
+        /// Which service is waiting
+        service: String,
+    },
 }

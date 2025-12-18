@@ -3,13 +3,34 @@
 //! The validator derives and validates batches from L1, executing the payloads
 //! to maintain a derived L2 state.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use montana_checkpoint::Checkpoint;
 use tokio::sync::mpsc;
 
 use crate::{Role, RoleCheckpoint, TickResult};
+
+/// Callback trait for derivation events.
+///
+/// This allows external components (like a TUI) to receive derivation
+/// notifications without the validator depending on them directly.
+pub trait DerivationCallback: Send + Sync {
+    /// Called when a batch has been derived and validated.
+    ///
+    /// # Arguments
+    /// * `batch_number` - The batch number that was derived
+    /// * `block_count` - Number of blocks in the batch
+    /// * `first_block` - First block number in the batch
+    /// * `last_block` - Last block number in the batch
+    fn on_batch_derived(
+        &self,
+        batch_number: u64,
+        block_count: usize,
+        first_block: u64,
+        last_block: u64,
+    );
+}
 
 /// Events emitted by the validator.
 ///
@@ -47,7 +68,6 @@ pub enum ValidatorEvent {
 /// The validator polls L1 for new batches, decompresses them, executes the
 /// payloads, and validates the state transitions. Progress is checkpointed
 /// to enable resumption after restarts.
-#[derive(Debug)]
 pub struct Validator<S, C, E> {
     /// Source for reading batches from L1.
     batch_source: S,
@@ -57,12 +77,31 @@ pub struct Validator<S, C, E> {
     executor: E,
     /// Checkpoint for resumption.
     checkpoint: Checkpoint,
-    /// Path to checkpoint file.
-    checkpoint_path: PathBuf,
+    /// Path to checkpoint file (None disables checkpoint persistence).
+    checkpoint_path: Option<PathBuf>,
     /// Poll interval in milliseconds.
     poll_interval_ms: u64,
     /// Event sender for observer pattern.
     event_tx: Option<mpsc::UnboundedSender<ValidatorEvent>>,
+    /// Callback for derivation events (TUI visibility).
+    derivation_callback: Option<Arc<dyn DerivationCallback>>,
+}
+
+impl<S: std::fmt::Debug, C: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug
+    for Validator<S, C, E>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Validator")
+            .field("batch_source", &self.batch_source)
+            .field("compressor", &self.compressor)
+            .field("executor", &self.executor)
+            .field("checkpoint", &self.checkpoint)
+            .field("checkpoint_path", &self.checkpoint_path)
+            .field("poll_interval_ms", &self.poll_interval_ms)
+            .field("event_tx", &self.event_tx.is_some())
+            .field("derivation_callback", &self.derivation_callback.is_some())
+            .finish()
+    }
 }
 
 impl<S, C, E> Validator<S, C, E>
@@ -80,7 +119,8 @@ where
     /// * `batch_source` - Source for reading batches from L1
     /// * `compressor` - Compressor for decompressing batch data
     /// * `executor` - Executor for derived payloads
-    /// * `checkpoint_path` - Path to checkpoint file
+    /// * `checkpoint_path` - Optional path to checkpoint file. If `None`, checkpointing
+    ///   is disabled (useful for harness/demo mode where fresh starts are expected).
     ///
     /// # Errors
     /// Returns an error if the checkpoint file exists but cannot be loaded.
@@ -88,9 +128,27 @@ where
         batch_source: S,
         compressor: C,
         executor: E,
-        checkpoint_path: PathBuf,
+        checkpoint_path: Option<PathBuf>,
     ) -> eyre::Result<Self> {
-        let checkpoint = Checkpoint::load(&checkpoint_path)?.unwrap_or_default();
+        let checkpoint = if let Some(ref path) = checkpoint_path {
+            Checkpoint::load(path)?.map_or_else(
+                || {
+                    tracing::info!("No checkpoint found at {:?}, starting fresh", path);
+                    Checkpoint::default()
+                },
+                |cp| {
+                    tracing::info!(
+                        "Loaded checkpoint from {:?}, last batch derived: {}",
+                        path,
+                        cp.last_batch_derived
+                    );
+                    cp
+                },
+            )
+        } else {
+            tracing::info!("Checkpoint disabled, starting fresh");
+            Checkpoint::default()
+        };
 
         Ok(Self {
             batch_source,
@@ -100,6 +158,7 @@ where
             checkpoint_path,
             poll_interval_ms: 50,
             event_tx: None,
+            derivation_callback: None,
         })
     }
 
@@ -118,6 +177,20 @@ where
     /// * `tx` - Unbounded sender for validator events
     pub fn with_event_sender(mut self, tx: mpsc::UnboundedSender<ValidatorEvent>) -> Self {
         self.event_tx = Some(tx);
+        self
+    }
+
+    /// Sets the derivation callback for reporting batch derivation events.
+    ///
+    /// This callback is invoked each time a batch is derived and validated,
+    /// allowing external components (like the TUI) to track derivation progress
+    /// without the validator depending on them directly.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - The callback to invoke on batch derivation
+    pub fn with_derivation_callback(mut self, callback: Arc<dyn DerivationCallback>) -> Self {
+        self.derivation_callback = Some(callback);
         self
     }
 
@@ -170,12 +243,38 @@ where
         // Execute
         self.executor.execute(decompressed)?;
 
-        // Update checkpoint
+        // Update checkpoint (only save if persistence is enabled)
         self.checkpoint.record_batch_derived(batch.batch_number);
         self.checkpoint.touch();
-        self.checkpoint.save(&self.checkpoint_path)?;
+        if let Some(ref path) = self.checkpoint_path {
+            self.checkpoint.save(path)?;
+        }
 
         self.emit(ValidatorEvent::BatchValidated { batch_number: batch.batch_number });
+
+        // Invoke derivation callback for TUI visibility
+        // Note: CompressedBatch doesn't contain block number info, so we estimate
+        // first_block based on batch number (placeholder for TUI display)
+        if let Some(ref callback) = self.derivation_callback {
+            // Estimate block range from batch number (rough approximation)
+            // In a real implementation, this would be decoded from the batch data
+            let estimated_first_block = batch.batch_number.saturating_mul(block_count as u64);
+            let estimated_last_block =
+                estimated_first_block.saturating_add(block_count.saturating_sub(1) as u64);
+            tracing::debug!(
+                batch_number = batch.batch_number,
+                block_count,
+                first_block = estimated_first_block,
+                last_block = estimated_last_block,
+                "Invoking derivation callback for TUI"
+            );
+            callback.on_batch_derived(
+                batch.batch_number,
+                block_count,
+                estimated_first_block,
+                estimated_last_block,
+            );
+        }
 
         tracing::info!(
             batch_number = batch.batch_number,

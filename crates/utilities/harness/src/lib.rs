@@ -12,6 +12,8 @@
 
 mod config;
 mod harness;
+mod progress;
 
 pub use config::HarnessConfig;
 pub use harness::Harness;
+pub use progress::{BoxedProgressReporter, HarnessProgressReporter};

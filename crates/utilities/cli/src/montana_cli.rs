@@ -79,6 +79,13 @@ pub struct MontanaCli {
     #[arg(long)]
     pub with_harness: bool,
 
+    /// Reset checkpoint before starting (useful for harness mode).
+    ///
+    /// When enabled, the checkpoint file is deleted before starting,
+    /// ensuring a fresh start. Implied by --with-harness.
+    #[arg(long)]
+    pub reset_checkpoint: bool,
+
     /// Harness block time in milliseconds.
     ///
     /// Controls how fast blocks are produced in harness mode.
@@ -91,6 +98,6 @@ pub struct MontanaCli {
     /// When > 0, the harness generates this many blocks before Montana starts,
     /// creating a "historical" backlog that must be synced. Useful for testing sync.
     /// Only used when --with-harness is enabled.
-    #[arg(long, default_value = "50")]
+    #[arg(long, default_value = "10")]
     pub harness_initial_blocks: u64,
 }

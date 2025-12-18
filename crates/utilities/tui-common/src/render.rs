@@ -43,6 +43,45 @@ pub fn render_logs(logs: &[LogEntry]) -> Vec<Line<'static>> {
         .collect()
 }
 
+/// Convert a collection of log entries to ratatui Lines in reverse order (newest first).
+///
+/// This is useful when using `.wrap()` on a Paragraph widget, since `.wrap()` and
+/// `.scroll()` conflict - scroll calculates by Line count but wrap changes visual lines.
+/// By reversing the order, newest entries appear at the top without needing scroll.
+///
+/// # Examples
+///
+/// ```
+/// use montana_tui_common::{LogEntry, render_logs_reversed};
+///
+/// let logs = vec![
+///     LogEntry::info("First"),
+///     LogEntry::info("Second"),
+///     LogEntry::info("Third"),
+/// ];
+///
+/// let lines = render_logs_reversed(&logs);
+/// // Lines are now in order: Third, Second, First
+/// assert_eq!(lines.len(), 3);
+/// ```
+pub fn render_logs_reversed<'a, I>(logs: I) -> Vec<Line<'static>>
+where
+    I: IntoIterator<Item = &'a LogEntry>,
+    I::IntoIter: DoubleEndedIterator,
+{
+    logs.into_iter()
+        .rev()
+        .map(|entry| {
+            let color = match entry.level {
+                LogLevel::Info => Color::Gray,
+                LogLevel::Warn => Color::Yellow,
+                LogLevel::Error => Color::Red,
+            };
+            Line::from(Span::styled(entry.message.clone(), Style::default().fg(color)))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

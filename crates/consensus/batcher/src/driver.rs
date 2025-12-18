@@ -37,13 +37,17 @@ pub struct BatchDriver {
 
 impl BatchDriver {
     /// Creates a new batch driver with the provided configuration.
+    ///
+    /// Batch numbering starts at 1 (not 0) to avoid conflicts with the default
+    /// checkpoint value of `last_batch_submitted = 0`, which would cause batch 0
+    /// to be incorrectly skipped on a fresh start.
     pub fn new(config: crate::BatcherConfig) -> Self {
         Self {
             config,
             pending_blocks: VecDeque::new(),
             current_size: 0,
             last_submission: Instant::now(),
-            batch_number: 0,
+            batch_number: 1, // Start at 1 to avoid checkpoint skip issue with batch 0
             checkpoint: montana_checkpoint::Checkpoint::default(),
             checkpoint_path: None,
         }
@@ -61,7 +65,26 @@ impl BatchDriver {
 
     /// Determines if a batch should be submitted based on configured criteria.
     pub fn should_submit(&self) -> bool {
-        self.size_ready() || self.time_ready() || self.blocks_ready()
+        let size = self.size_ready();
+        let time = self.time_ready();
+        let blocks = self.blocks_ready();
+        let result = size || time || blocks;
+
+        tracing::trace!(
+            size_ready = size,
+            time_ready = time,
+            blocks_ready = blocks,
+            current_size = self.current_size,
+            min_batch_size = self.config.min_batch_size,
+            pending_count = self.pending_blocks.len(),
+            max_blocks = self.config.max_blocks_per_batch,
+            elapsed_ms = self.last_submission.elapsed().as_millis() as u64,
+            batch_interval_ms = self.config.batch_interval.as_millis() as u64,
+            should_submit = result,
+            "Batch submission check"
+        );
+
+        result
     }
 
     /// Builds a batch if submission criteria are met.
@@ -246,7 +269,7 @@ mod tests {
 
         assert_eq!(driver.pending_count(), 0);
         assert_eq!(driver.current_size(), 0);
-        assert_eq!(driver.batch_number, 0);
+        assert_eq!(driver.batch_number, 1); // Starts at 1 to avoid checkpoint skip issue
     }
 
     #[test]
@@ -359,7 +382,7 @@ mod tests {
 
         assert!(batch.is_some());
         let pending = batch.unwrap();
-        assert_eq!(pending.batch_number, 0);
+        assert_eq!(pending.batch_number, 1); // First batch is #1 (not 0)
         assert_eq!(pending.blocks.len(), 1);
         assert_eq!(pending.uncompressed_size, 1001);
     }
@@ -398,10 +421,11 @@ mod tests {
             let batch = driver.build_batch();
 
             assert!(batch.is_some());
-            assert_eq!(batch.unwrap().batch_number, i as u64);
+            // Batch numbers start at 1, so first batch is 1, second is 2, etc.
+            assert_eq!(batch.unwrap().batch_number, (i + 1) as u64);
         }
 
-        assert_eq!(driver.batch_number, 3);
+        assert_eq!(driver.batch_number, 4); // After 3 batches: 1, 2, 3 -> next is 4
     }
 
     #[test]

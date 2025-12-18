@@ -259,3 +259,55 @@ async fn test_harness_block_contents() {
     assert!(block.header.number >= 1);
     assert!(block.header.timestamp > 0);
 }
+
+/// Test `spawn_if_enabled` with harness enabled.
+#[tokio::test]
+async fn test_spawn_if_enabled_with_harness() {
+    let (harness, rpc_url) = Harness::spawn_if_enabled(true, 1000, 2, None, None)
+        .await
+        .expect("Failed to spawn harness");
+
+    // Should return Some(harness)
+    assert!(harness.is_some(), "Harness should be spawned when enabled");
+
+    // Should return harness RPC URL
+    assert!(rpc_url.starts_with("http://"), "RPC URL should be a valid HTTP URL");
+
+    // Verify we can connect
+    let provider =
+        ProviderBuilder::new().connect(&rpc_url).await.expect("Failed to connect to harness");
+
+    let block_number = provider.get_block_number().await.expect("Failed to get block number");
+    assert!(block_number >= 2, "Should have at least 2 initial blocks");
+}
+
+/// Test `spawn_if_enabled` with harness disabled.
+#[tokio::test]
+async fn test_spawn_if_enabled_without_harness() {
+    let custom_rpc = "http://localhost:8545".to_string();
+    let (harness, rpc_url) =
+        Harness::spawn_if_enabled(false, 1000, 0, Some(custom_rpc.clone()), None)
+            .await
+            .expect("Should succeed with RPC URL provided");
+
+    // Should return None (no harness)
+    assert!(harness.is_none(), "Harness should not be spawned when disabled");
+
+    // Should return the provided RPC URL
+    assert_eq!(rpc_url, custom_rpc, "Should return the provided RPC URL");
+}
+
+/// Test `spawn_if_enabled` errors when harness disabled but no RPC URL.
+#[tokio::test]
+async fn test_spawn_if_enabled_error_without_rpc() {
+    let result = Harness::spawn_if_enabled(false, 1000, 0, None, None).await;
+
+    // Should return an error
+    assert!(result.is_err(), "Should error when harness disabled and no RPC URL provided");
+
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("RPC URL is required"),
+        "Error should mention RPC URL requirement"
+    );
+}

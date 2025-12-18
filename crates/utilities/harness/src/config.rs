@@ -22,7 +22,7 @@ pub struct HarnessConfig {
     ///
     /// This creates a "historical" backlog that Montana must sync through,
     /// enabling testing of the sync stage.
-    /// Default: 50 blocks
+    /// Default: 10 blocks
     pub initial_delay_blocks: u64,
 
     /// Number of test accounts to use for transaction generation.
@@ -34,7 +34,7 @@ pub struct HarnessConfig {
 
 impl Default for HarnessConfig {
     fn default() -> Self {
-        Self { block_time_ms: 1000, tx_interval_ms: 500, initial_delay_blocks: 50, accounts: 10 }
+        Self { block_time_ms: 1000, tx_interval_ms: 500, initial_delay_blocks: 10, accounts: 10 }
     }
 }
 
@@ -47,7 +47,7 @@ mod tests {
         let config = HarnessConfig::default();
         assert_eq!(config.block_time_ms, 1000);
         assert_eq!(config.tx_interval_ms, 500);
-        assert_eq!(config.initial_delay_blocks, 50);
+        assert_eq!(config.initial_delay_blocks, 10);
         assert_eq!(config.accounts, 10);
     }
 

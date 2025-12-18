@@ -68,6 +68,13 @@ impl Checkpoint {
     pub fn save(&self, path: &Path) -> Result<(), CheckpointError> {
         let json = serde_json::to_string_pretty(self)?;
 
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
+        }
+
         // Write to temporary file in the same directory
         let temp_path = path.with_extension("tmp");
         fs::write(&temp_path, json)?;
@@ -88,13 +95,23 @@ impl Checkpoint {
 
     /// Checks if a batch should be skipped based on the checkpoint state.
     ///
-    /// Returns `true` if the batch number has already been submitted (batch_number <= last_batch_submitted).
+    /// Returns `true` if the batch number has already been submitted.
+    ///
+    /// The default value of `last_batch_submitted` is 0, which means "no batches
+    /// submitted yet". In this case, no batch should be skipped. Once a batch
+    /// is successfully submitted, `last_batch_submitted` is updated and subsequent
+    /// batches with numbers <= that value will be skipped.
     ///
     /// # Arguments
     ///
     /// * `batch_number` - The batch number to check
     pub const fn should_skip_batch(&self, batch_number: u64) -> bool {
-        batch_number <= self.last_batch_submitted
+        // Default value 0 means "no batches submitted yet", so don't skip anything
+        if self.last_batch_submitted == 0 {
+            false
+        } else {
+            batch_number <= self.last_batch_submitted
+        }
     }
 
     /// Records that a batch has been successfully submitted.
@@ -217,8 +234,13 @@ mod tests {
     #[test]
     fn test_should_skip_batch() {
         let mut checkpoint = Checkpoint::new();
-        checkpoint.last_batch_submitted = 10;
 
+        // Default value 0 means "no batches submitted", so nothing should be skipped
+        assert!(!checkpoint.should_skip_batch(0));
+        assert!(!checkpoint.should_skip_batch(1));
+
+        // After submitting batch 10, batches <= 10 should be skipped
+        checkpoint.last_batch_submitted = 10;
         assert!(checkpoint.should_skip_batch(5));
         assert!(checkpoint.should_skip_batch(10));
         assert!(!checkpoint.should_skip_batch(11));

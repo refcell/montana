@@ -22,5 +22,7 @@ pub use helpers::{format_bytes, format_duration_ms, truncate_url};
 ///
 /// The [`render_logs`] function converts a vector of [`LogEntry`] instances
 /// into ratatui `Line` widgets with appropriate color coding based on log level.
+/// The [`render_logs_reversed`] function does the same but in reverse order
+/// (newest first), which is useful when `.wrap()` conflicts with `.scroll()`.
 mod render;
-pub use render::render_logs;
+pub use render::{render_logs, render_logs_reversed};

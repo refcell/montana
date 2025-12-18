@@ -13,7 +13,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 use tokio::sync::mpsc;
-use montana_tui_common::{LogEntry, format_bytes, render_logs};
+use montana_tui_common::{LogEntry, format_bytes, render_logs_reversed};
 
 use crate::{App, SyncState, TuiEvent, TuiHandle};
 
@@ -201,8 +201,12 @@ fn process_event(app: &mut App, event: TuiEvent) {
                 "Block #{}: {:.1} blks/s, {} remaining, ETA {}",
                 current_block, blocks_per_second, remaining, eta_str
             )));
-            // In harness mode, also log synced blocks to the harness activity panel
-            if app.harness_mode && current_block > app.harness_block {
+            // In harness mode, log to harness panel only for blocks after init
+            // (blocks during init were already logged via HarnessInitProgress)
+            if app.harness_mode
+                && app.is_after_harness_init(current_block)
+                && current_block > app.harness_block
+            {
                 app.record_harness_block(current_block, 0);
             }
         }
@@ -228,8 +232,9 @@ fn process_event(app: &mut App, event: TuiEvent) {
                 format_bytes(size_bytes),
                 gas_used
             )));
-            // In harness mode, also log to the harness activity panel
-            if app.harness_mode {
+            // In harness mode, log to harness panel only for blocks after init
+            // (blocks during init were already logged via HarnessInitProgress)
+            if app.harness_mode && app.is_after_harness_init(number) {
                 app.record_harness_block(number, tx_count);
             }
         }
@@ -312,6 +317,91 @@ fn process_event(app: &mut App, event: TuiEvent) {
         TuiEvent::HarnessBlockProduced { block_number, tx_count } => {
             app.record_harness_block(block_number, tx_count);
         }
+        TuiEvent::HarnessInitProgress { current_block, total_blocks, message } => {
+            // Log progress to the harness panel
+            let pct = if total_blocks > 0 {
+                (current_block as f64 / total_blocks as f64) * 100.0
+            } else {
+                0.0
+            };
+            app.log_harness(LogEntry::info(format!(
+                "[{}/{}] {:.0}% - {}",
+                current_block, total_blocks, pct, message
+            )));
+            // Also update harness block counter so the panel title updates
+            app.harness_block = current_block;
+        }
+        TuiEvent::HarnessInitComplete { final_block } => {
+            // Mark initialization complete - blocks <= final_block won't be re-logged
+            app.complete_harness_init(final_block);
+        }
+        TuiEvent::SequencerInit {
+            checkpoint_batch,
+            min_batch_size,
+            batch_interval_secs,
+            max_blocks_per_batch,
+        } => {
+            app.log_batch(LogEntry::info(format!(
+                "Sequencer initialized: checkpoint batch #{}",
+                checkpoint_batch
+            )));
+            app.log_batch(LogEntry::info(format!(
+                "Config: min_size={} bytes, interval={}s, max_blocks={}",
+                min_batch_size, batch_interval_secs, max_blocks_per_batch
+            )));
+            if app.harness_mode {
+                app.log_batch(LogEntry::info("Waiting for chain initialization...".to_string()));
+            }
+        }
+        TuiEvent::ValidatorInit { checkpoint_batch } => {
+            app.log_derivation(LogEntry::info(format!(
+                "Validator initialized: checkpoint batch #{}",
+                checkpoint_batch
+            )));
+            if app.harness_mode {
+                app.log_derivation(LogEntry::info(
+                    "Waiting for chain initialization...".to_string(),
+                ));
+            }
+        }
+        TuiEvent::ExecutionInit { start_block, checkpoint_block, harness_mode } => {
+            app.log_execution(LogEntry::info(format!(
+                "Execution initialized: start block #{}, checkpoint block #{}",
+                start_block, checkpoint_block
+            )));
+            if harness_mode {
+                app.log_execution(LogEntry::info(
+                    "Waiting for chain initialization...".to_string(),
+                ));
+            }
+        }
+        TuiEvent::BlockBuilderInit { rpc_url, poll_interval_ms } => {
+            // Truncate RPC URL for display
+            let display_url =
+                if rpc_url.len() > 40 { format!("{}...", &rpc_url[..37]) } else { rpc_url };
+            app.log_block(LogEntry::info(format!(
+                "Block builder: {} (poll {}ms)",
+                display_url, poll_interval_ms
+            )));
+            if app.harness_mode {
+                app.log_block(LogEntry::info("Waiting for chain initialization...".to_string()));
+            }
+        }
+        TuiEvent::WaitingForChain { service } => match service.as_str() {
+            "sequencer" | "batch" => {
+                app.log_batch(LogEntry::info("Waiting for blocks...".to_string()));
+            }
+            "validator" | "derivation" => {
+                app.log_derivation(LogEntry::info("Waiting for batches...".to_string()));
+            }
+            "execution" => {
+                app.log_execution(LogEntry::info("Waiting for blocks...".to_string()));
+            }
+            "block_builder" => {
+                app.log_block(LogEntry::info("Waiting for blocks...".to_string()));
+            }
+            _ => {}
+        },
     }
 }
 
@@ -369,28 +459,28 @@ fn draw_harness_banner(frame: &mut ratatui::Frame<'_>, area: Rect) {
     frame.render_widget(banner, area);
 }
 
-/// Draw the header with chain state, sync stats, and metrics.
+/// Draw the header with chain state, sync stats, metrics, and execution stats.
 fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    // Split header into chain state (30%), sync stats (35%), and metrics (35%)
+    // Split header into chain state (25%), sync stats (25%), metrics (25%), execution (25%)
     let header_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(30),
-            Constraint::Percentage(35),
-            Constraint::Percentage(35),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
         ])
         .split(area);
 
     draw_chain_state(frame, app, header_chunks[0]);
     draw_sync_stats(frame, app, header_chunks[1]);
     draw_metrics(frame, app, header_chunks[2]);
+    draw_execution_stats(frame, app, header_chunks[3]);
 }
 
 /// Draw chain state panel (unsafe/safe/finalized heads).
 fn draw_chain_state(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let text = vec![
-        Line::from(vec![Span::styled("Chain State", Style::default().fg(Color::Cyan).bold())]),
-        Line::from(""),
         Line::from(vec![
             Span::styled("Unsafe Head:  ", Style::default().fg(Color::DarkGray)),
             Span::styled(format!("#{}", app.unsafe_head), Style::default().fg(Color::White).bold()),
@@ -565,11 +655,9 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
     let text = vec![
         Line::from(vec![
-            Span::styled("Performance Metrics", Style::default().fg(Color::Yellow).bold()),
-            Span::raw("  |  "),
+            Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
             sync_status,
         ]),
-        Line::from(""),
         Line::from(vec![
             Span::styled("Round-trip:     ", Style::default().fg(Color::DarkGray)),
             Span::styled(
@@ -611,6 +699,77 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 .borders(Borders::ALL)
                 .title(" Performance Metrics ")
                 .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(widget, area);
+}
+
+/// Draw execution stats panel in the header.
+fn draw_execution_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let backlog = app.backlog_size();
+    let rate = app.execution_rate();
+    let avg_time = app.avg_execution_time_ms();
+
+    // Determine execution status
+    let (status_text, status_color) = if app.blocks_executed == 0 && app.blocks_fetched == 0 {
+        ("WAITING", Color::DarkGray)
+    } else if app.blocks_executed == 0 && app.blocks_fetched > 0 {
+        ("STARTING", Color::Yellow)
+    } else if let Some(elapsed) = app.time_since_last_execution() {
+        if elapsed.as_secs() > 30 {
+            ("STALLED", Color::Red)
+        } else if elapsed.as_secs() > 5 {
+            ("SLOW", Color::Yellow)
+        } else {
+            ("RUNNING", Color::Green)
+        }
+    } else {
+        ("IDLE", Color::DarkGray)
+    };
+
+    let text = vec![
+        Line::from(vec![
+            Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(status_text, Style::default().fg(status_color).bold()),
+        ]),
+        Line::from(vec![
+            Span::styled("Block:  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("#{}", app.last_executed_block),
+                Style::default().fg(Color::White).bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Rate:   ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{:.1} blks/s", rate), Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::styled("Backlog:", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!(" {}", backlog),
+                if backlog > 100 {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::Green)
+                },
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Avg:    ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                if avg_time > 0.0 { format!("{:.1}ms", avg_time) } else { "--".to_string() },
+                Style::default().fg(Color::White),
+            ),
+        ]),
+    ];
+
+    let widget = Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Execution Stats ")
+                .title_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -659,7 +818,8 @@ fn draw_body(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
 /// Draw harness activity (only shown in harness mode).
 fn draw_harness_activity(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let logs = render_logs(&app.harness_logs);
+    // Render logs in reverse order (newest first) since wrap() and scroll() conflict
+    let logs = render_logs_reversed(&app.harness_logs);
 
     let title = format!(" Anvil (Block #{}) ", app.harness_block);
 
@@ -677,7 +837,8 @@ fn draw_harness_activity(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) 
 
 /// Draw sync updates stream.
 fn draw_sync_updates(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let logs = render_logs(&app.sync_logs);
+    // Render logs in reverse order (newest first) since wrap() and scroll() conflict
+    let logs = render_logs_reversed(&app.sync_logs);
 
     // Determine title color based on sync state
     let title_color = match app.sync_state {
@@ -700,7 +861,8 @@ fn draw_sync_updates(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
 /// Draw block builder logs.
 fn draw_block_builder(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let logs = render_logs(&app.block_builder_logs);
+    // Render logs in reverse order (newest first) since wrap() and scroll() conflict
+    let logs = render_logs_reversed(&app.block_builder_logs);
 
     let widget = Paragraph::new(logs)
         .block(
@@ -727,106 +889,33 @@ fn draw_execution_and_batches(frame: &mut ratatui::Frame<'_>, app: &App, area: R
     draw_batch_submissions(frame, app, chunks[1]);
 }
 
-/// Draw execution section with metrics and logs.
+/// Draw execution section with logs only (stats are now in header).
 fn draw_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let backlog = app.backlog_size();
-    let rate = app.execution_rate();
-    let avg_time = app.avg_execution_time_ms();
 
-    // Determine execution status
-    let (status_text, status_color) = if app.blocks_executed == 0 && app.blocks_fetched == 0 {
-        ("WAITING FOR BLOCKS", Color::DarkGray)
-    } else if app.blocks_executed == 0 && app.blocks_fetched > 0 {
-        ("STARTING...", Color::Yellow)
+    // Determine title color based on execution state
+    let title_color = if app.blocks_executed == 0 && app.blocks_fetched == 0 {
+        Color::DarkGray
     } else if let Some(elapsed) = app.time_since_last_execution() {
         if elapsed.as_secs() > 30 {
-            ("STALLED", Color::Red)
-        } else if elapsed.as_secs() > 5 {
-            ("PROCESSING (slow)", Color::Yellow)
+            Color::Red
+        } else if elapsed.as_secs() > 5 || backlog > 100 {
+            Color::Yellow
         } else {
-            ("RUNNING", Color::Green)
+            Color::LightGreen
         }
     } else {
-        ("IDLE", Color::DarkGray)
+        Color::LightGreen
     };
 
-    // Format elapsed time since last execution
-    let elapsed_str = app.time_since_last_execution().map_or_else(
-        || "--".to_string(),
-        |d| {
-            if d.as_secs() < 60 {
-                format!("{}s ago", d.as_secs())
-            } else {
-                format!("{}m {}s ago", d.as_secs() / 60, d.as_secs() % 60)
-            }
-        },
-    );
-
-    // Build header with metrics and status
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled("Status:  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(status_text, Style::default().fg(status_color).bold()),
-            Span::raw("  "),
-            Span::styled("Last: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(elapsed_str, Style::default().fg(Color::White)),
-        ]),
-        Line::from(vec![
-            Span::styled("Block:   ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!("#{}", app.last_executed_block),
-                Style::default().fg(Color::White).bold(),
-            ),
-            Span::raw("  "),
-            Span::styled("Fetched: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("#{}", app.last_fetched_block), Style::default().fg(Color::Cyan)),
-        ]),
-        Line::from(vec![
-            Span::styled("Rate:    ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("{:.1} blks/s", rate), Style::default().fg(Color::Cyan)),
-            Span::raw("  "),
-            Span::styled("Backlog: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!("{}", backlog),
-                if backlog > 100 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Avg:     ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                if avg_time > 0.0 { format!("{:.1}ms/block", avg_time) } else { "--".to_string() },
-                Style::default().fg(Color::White),
-            ),
-            Span::raw("  "),
-            Span::styled("Total:   ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!("{}/{}", app.blocks_executed, app.blocks_fetched),
-                Style::default().fg(Color::Magenta),
-            ),
-        ]),
-        Line::from(""),
-    ];
-
-    // Add recent execution logs
-    let log_lines = render_logs(&app.execution_logs);
-    lines.extend(log_lines);
-
-    let title_color = match status_color {
-        Color::Red => Color::Red,
-        Color::Yellow => Color::Yellow,
-        _ if backlog > 100 => Color::Yellow,
-        _ => Color::LightGreen,
-    };
+    // Render logs in reverse order (newest first) since wrap() and scroll() conflict
+    let lines = render_logs_reversed(&app.execution_logs);
 
     let widget = Paragraph::new(lines)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Execution ")
+                .title(" Execution Logs ")
                 .title_style(Style::default().fg(title_color).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
@@ -836,7 +925,8 @@ fn draw_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
 /// Draw batch submission logs.
 fn draw_batch_submissions(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let logs = render_logs(&app.batch_logs);
+    // Render logs in reverse order (newest first) since wrap() and scroll() conflict
+    let logs = render_logs_reversed(&app.batch_logs);
 
     let widget = Paragraph::new(logs)
         .block(
@@ -852,7 +942,8 @@ fn draw_batch_submissions(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect)
 
 /// Draw derived blocks logs with timing.
 fn draw_derived_blocks(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let logs = render_logs(&app.derivation_logs);
+    // Render logs in reverse order (newest first) since wrap() and scroll() conflict
+    let logs = render_logs_reversed(&app.derivation_logs);
 
     let widget = Paragraph::new(logs)
         .block(

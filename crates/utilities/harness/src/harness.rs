@@ -19,7 +19,7 @@ use alloy::{
 use eyre::Result;
 use rand::Rng;
 
-use crate::HarnessConfig;
+use crate::{BoxedProgressReporter, HarnessConfig};
 
 /// Test harness that manages an anvil instance with synthetic transaction activity.
 ///
@@ -43,6 +43,86 @@ pub struct Harness {
 }
 
 impl Harness {
+    /// Spawns a harness if enabled by CLI flags, returning the harness and RPC URL.
+    ///
+    /// If harness is not enabled, returns None and the original RPC URL.
+    ///
+    /// This is a convenience method for handling the common pattern of conditionally
+    /// spawning a test harness based on CLI flags.
+    ///
+    /// # Arguments
+    ///
+    /// * `with_harness` - Whether to spawn a harness
+    /// * `block_time_ms` - Anvil block time in milliseconds
+    /// * `initial_blocks` - Number of blocks to generate before returning
+    /// * `rpc_url` - RPC URL to use if harness is not enabled
+    /// * `progress` - Optional progress reporter for TUI feedback during initialization
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple of (Option<Harness>, RPC URL):
+    /// - If `with_harness` is true: (Some(harness), harness RPC URL)
+    /// - If `with_harness` is false: (None, provided RPC URL)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Harness is enabled but fails to spawn
+    /// - Harness is not enabled but no RPC URL is provided
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use montana_harness::Harness;
+    ///
+    /// # async fn example() -> eyre::Result<()> {
+    /// // With harness enabled:
+    /// let (harness, rpc_url) = Harness::spawn_if_enabled(
+    ///     true,
+    ///     1000,  // 1 second block time
+    ///     10,    // 10 initial blocks
+    ///     None,
+    ///     None,  // No progress reporter
+    /// ).await?;
+    /// assert!(harness.is_some());
+    /// // Use rpc_url to connect...
+    ///
+    /// // With harness disabled:
+    /// let (harness, rpc_url) = Harness::spawn_if_enabled(
+    ///     false,
+    ///     0,
+    ///     0,
+    ///     Some("http://localhost:8545".to_string()),
+    ///     None,
+    /// ).await?;
+    /// assert!(harness.is_none());
+    /// // Use provided rpc_url...
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn spawn_if_enabled(
+        with_harness: bool,
+        block_time_ms: u64,
+        initial_blocks: u64,
+        rpc_url: Option<String>,
+        progress: Option<BoxedProgressReporter>,
+    ) -> Result<(Option<Self>, String)> {
+        if with_harness {
+            let config = HarnessConfig {
+                block_time_ms,
+                initial_delay_blocks: initial_blocks,
+                ..Default::default()
+            };
+            let harness = Self::spawn_with_progress(config, progress).await?;
+            let rpc_url = harness.rpc_url().to_string();
+            Ok((Some(harness), rpc_url))
+        } else {
+            let rpc_url = rpc_url
+                .ok_or_else(|| eyre::eyre!("RPC URL is required when harness is disabled"))?;
+            Ok((None, rpc_url))
+        }
+    }
+
     /// Spawn a new test harness with the given configuration.
     ///
     /// This will:
@@ -54,7 +134,36 @@ impl Harness {
     ///
     /// Returns an error if anvil fails to spawn or initial block generation fails.
     pub async fn spawn(config: HarnessConfig) -> Result<Self> {
+        Self::spawn_with_progress(config, None).await
+    }
+
+    /// Spawn a new test harness with the given configuration and progress reporter.
+    ///
+    /// This will:
+    /// 1. Start a local anvil instance
+    /// 2. Generate `initial_delay_blocks` blocks (if > 0), reporting progress
+    /// 3. Start background transaction generation
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Harness configuration
+    /// * `progress` - Optional progress reporter for TUI feedback during initialization
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if anvil fails to spawn or initial block generation fails.
+    pub async fn spawn_with_progress(
+        config: HarnessConfig,
+        progress: Option<BoxedProgressReporter>,
+    ) -> Result<Self> {
         tracing::info!(?config, "Spawning test harness");
+
+        let total_blocks = config.initial_delay_blocks;
+
+        // Report that we're starting
+        if let Some(ref p) = progress {
+            p.report_started(total_blocks);
+        }
 
         // Calculate block time in seconds (minimum 1 second for anvil)
         let block_time_secs = (config.block_time_ms / 1000).max(1);
@@ -68,6 +177,11 @@ impl Harness {
         let rpc_url = anvil.endpoint();
         tracing::info!(rpc_url = %rpc_url, "Anvil started");
 
+        // Report anvil started
+        if let Some(ref p) = progress {
+            p.report_progress(0, total_blocks, &format!("Anvil started at {}", rpc_url));
+        }
+
         // Get signers from anvil's pre-funded accounts
         let signers: Vec<PrivateKeySigner> =
             anvil.keys().iter().take(config.accounts as usize).map(|k| k.clone().into()).collect();
@@ -80,13 +194,14 @@ impl Harness {
         let provider = ProviderBuilder::new().wallet(wallet).connect(&rpc_url).await?;
 
         // Generate initial blocks if configured
-        if config.initial_delay_blocks > 0 {
-            tracing::info!(
-                blocks = config.initial_delay_blocks,
-                "Generating initial blocks for sync testing"
-            );
+        if total_blocks > 0 {
+            tracing::info!(blocks = total_blocks, "Generating initial blocks for sync testing");
 
-            for i in 0..config.initial_delay_blocks {
+            if let Some(ref p) = progress {
+                p.report_progress(0, total_blocks, "Generating initial blocks...");
+            }
+
+            for i in 0..total_blocks {
                 // Send a simple transfer to trigger a block
                 let to = addresses[(i as usize + 1) % addresses.len()];
                 let value = U256::from(1_000_000_000_000_000u64); // 0.001 ETH
@@ -95,15 +210,27 @@ impl Harness {
 
                 provider.send_transaction(tx).await?.watch().await?;
 
-                if (i + 1) % 10 == 0 {
-                    tracing::debug!(block = i + 1, "Generated initial block");
+                let block_num = i + 1;
+
+                // Report progress after each block
+                if let Some(ref p) = progress {
+                    p.report_progress(
+                        block_num,
+                        total_blocks,
+                        &format!("Generated block #{}", block_num),
+                    );
+                }
+
+                if block_num % 10 == 0 {
+                    tracing::debug!(block = block_num, "Generated initial block");
                 }
             }
 
-            tracing::info!(
-                blocks = config.initial_delay_blocks,
-                "Initial block generation complete"
-            );
+            tracing::info!(blocks = total_blocks, "Initial block generation complete");
+
+            if let Some(ref p) = progress {
+                p.report_completed(total_blocks);
+            }
         }
 
         // Set up stop signal for background thread
@@ -168,6 +295,7 @@ impl std::fmt::Debug for Harness {
 /// Background transaction generator.
 ///
 /// Continuously sends random transfers between test accounts until stopped.
+/// Runs indefinitely to simulate a real chain that never stops producing blocks.
 async fn run_tx_generator(
     rpc_url: String,
     signers: Vec<PrivateKeySigner>,
@@ -185,11 +313,19 @@ async fn run_tx_generator(
         providers.push(provider);
     }
 
-    tracing::info!("Transaction generator started");
+    tracing::info!(
+        tx_interval_ms = tx_interval_ms,
+        num_accounts = providers.len(),
+        "Transaction generator started - will run indefinitely"
+    );
+
+    let mut tx_count: u64 = 0;
+    let mut consecutive_errors: u32 = 0;
+    const MAX_CONSECUTIVE_ERRORS: u32 = 10;
 
     loop {
         if stop_signal.load(Ordering::SeqCst) {
-            tracing::info!("Transaction generator stopping");
+            tracing::info!(total_transactions = tx_count, "Transaction generator stopping");
             break;
         }
 
@@ -205,16 +341,43 @@ async fn run_tx_generator(
         // Send transaction (don't wait for receipt to keep it fast)
         match providers[sender_idx].send_transaction(tx).await {
             Ok(pending) => {
-                tracing::trace!(
-                    from = %addresses[sender_idx],
-                    to = %to,
-                    value = %value,
-                    hash = %pending.tx_hash(),
-                    "Sent transaction"
-                );
+                tx_count += 1;
+                consecutive_errors = 0;
+
+                // Log every 100 transactions at debug level, every 10 at trace level
+                if tx_count.is_multiple_of(100) {
+                    tracing::debug!(
+                        tx_count = tx_count,
+                        hash = %pending.tx_hash(),
+                        "Transaction generator progress"
+                    );
+                } else {
+                    tracing::trace!(
+                        from = %addresses[sender_idx],
+                        to = %to,
+                        value = %value,
+                        hash = %pending.tx_hash(),
+                        "Sent transaction"
+                    );
+                }
             }
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to send transaction");
+                consecutive_errors += 1;
+                tracing::warn!(
+                    error = %e,
+                    consecutive_errors = consecutive_errors,
+                    "Failed to send transaction"
+                );
+
+                // If we get too many consecutive errors, back off more aggressively
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                    tracing::error!(
+                        consecutive_errors = consecutive_errors,
+                        "Too many consecutive transaction errors, backing off for 5 seconds"
+                    );
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    consecutive_errors = 0;
+                }
             }
         }
 

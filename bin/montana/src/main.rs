@@ -19,10 +19,10 @@ use montana_batcher::{Address, BatchDriver, BatcherConfig};
 use montana_brotli::BrotliCompressor;
 use montana_checkpoint::Checkpoint;
 use montana_cli::{MontanaCli, MontanaMode, init_tracing_with_level};
-use montana_harness::{Harness, HarnessConfig};
+use montana_harness::{Harness, HarnessProgressReporter};
 use montana_node::{Node, NodeBuilder, NodeConfig, NodeRole, SyncConfig, SyncStage};
 use montana_pipeline::{Bytes, L2BlockData, NoopExecutor};
-use montana_roles::{ExecutionCallback, Sequencer, Validator};
+use montana_roles::{BatchCallback, DerivationCallback, ExecutionCallback, Sequencer, Validator};
 use montana_tui::{TuiEvent, TuiHandle, TuiObserver, create_tui};
 use op_alloy::network::Optimism;
 use tokio::sync::mpsc;
@@ -60,6 +60,14 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Reset checkpoint if requested or if running with harness (fresh start for demos)
+    if (cli.reset_checkpoint || cli.with_harness) && cli.checkpoint_path.exists() {
+        tracing::info!("Resetting checkpoint at {:?}", cli.checkpoint_path);
+        if let Err(e) = std::fs::remove_file(&cli.checkpoint_path) {
+            tracing::warn!("Failed to remove checkpoint file: {}", e);
+        }
+    }
+
     if cli.headless {
         init_tracing_with_level(&cli.log_level);
         run_headless(cli).await
@@ -69,24 +77,15 @@ async fn main() -> Result<()> {
 }
 
 async fn run_headless(cli: MontanaCli) -> Result<()> {
-    // Spawn harness if enabled
-    let harness = if cli.with_harness {
-        let config = HarnessConfig {
-            block_time_ms: cli.harness_block_time_ms,
-            initial_delay_blocks: cli.harness_initial_blocks,
-            ..Default::default()
-        };
-        Some(Harness::spawn(config).await?)
-    } else {
-        None
-    };
-
-    // Get the RPC URL (from harness or CLI)
-    let rpc_url = harness
-        .as_ref()
-        .map(|h| h.rpc_url().to_string())
-        .or_else(|| cli.rpc_url.clone())
-        .expect("RPC URL should be available");
+    // Spawn harness if enabled (no progress reporter in headless mode)
+    let (harness, rpc_url) = Harness::spawn_if_enabled(
+        cli.with_harness,
+        cli.harness_block_time_ms,
+        cli.harness_initial_blocks,
+        cli.rpc_url.clone(),
+        None, // No TUI progress reporter in headless mode
+    )
+    .await?;
 
     let mut node = build_node(cli, None, None, rpc_url).await?;
     let result = node.run().await;
@@ -124,36 +123,37 @@ fn run_with_tui(cli: MontanaCli) -> Result<()> {
 
     // Clone handle for block feeder before creating observer
     let block_feeder_handle = handle.clone();
+    // Clone handle for harness progress reporting
+    let harness_progress_handle = handle.clone();
     let tui_observer = Arc::new(TuiObserver::new(handle));
 
     let rt = tokio::runtime::Runtime::new()?;
 
     std::thread::spawn(move || {
         rt.block_on(async move {
-            // Spawn harness if enabled
-            let harness = if cli.with_harness {
-                let config = HarnessConfig {
-                    block_time_ms: cli.harness_block_time_ms,
-                    initial_delay_blocks: cli.harness_initial_blocks,
-                    ..Default::default()
-                };
-                match Harness::spawn(config).await {
-                    Ok(h) => Some(h),
-                    Err(e) => {
-                        tracing::error!(error = %e, "Failed to spawn harness");
-                        return;
-                    }
-                }
+            // Create progress reporter for harness initialization
+            let progress_reporter: Option<Box<dyn HarnessProgressReporter>> = if cli.with_harness {
+                Some(Box::new(HarnessProgressAdapter { handle: harness_progress_handle }))
             } else {
                 None
             };
 
-            // Get the RPC URL (from harness or CLI)
-            let rpc_url = harness
-                .as_ref()
-                .map(|h| h.rpc_url().to_string())
-                .or_else(|| cli.rpc_url.clone())
-                .expect("RPC URL should be available");
+            // Spawn harness if enabled, with progress reporting to TUI
+            let (harness, rpc_url) = match Harness::spawn_if_enabled(
+                cli.with_harness,
+                cli.harness_block_time_ms,
+                cli.harness_initial_blocks,
+                cli.rpc_url.clone(),
+                progress_reporter,
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to spawn harness");
+                    return;
+                }
+            };
 
             let result =
                 match build_node(cli, Some(tui_observer), Some(block_feeder_handle), rpc_url).await
@@ -280,6 +280,14 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         let feeder_tui_handle = tui_handle.clone();
         let feeder_rpc_url = rpc_url.clone();
 
+        // Send BlockBuilder initialization event to TUI if handle exists
+        if let Some(ref handle) = tui_handle {
+            handle.send(TuiEvent::BlockBuilderInit {
+                rpc_url: rpc_url.clone(),
+                poll_interval_ms: cli.poll_interval_ms,
+            });
+        }
+
         std::thread::spawn(move || {
             // Create a dedicated runtime for the block feeder
             let feeder_rt = tokio::runtime::Builder::new_current_thread()
@@ -316,26 +324,64 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         builder = builder.with_sync_stage(sync_stage);
     }
 
+    // Load checkpoint for TUI initialization display
+    // In harness mode, always use default (no checkpoint) for fresh starts
+    let checkpoint_for_tui = if cli.with_harness {
+        Checkpoint::default()
+    } else {
+        Checkpoint::load(&cli.checkpoint_path).ok().flatten().unwrap_or_default()
+    };
+
     // Add sequencer if role requires it
     if config.role.runs_sequencer() {
-        let batch_driver = BatchDriver::new(BatcherConfig::default());
+        // Use optimized config for harness mode (faster batch submissions for demo/testing)
+        let batcher_config = if cli.with_harness {
+            BatcherConfig::builder()
+                .min_batch_size(10) // 10 bytes (very low threshold for small harness txs)
+                .batch_interval(std::time::Duration::from_secs(2)) // 2 seconds (quick feedback)
+                .max_blocks_per_batch(3) // 3 blocks per batch (balance between responsiveness and throughput)
+                .build()
+        } else {
+            BatcherConfig::default()
+        };
+        let batch_driver = BatchDriver::new(batcher_config.clone());
         let compressor = BrotliCompressor::default();
 
         // Wrap the batch context sink in an adapter to bridge the two BatchSink traits
         let sink_adapter = BatchSinkAdapter { inner: batch_ctx.sink() };
 
-        let mut sequencer = Sequencer::new(
-            sink_adapter,
-            compressor,
-            batch_driver,
-            cli.checkpoint_path.clone(),
-            block_rx,
-        )?;
+        // In harness mode, disable checkpoint persistence for fresh starts every time
+        let checkpoint_path =
+            if cli.with_harness { None } else { Some(cli.checkpoint_path.clone()) };
 
-        // Wire up execution callback for TUI visibility if available
+        let mut sequencer =
+            Sequencer::new(sink_adapter, compressor, batch_driver, checkpoint_path, block_rx)?;
+
+        // Wire up callbacks for TUI visibility if available
         if let Some(ref handle) = tui_handle {
-            let callback = Arc::new(TuiExecutionCallback { handle: handle.clone() });
-            sequencer = sequencer.with_execution_callback(callback);
+            tracing::debug!("Wiring up TUI callbacks for sequencer");
+            let exec_callback = Arc::new(TuiExecutionCallback { handle: handle.clone() });
+            let batch_callback = Arc::new(TuiBatchCallback { handle: handle.clone() });
+            sequencer = sequencer
+                .with_execution_callback(exec_callback)
+                .with_batch_callback(batch_callback);
+
+            // Send sequencer initialization event to TUI
+            handle.send(TuiEvent::SequencerInit {
+                checkpoint_batch: checkpoint_for_tui.last_batch_submitted,
+                min_batch_size: batcher_config.min_batch_size,
+                batch_interval_secs: batcher_config.batch_interval.as_secs(),
+                max_blocks_per_batch: batcher_config.max_blocks_per_batch,
+            });
+
+            // Send execution initialization event
+            handle.send(TuiEvent::ExecutionInit {
+                start_block: cli.start.unwrap_or(0),
+                checkpoint_block: checkpoint_for_tui.last_block_executed,
+                harness_mode: cli.with_harness,
+            });
+        } else {
+            tracing::debug!("No TUI handle available, skipping callback setup");
         }
 
         builder = builder.with_sequencer(sequencer);
@@ -348,7 +394,25 @@ async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         let source = BatchSourceAdapter { inner: Arc::clone(&batch_ctx) };
         let compressor = BrotliCompressor::default();
         let executor = NoopExecutor::new();
-        let validator = Validator::new(source, compressor, executor, cli.checkpoint_path.clone())?;
+
+        // In harness mode, disable checkpoint persistence for fresh starts every time
+        let checkpoint_path =
+            if cli.with_harness { None } else { Some(cli.checkpoint_path.clone()) };
+
+        let mut validator = Validator::new(source, compressor, executor, checkpoint_path)?;
+
+        // Wire up derivation callback for TUI visibility if available
+        if let Some(ref handle) = tui_handle {
+            tracing::debug!("Wiring up TUI derivation callback for validator");
+            let derivation_callback = Arc::new(TuiDerivationCallback { handle: handle.clone() });
+            validator = validator.with_derivation_callback(derivation_callback);
+
+            // Send validator initialization event to TUI
+            handle.send(TuiEvent::ValidatorInit {
+                checkpoint_batch: checkpoint_for_tui.last_batch_derived,
+            });
+        }
+
         builder = builder.with_validator(validator);
     }
 
@@ -575,5 +639,83 @@ struct TuiExecutionCallback {
 impl ExecutionCallback for TuiExecutionCallback {
     fn on_block_executed(&self, block_number: u64, execution_time_ms: u64) {
         self.handle.send(TuiEvent::BlockExecuted { block_number, execution_time_ms });
+    }
+}
+
+/// Adapter that implements BatchCallback and sends TUI events.
+///
+/// This allows the sequencer to report batch submissions to the TUI
+/// without depending on the TUI crate directly.
+struct TuiBatchCallback {
+    handle: TuiHandle,
+}
+
+impl BatchCallback for TuiBatchCallback {
+    fn on_batch_submitted(
+        &self,
+        batch_number: u64,
+        block_count: usize,
+        first_block: u64,
+        last_block: u64,
+        uncompressed_size: usize,
+        compressed_size: usize,
+    ) {
+        self.handle.send(TuiEvent::BatchSubmitted {
+            batch_number,
+            block_count,
+            first_block,
+            last_block,
+            uncompressed_size,
+            compressed_size,
+        });
+    }
+}
+
+/// Adapter that implements DerivationCallback and sends TUI events.
+///
+/// This allows the validator to report batch derivation events to the TUI
+/// without depending on the TUI crate directly.
+struct TuiDerivationCallback {
+    handle: TuiHandle,
+}
+
+impl DerivationCallback for TuiDerivationCallback {
+    fn on_batch_derived(
+        &self,
+        _batch_number: u64,
+        _block_count: usize,
+        first_block: u64,
+        last_block: u64,
+    ) {
+        // Send BlockDerived events for each block in the batch
+        // For now, we estimate derivation and execution times
+        for block_num in first_block..=last_block {
+            self.handle.send(TuiEvent::BlockDerived {
+                number: block_num,
+                derivation_time_ms: 1, // Placeholder - actual timing would be measured
+                execution_time_ms: 1,  // Placeholder - actual timing would be measured
+            });
+        }
+    }
+}
+
+/// Adapter that implements HarnessProgressReporter for TUI feedback.
+///
+/// This bridges the harness progress reporting to TUI events.
+struct HarnessProgressAdapter {
+    handle: TuiHandle,
+}
+
+impl HarnessProgressReporter for HarnessProgressAdapter {
+    fn report_progress(&self, current_block: u64, total_blocks: u64, message: &str) {
+        self.handle.send(TuiEvent::HarnessInitProgress {
+            current_block,
+            total_blocks,
+            message: message.to_string(),
+        });
+    }
+
+    fn report_init_complete(&self, final_block: u64) {
+        self.handle.send(TuiEvent::HarnessInitComplete { final_block });
     }
 }

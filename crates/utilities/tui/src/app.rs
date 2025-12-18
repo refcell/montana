@@ -126,6 +126,8 @@ pub struct App {
     pub harness_logs: Vec<LogEntry>,
     /// Latest harness block number
     pub harness_block: u64,
+    /// Block number where harness initialization completed (blocks <= this were logged during init)
+    pub harness_init_block: u64,
 }
 
 impl App {
@@ -164,6 +166,7 @@ impl App {
             harness_mode: false,
             harness_logs: Vec::new(),
             harness_block: 0,
+            harness_init_block: 0,
         }
     }
 
@@ -197,6 +200,7 @@ impl App {
         self.derivation_logs.clear();
         self.harness_logs.clear();
         self.harness_block = 0;
+        self.harness_init_block = 0;
     }
 
     /// Toggle the pause state.
@@ -563,6 +567,22 @@ impl App {
     pub fn record_harness_block(&mut self, block_number: u64, tx_count: usize) {
         self.harness_block = block_number;
         self.log_harness(LogEntry::info(format!("Block #{} ({} txs)", block_number, tx_count)));
+    }
+
+    /// Mark harness initialization as complete at the given block.
+    ///
+    /// After this is called, only blocks > harness_init_block will be logged
+    /// to avoid re-printing blocks that were shown during initialization.
+    pub const fn complete_harness_init(&mut self, final_block: u64) {
+        self.harness_init_block = final_block;
+    }
+
+    /// Check if a block is after harness initialization.
+    ///
+    /// Returns true if the block is newer than what was logged during init,
+    /// meaning it should be logged to the harness activity panel.
+    pub const fn is_after_harness_init(&self, block_number: u64) -> bool {
+        block_number > self.harness_init_block
     }
 }
 

@@ -26,6 +26,32 @@ pub trait ExecutionCallback: Send + Sync {
     fn on_block_executed(&self, block_number: u64, execution_time_ms: u64);
 }
 
+/// Callback for reporting batch submission events.
+///
+/// This trait allows the sequencer to report batch submissions without
+/// depending on the TUI crate directly, avoiding cyclic dependencies.
+pub trait BatchCallback: Send + Sync {
+    /// Called when a batch has been submitted.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch_number` - The batch number
+    /// * `block_count` - Number of blocks in the batch
+    /// * `first_block` - First block number in the batch
+    /// * `last_block` - Last block number in the batch
+    /// * `uncompressed_size` - Uncompressed batch size in bytes
+    /// * `compressed_size` - Compressed batch size in bytes
+    fn on_batch_submitted(
+        &self,
+        batch_number: u64,
+        block_count: usize,
+        first_block: u64,
+        last_block: u64,
+        uncompressed_size: usize,
+        compressed_size: usize,
+    );
+}
+
 /// Events emitted by the sequencer for observer pattern.
 ///
 /// These events allow external observers to track the sequencer's progress
@@ -74,14 +100,16 @@ pub struct Sequencer<S, C> {
     batch_driver: BatchDriver,
     /// Checkpoint for resumption.
     checkpoint: Checkpoint,
-    /// Path to save checkpoints.
-    checkpoint_path: PathBuf,
+    /// Path to save checkpoints (None disables checkpoint persistence).
+    checkpoint_path: Option<PathBuf>,
     /// Unbounded channel for receiving blocks (decouples fetching from execution).
     block_rx: mpsc::UnboundedReceiver<L2BlockData>,
     /// Event sender (for observers).
     event_tx: Option<mpsc::UnboundedSender<SequencerEvent>>,
     /// Optional callback for execution events.
     execution_callback: Option<Arc<dyn ExecutionCallback>>,
+    /// Optional callback for batch submission events.
+    batch_callback: Option<Arc<dyn BatchCallback>>,
     /// Counter for tracking blocks executed (for backlog calculation).
     blocks_executed: u64,
 }
@@ -111,33 +139,39 @@ where
     /// * `batch_sink` - The sink for submitting batches to L1
     /// * `compressor` - The compressor for batch data
     /// * `batch_driver` - The batch driver managing batch building logic
-    /// * `checkpoint_path` - Path to save/load checkpoints
+    /// * `checkpoint_path` - Optional path to save/load checkpoints. If `None`, checkpointing
+    ///   is disabled (useful for harness/demo mode where fresh starts are expected).
     /// * `block_rx` - Unbounded channel for receiving L2 blocks (allows decoupled fetching)
     ///
     /// # Errors
     ///
-    /// Returns an error if the checkpoint cannot be loaded or created.
+    /// Returns an error if the checkpoint cannot be loaded (when path is provided).
     pub fn new(
         batch_sink: S,
         compressor: C,
         batch_driver: BatchDriver,
-        checkpoint_path: PathBuf,
+        checkpoint_path: Option<PathBuf>,
         block_rx: mpsc::UnboundedReceiver<L2BlockData>,
     ) -> eyre::Result<Self> {
-        let checkpoint = Checkpoint::load(&checkpoint_path)?.map_or_else(
-            || {
-                tracing::info!("No checkpoint found at {:?}, starting fresh", checkpoint_path);
-                Checkpoint::default()
-            },
-            |cp| {
-                tracing::info!(
-                    "Loaded checkpoint from {:?}, last batch submitted: {}",
-                    checkpoint_path,
-                    cp.last_batch_submitted
-                );
-                cp
-            },
-        );
+        let checkpoint = if let Some(ref path) = checkpoint_path {
+            Checkpoint::load(path)?.map_or_else(
+                || {
+                    tracing::info!("No checkpoint found at {:?}, starting fresh", path);
+                    Checkpoint::default()
+                },
+                |cp| {
+                    tracing::info!(
+                        "Loaded checkpoint from {:?}, last batch submitted: {}",
+                        path,
+                        cp.last_batch_submitted
+                    );
+                    cp
+                },
+            )
+        } else {
+            tracing::info!("Checkpoint disabled, starting fresh");
+            Checkpoint::default()
+        };
 
         Ok(Self {
             batch_sink,
@@ -148,6 +182,7 @@ where
             block_rx,
             event_tx: None,
             execution_callback: None,
+            batch_callback: None,
             blocks_executed: 0,
         })
     }
@@ -163,6 +198,20 @@ where
     /// * `callback` - The callback to invoke on block execution
     pub fn with_execution_callback(mut self, callback: Arc<dyn ExecutionCallback>) -> Self {
         self.execution_callback = Some(callback);
+        self
+    }
+
+    /// Sets the batch callback for reporting batch submission events.
+    ///
+    /// This callback is invoked each time a batch is submitted to L1, allowing
+    /// external components (like the TUI) to track batch progress
+    /// without the sequencer depending on them directly.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - The callback to invoke on batch submission
+    pub fn with_batch_callback(mut self, callback: Arc<dyn BatchCallback>) -> Self {
+        self.batch_callback = Some(callback);
         self
     }
 
@@ -201,6 +250,11 @@ where
     /// Returns an error if batch submission fails.
     async fn process_block(&mut self, block: L2BlockData) -> eyre::Result<()> {
         let start = Instant::now();
+        let block_number = block.block_number;
+        let tx_count = block.transactions.len();
+        let tx_size: usize = block.transactions.iter().map(|tx| tx.len()).sum();
+
+        tracing::debug!(block_number, tx_count, tx_size, "Processing block in sequencer");
 
         // Add block to batch driver
         self.batch_driver.add_blocks(vec![block.clone()]);
@@ -221,7 +275,14 @@ where
         }
 
         // Check if batch is ready
-        if self.batch_driver.should_submit() {
+        let should = self.batch_driver.should_submit();
+        tracing::debug!(
+            should_submit = should,
+            pending_count = self.batch_driver.pending_count(),
+            current_size = self.batch_driver.current_size(),
+            "Checking if batch should be submitted"
+        );
+        if should {
             self.submit_pending_batch().await?;
         }
 
@@ -262,27 +323,58 @@ where
         }
 
         // Compress
+        let uncompressed_size = batch_data.len();
         let compressed_data = self.compressor.compress(&batch_data)?;
+        let compressed_size = compressed_data.len();
 
-        self.emit(SequencerEvent::BatchBuilt { batch_number, block_count: pending.blocks.len() });
+        let block_count = pending.blocks.len();
+        let first_block = pending.blocks.first().map(|b| b.block_number).unwrap_or(0);
+        let last_block = pending.blocks.last().map(|b| b.block_number).unwrap_or(0);
+        self.emit(SequencerEvent::BatchBuilt { batch_number, block_count });
 
         // Submit
         let compressed_batch = CompressedBatch { batch_number, data: compressed_data };
 
         let receipt = self.batch_sink.submit(compressed_batch).await?;
 
-        // Update checkpoint
+        // Update checkpoint (only save if persistence is enabled)
         self.checkpoint.record_batch_submitted(batch_number);
         self.checkpoint.touch();
-        self.checkpoint.save(&self.checkpoint_path)?;
+        if let Some(ref path) = self.checkpoint_path {
+            self.checkpoint.save(path)?;
+        }
 
         // Record in batch driver as well
         self.batch_driver.record_batch_submitted(batch_number)?;
 
         self.emit(SequencerEvent::BatchSubmitted { batch_number, tx_hash: receipt.tx_hash });
 
+        // Invoke batch callback for TUI visibility
+        if let Some(ref callback) = self.batch_callback {
+            tracing::debug!(
+                batch_number,
+                block_count,
+                first_block,
+                last_block,
+                uncompressed_size,
+                compressed_size,
+                "Invoking batch callback for TUI"
+            );
+            callback.on_batch_submitted(
+                batch_number,
+                block_count,
+                first_block,
+                last_block,
+                uncompressed_size,
+                compressed_size,
+            );
+        }
+
         tracing::info!(
             batch_number,
+            block_count,
+            first_block,
+            last_block,
             tx_hash = hex::encode(receipt.tx_hash),
             l1_block = receipt.l1_block,
             "Batch submitted successfully"

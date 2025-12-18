@@ -4,10 +4,10 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod sequencer;
-pub use sequencer::{ExecutionCallback, Sequencer, SequencerEvent};
+pub use sequencer::{BatchCallback, ExecutionCallback, Sequencer, SequencerEvent};
 
 pub mod validator;
-pub use validator::{Validator, ValidatorEvent};
+pub use validator::{DerivationCallback, Validator, ValidatorEvent};
 
 /// Result of a single role tick.
 ///

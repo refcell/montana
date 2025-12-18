@@ -3618,13 +3618,18 @@ name = "montana-derivation-runner"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "chainspec",
+ "database",
  "montana-checkpoint",
+ "montana-harness",
  "montana-pipeline",
  "primitives",
  "rstest",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",
+ "vm",
 ]
 
 [[package]]
@@ -5582,13 +5587,16 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "async-trait",
+ "chainspec",
  "clap",
  "crossterm",
+ "database",
  "derive_more",
  "montana-batch-context",
  "montana-batch-runner",
  "montana-brotli",
  "montana-derivation-runner",
+ "montana-harness",
  "montana-pipeline",
  "montana-tui-common",
  "montana-zlib",
@@ -5596,6 +5604,7 @@ dependencies = [
  "op-alloy",
  "ratatui",
  "tokio",
+ "vm",
 ]
 
 [[package]]

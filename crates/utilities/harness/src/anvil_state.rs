@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use alloy::{
     genesis::{Genesis, GenesisAccount},
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{Address, B256, Bytes, U256},
 };
 use serde::Deserialize;
 

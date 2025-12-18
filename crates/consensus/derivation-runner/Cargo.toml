@@ -19,7 +19,14 @@ tokio = { workspace = true, features = ["sync", "time"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
+# Execution
+database.workspace = true
+vm.workspace = true
+
 [dev-dependencies]
 async-trait = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+tempfile.workspace = true
+montana-harness.workspace = true
+chainspec.workspace = true

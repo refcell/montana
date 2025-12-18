@@ -3,20 +3,23 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::{io, sync::Arc};
+use std::{io, path::PathBuf, sync::Arc};
 
 use alloy::providers::ProviderBuilder;
+use chainspec::BASE_MAINNET;
 use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use database::{CachedDatabase, RocksDbKvDatabase, TrieDatabase};
 use montana_batch_runner::{
     BatchSubmissionCallback, BatchSubmissionConfig, BatchSubmissionRunner, RpcBlockSource,
 };
 use montana_brotli::BrotliCompressor;
 use montana_derivation_runner::{DerivationConfig, DerivationRunner};
+use montana_harness::{AnvilState, DEFAULT_GENESIS_STATE};
 use montana_pipeline::{
     CompressedBatch, Compressor, L1BatchSource, SourceError as PipelineSourceError,
     SubmissionReceipt,
@@ -33,6 +36,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 use tokio::sync::Mutex;
+use vm::BlockExecutor;
 
 mod app;
 
@@ -276,10 +280,28 @@ fn run_with_compressor<C: Compressor + Clone + Send + Sync + 'static>(
         .with_callback(callback);
         let batch_runner = Arc::new(Mutex::new(batch_runner));
 
+        // Create execution database and executor
+        let anvil_state =
+            AnvilState::from_json(DEFAULT_GENESIS_STATE).expect("Failed to parse anvil state");
+        let genesis = anvil_state.into_genesis();
+
+        let data_dir = PathBuf::from("./shadow_data");
+        std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+
+        let kvdb_path = data_dir.join("kvdb");
+        let trie_path = data_dir.join("triedb");
+
+        let kvdb =
+            RocksDbKvDatabase::open_or_create(&kvdb_path, &genesis).expect("Failed to create kvdb");
+        let trie_db = TrieDatabase::open_or_create(&trie_path, &genesis, kvdb)
+            .expect("Failed to create trie db");
+        let cached_db = CachedDatabase::new(trie_db);
+        let executor = BlockExecutor::new(cached_db, BASE_MAINNET);
+
         // Create derivation runner
         let source_adapter = BatchSourceAdapter::new(Arc::clone(&batch_context));
         let derivation_runner =
-            DerivationRunner::new(source_adapter, compressor, derivation_config);
+            DerivationRunner::new(source_adapter, compressor, derivation_config, executor);
         let derivation_runner = Arc::new(Mutex::new(derivation_runner));
 
         (batch_runner, derivation_runner)

@@ -5,9 +5,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+use database::Database;
 use montana_pipeline::{CompressedBatch, Compressor, L1BatchSource};
 use primitives::OpBlockBatch;
 use tokio::time::sleep;
+use vm::BlockExecutor;
 
 use crate::{DerivationConfig, DerivationError, DerivationMetrics};
 
@@ -16,15 +18,23 @@ use crate::{DerivationConfig, DerivationError, DerivationMetrics};
 /// The runner continuously polls a batch source for new compressed batches,
 /// decompresses them, deserializes the `OpBlockBatch`, and tracks metrics
 /// about the derivation process.
-pub struct DerivationRunner<S, C>
+///
+/// The database is generic, allowing different storage backends to be used
+/// (e.g., TrieDatabase with RocksDB for production, or in-memory for testing).
+pub struct DerivationRunner<S, C, DB>
 where
     S: L1BatchSource,
     C: Compressor,
+    DB: Database,
 {
     /// The batch source to poll for new batches.
     source: S,
     /// The compressor for decompressing batches.
     compressor: C,
+    /// Block executor for processing derived blocks.
+    /// Currently dead code - execution is disabled until ready.
+    #[allow(dead_code)]
+    executor: BlockExecutor<DB>,
     /// Configuration.
     config: DerivationConfig,
     /// Accumulated metrics.
@@ -44,16 +54,23 @@ where
     checkpoint_path: Option<PathBuf>,
 }
 
-impl<S, C> DerivationRunner<S, C>
+impl<S, C, DB> DerivationRunner<S, C, DB>
 where
     S: L1BatchSource,
     C: Compressor,
+    DB: Database,
 {
-    /// Creates a new derivation runner.
-    pub fn new(source: S, compressor: C, config: DerivationConfig) -> Self {
+    /// Creates a new derivation runner with the given executor.
+    pub fn new(
+        source: S,
+        compressor: C,
+        config: DerivationConfig,
+        executor: BlockExecutor<DB>,
+    ) -> Self {
         Self {
             source,
             compressor,
+            executor,
             config,
             metrics: DerivationMetrics::default(),
             submission_times: std::collections::HashMap::new(),
@@ -72,11 +89,13 @@ where
         source: S,
         compressor: C,
         config: DerivationConfig,
+        executor: BlockExecutor<DB>,
         start_block: u64,
     ) -> Self {
         Self {
             source,
             compressor,
+            executor,
             config,
             metrics: DerivationMetrics::default(),
             submission_times: std::collections::HashMap::new(),
@@ -246,12 +265,20 @@ where
         let decompressed_size = decompressed.len();
 
         // Deserialize the OpBlockBatch from the decompressed data to validate it
-        let _block_batch = OpBlockBatch::from_bytes(&decompressed).map_err(|e| {
+        let block_batch = OpBlockBatch::from_bytes(&decompressed).map_err(|e| {
             DerivationError::DecompressionFailed(format!(
                 "Failed to deserialize OpBlockBatch from batch #{}: {}",
                 batch_number, e
             ))
         })?;
+
+        // Dead code: would execute blocks when enabled
+        // TODO: When ready to enable execution, uncomment the loop below:
+        // for block in block_batch.blocks {
+        //     let result = self.executor.execute_block(block)?;
+        //     tracing::info!(block = result.block_number, "Executed block");
+        // }
+        let _ = (&self.executor, &block_batch); // suppress unused warnings
 
         // Record the batch derivation in checkpoint
         self.record_batch_derived(batch_number)
@@ -297,10 +324,11 @@ where
     }
 }
 
-impl<S, C> std::fmt::Debug for DerivationRunner<S, C>
+impl<S, C, DB> std::fmt::Debug for DerivationRunner<S, C, DB>
 where
     S: L1BatchSource,
     C: Compressor,
+    DB: Database,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DerivationRunner")
@@ -312,7 +340,37 @@ where
 
 #[cfg(test)]
 mod tests {
+    use chainspec::BASE_MAINNET;
+    use database::{CachedDatabase, RocksDbKvDatabase, TrieDatabase};
+    use montana_harness::{AnvilState, DEFAULT_GENESIS_STATE};
+    use tempfile::TempDir;
+    use vm::BlockExecutor;
+
     use super::*;
+
+    /// Type alias for the test database stack.
+    type TestDb = CachedDatabase<TrieDatabase<RocksDbKvDatabase>>;
+
+    /// Helper to create a real database and executor for tests.
+    /// Returns the temp dir (to keep it alive) and the executor.
+    fn create_test_executor() -> (TempDir, BlockExecutor<TestDb>) {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let anvil_state =
+            AnvilState::from_json(DEFAULT_GENESIS_STATE).expect("Failed to parse anvil state");
+        let genesis = anvil_state.into_genesis();
+
+        let kvdb_path = temp_dir.path().join("kvdb");
+        let trie_path = temp_dir.path().join("triedb");
+
+        let kvdb =
+            RocksDbKvDatabase::open_or_create(&kvdb_path, &genesis).expect("Failed to create kvdb");
+        let trie_db = TrieDatabase::open_or_create(&trie_path, &genesis, kvdb)
+            .expect("Failed to create trie db");
+        let cached_db = CachedDatabase::new(trie_db);
+        let executor = BlockExecutor::new(cached_db, BASE_MAINNET);
+
+        (temp_dir, executor)
+    }
 
     // Mock batch source for testing
     struct MockBatchSource {
@@ -366,10 +424,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_no_batches() {
+        let (_temp_dir, executor) = create_test_executor();
         let source = MockBatchSource::new(vec![None]);
         let compressor = MockCompressor;
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, config, executor);
 
         let result = runner.tick().await;
         assert!(result.is_ok());
@@ -378,6 +437,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_single_batch() {
+        let (_temp_dir, executor) = create_test_executor();
+
         // Create a valid OpBlockBatch and serialize it
         let block_batch = OpBlockBatch::new(vec![]);
         let serialized = block_batch.to_bytes().unwrap();
@@ -392,7 +453,7 @@ mod tests {
         let source = MockBatchSource::new(vec![Some(batch)]);
         let compressor = MockCompressor;
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, config, executor);
 
         let result = runner.tick().await;
         assert!(result.is_ok());
@@ -405,10 +466,11 @@ mod tests {
 
     #[test]
     fn test_runner_debug() {
+        let (_temp_dir, executor) = create_test_executor();
         let source = MockBatchSource::new(vec![]);
         let compressor = MockCompressor;
         let config = DerivationConfig::default();
-        let runner = DerivationRunner::new(source, compressor, config);
+        let runner = DerivationRunner::new(source, compressor, config, executor);
 
         let debug_str = format!("{:?}", runner);
         assert!(debug_str.contains("DerivationRunner"));
@@ -416,10 +478,11 @@ mod tests {
 
     #[test]
     fn test_runner_metrics_access() {
+        let (_temp_dir, executor) = create_test_executor();
         let source = MockBatchSource::new(vec![]);
         let compressor = MockCompressor;
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, config);
+        let mut runner = DerivationRunner::new(source, compressor, config, executor);
 
         // Test immutable access
         let metrics = runner.metrics();

@@ -196,7 +196,13 @@ mod tests {
     #[tokio::test]
     async fn in_memory_sink_submits_batch() {
         let sink = InMemoryBatchSink::new();
-        let batch = CompressedBatch { batch_number: 1, data: vec![1, 2, 3] };
+        let batch = CompressedBatch {
+            batch_number: 1,
+            data: vec![1, 2, 3],
+            block_count: 1,
+            first_block: 1,
+            last_block: 1,
+        };
 
         let receipt = sink.submit(batch).await.unwrap();
         assert_eq!(receipt.batch_number, 1);
@@ -207,7 +213,13 @@ mod tests {
         let sink = InMemoryBatchSink::new();
 
         for i in 0..5 {
-            let batch = CompressedBatch { batch_number: i, data: vec![i as u8] };
+            let batch = CompressedBatch {
+                batch_number: i,
+                data: vec![i as u8],
+                block_count: 1,
+                first_block: i,
+                last_block: i,
+            };
             sink.submit(batch).await.unwrap();
         }
 

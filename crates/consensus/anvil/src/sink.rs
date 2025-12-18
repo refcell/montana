@@ -45,10 +45,18 @@ impl BatchSink for AnvilBatchSink {
     async fn submit(&mut self, batch: CompressedBatch) -> Result<SubmissionReceipt, SinkError> {
         let batch_number = batch.batch_number;
 
+        // Encode batch with metadata header:
+        // [8 bytes: block_count][8 bytes: first_block][8 bytes: last_block][remaining: compressed data]
+        let mut encoded_data = Vec::with_capacity(24 + batch.data.len());
+        encoded_data.extend_from_slice(&batch.block_count.to_le_bytes());
+        encoded_data.extend_from_slice(&batch.first_block.to_le_bytes());
+        encoded_data.extend_from_slice(&batch.last_block.to_le_bytes());
+        encoded_data.extend_from_slice(&batch.data);
+
         // Build transaction request
         let tx_request = alloy::rpc::types::TransactionRequest::default()
             .to(self.batch_inbox)
-            .with_input(Bytes::from(batch.data))
+            .with_input(Bytes::from(encoded_data))
             .from(self.sender);
 
         // Send the transaction

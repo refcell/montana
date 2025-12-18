@@ -390,7 +390,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_single_batch() {
-        let batch = CompressedBatch { batch_number: 0, data: vec![1, 2, 3, 4] };
+        let batch = CompressedBatch {
+            batch_number: 0,
+            data: vec![1, 2, 3, 4],
+            block_count: 1,
+            first_block: 1,
+            last_block: 1,
+        };
         let source = MockBatchSource::new(vec![Some(batch)]);
         let compressor = MockCompressor;
         let executor = NoopExecutor::new();
@@ -410,8 +416,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_multiple_batches() {
-        let batch1 = CompressedBatch { batch_number: 0, data: vec![1, 2, 3, 4] };
-        let batch2 = CompressedBatch { batch_number: 1, data: vec![5, 6, 7, 8, 9] };
+        let batch1 = CompressedBatch {
+            batch_number: 0,
+            data: vec![1, 2, 3, 4],
+            block_count: 1,
+            first_block: 1,
+            last_block: 1,
+        };
+        let batch2 = CompressedBatch {
+            batch_number: 1,
+            data: vec![5, 6, 7, 8, 9],
+            block_count: 1,
+            first_block: 2,
+            last_block: 2,
+        };
         let source = MockBatchSource::new(vec![Some(batch1), Some(batch2)]);
         let compressor = MockCompressor;
         let executor = NoopExecutor::new();
@@ -435,7 +453,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_runner_latency_tracking() {
-        let batch = CompressedBatch { batch_number: 0, data: vec![1, 2, 3, 4] };
+        let batch = CompressedBatch {
+            batch_number: 0,
+            data: vec![1, 2, 3, 4],
+            block_count: 1,
+            first_block: 1,
+            last_block: 1,
+        };
         let source = MockBatchSource::new(vec![Some(batch)]);
         let compressor = MockCompressor;
         let executor = NoopExecutor::new();

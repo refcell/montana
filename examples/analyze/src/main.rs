@@ -186,7 +186,13 @@ async fn run_roundtrip_mode(cli: &Cli) -> Result<(), Box<dyn std::error::Error>>
 
     // 7. Optionally write to output file
     let mut sink = LocalBatchSink::new(&cli.output);
-    let batch = CompressedBatch { batch_number: 0, data: compressed };
+    let batch = CompressedBatch {
+        batch_number: 0,
+        data: compressed,
+        block_count: 0,
+        first_block: 0,
+        last_block: 0,
+    };
     let receipt = sink.submit(batch).await?;
 
     tracing::info!("Batch submitted successfully!");
@@ -273,7 +279,13 @@ async fn run_single_compression(
 
     // Submit to sink
     let mut sink = LocalBatchSink::new(&cli.output);
-    let batch = CompressedBatch { batch_number: 0, data: compressed };
+    let batch = CompressedBatch {
+        batch_number: 0,
+        data: compressed,
+        block_count: 0,
+        first_block: 0,
+        last_block: 0,
+    };
     let receipt = sink.submit(batch).await?;
 
     tracing::info!("Batch submitted successfully!");
@@ -348,7 +360,13 @@ async fn run_all_compressions(
 
     // Submit to sink
     let mut sink = LocalBatchSink::new(&cli.output);
-    let batch = CompressedBatch { batch_number: 0, data: compressed };
+    let batch = CompressedBatch {
+        batch_number: 0,
+        data: compressed,
+        block_count: 0,
+        first_block: 0,
+        last_block: 0,
+    };
     let receipt = sink.submit(batch).await?;
 
     tracing::info!("Batch submitted successfully!");

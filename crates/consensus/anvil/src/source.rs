@@ -26,7 +26,9 @@ pub struct AnvilBatchSource {
 impl AnvilBatchSource {
     /// Create a new Anvil batch source.
     pub(crate) fn new(provider: Arc<BoxedProvider>, batch_inbox: Address) -> Self {
-        Self { provider, batch_inbox, last_scanned_block: 0, next_batch_number: 0 }
+        // Start at batch 1 to match the BatchDriver which starts at 1 to avoid
+        // checkpoint skip issues with batch 0.
+        Self { provider, batch_inbox, last_scanned_block: 0, next_batch_number: 1 }
     }
 }
 
@@ -75,7 +77,27 @@ impl L1BatchSource for AnvilBatchSource {
                     self.next_batch_number += 1;
                     self.last_scanned_block = block_num;
 
-                    return Ok(Some(CompressedBatch { batch_number, data: tx.input().to_vec() }));
+                    // Parse the metadata header from the calldata:
+                    // [8 bytes: block_count][8 bytes: first_block][8 bytes: last_block][remaining: compressed data]
+                    let input = tx.input();
+                    let (block_count, first_block, last_block, data) = if input.len() >= 24 {
+                        let block_count = u64::from_le_bytes(input[0..8].try_into().unwrap());
+                        let first_block = u64::from_le_bytes(input[8..16].try_into().unwrap());
+                        let last_block = u64::from_le_bytes(input[16..24].try_into().unwrap());
+                        let data = input[24..].to_vec();
+                        (block_count, first_block, last_block, data)
+                    } else {
+                        // Fallback for legacy/malformed data - use defaults
+                        (1, 0, 0, input.to_vec())
+                    };
+
+                    return Ok(Some(CompressedBatch {
+                        batch_number,
+                        data,
+                        block_count,
+                        first_block,
+                        last_block,
+                    }));
                 }
             }
 

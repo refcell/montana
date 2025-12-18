@@ -168,7 +168,13 @@ mod tests {
     async fn local_batch_sink_submit() {
         let mut sink = LocalBatchSink::in_memory();
 
-        let batch = CompressedBatch { batch_number: 1, data: vec![1, 2, 3, 4, 5] };
+        let batch = CompressedBatch {
+            batch_number: 1,
+            data: vec![1, 2, 3, 4, 5],
+            block_count: 1,
+            first_block: 1,
+            last_block: 1,
+        };
 
         let receipt = sink.submit(batch).await.unwrap();
         assert_eq!(receipt.batch_number, 1);
@@ -182,7 +188,13 @@ mod tests {
         let mut sink = LocalBatchSink::in_memory();
 
         for i in 0..5 {
-            let batch = CompressedBatch { batch_number: i, data: vec![i as u8] };
+            let batch = CompressedBatch {
+                batch_number: i,
+                data: vec![i as u8],
+                block_count: 1,
+                first_block: i,
+                last_block: i,
+            };
             let receipt = sink.submit(batch).await.unwrap();
             assert_eq!(receipt.batch_number, i);
             assert_eq!(receipt.l1_block, (i + 1) as u64);
@@ -218,7 +230,13 @@ mod tests {
     async fn local_batch_sink_data_retrieval() {
         let mut sink = LocalBatchSink::in_memory();
 
-        let batch = CompressedBatch { batch_number: 42, data: vec![0xde, 0xad, 0xbe, 0xef] };
+        let batch = CompressedBatch {
+            batch_number: 42,
+            data: vec![0xde, 0xad, 0xbe, 0xef],
+            block_count: 1,
+            first_block: 42,
+            last_block: 42,
+        };
         sink.submit(batch).await.unwrap();
 
         let data = sink.data();

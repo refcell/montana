@@ -265,7 +265,16 @@ where
         );
 
         // Create the batch
-        let batch = CompressedBatch { batch_number, data: compressed };
+        let block_count = blocks.len() as u64;
+        let first_block = blocks.first().map(|b| b.block_number).unwrap_or(0);
+        let last_block = blocks.last().map(|b| b.block_number).unwrap_or(0);
+        let batch = CompressedBatch {
+            batch_number,
+            data: compressed,
+            block_count,
+            first_block,
+            last_block,
+        };
 
         // Record submission time before submitting
         self.metrics.record_submission_time(batch_number, start_time);

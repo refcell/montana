@@ -229,14 +229,21 @@ where
             return Ok(());
         }
 
-        tracing::info!(batch_number = batch.batch_number, "Processing batch");
+        // Use actual block metadata from the batch
+        let block_count = batch.block_count as usize;
+        let first_block = batch.first_block;
+        let last_block = batch.last_block;
+
+        tracing::info!(
+            batch_number = batch.batch_number,
+            block_count,
+            first_block,
+            last_block,
+            "Processing batch"
+        );
 
         // Decompress
         let decompressed = self.compressor.decompress(&batch.data)?;
-
-        // Count blocks in batch (estimate based on data size for now)
-        // In a real implementation, this would parse the decompressed data
-        let block_count = estimate_block_count(&decompressed);
 
         self.emit(ValidatorEvent::BatchDerived { batch_number: batch.batch_number, block_count });
 
@@ -253,32 +260,22 @@ where
         self.emit(ValidatorEvent::BatchValidated { batch_number: batch.batch_number });
 
         // Invoke derivation callback for TUI visibility
-        // Note: CompressedBatch doesn't contain block number info, so we estimate
-        // first_block based on batch number (placeholder for TUI display)
         if let Some(ref callback) = self.derivation_callback {
-            // Estimate block range from batch number (rough approximation)
-            // In a real implementation, this would be decoded from the batch data
-            let estimated_first_block = batch.batch_number.saturating_mul(block_count as u64);
-            let estimated_last_block =
-                estimated_first_block.saturating_add(block_count.saturating_sub(1) as u64);
             tracing::debug!(
                 batch_number = batch.batch_number,
                 block_count,
-                first_block = estimated_first_block,
-                last_block = estimated_last_block,
+                first_block,
+                last_block,
                 "Invoking derivation callback for TUI"
             );
-            callback.on_batch_derived(
-                batch.batch_number,
-                block_count,
-                estimated_first_block,
-                estimated_last_block,
-            );
+            callback.on_batch_derived(batch.batch_number, block_count, first_block, last_block);
         }
 
         tracing::info!(
             batch_number = batch.batch_number,
             block_count,
+            first_block,
+            last_block,
             "Batch validated successfully"
         );
 
@@ -339,33 +336,9 @@ where
     }
 }
 
-/// Estimates the number of blocks in a decompressed batch.
-///
-/// This is a placeholder implementation. In production, this would parse
-/// the actual batch format to count blocks.
-///
-/// # Arguments
-/// * `data` - The decompressed batch data
-///
-/// # Returns
-/// An estimate of the number of blocks in the batch
-fn estimate_block_count(data: &[u8]) -> usize {
-    // Rough estimate: assume average block is ~10KB
-    const ESTIMATED_BLOCK_SIZE: usize = 10_000;
-    (data.len() / ESTIMATED_BLOCK_SIZE).max(1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_estimate_block_count() {
-        assert_eq!(estimate_block_count(&[0u8; 5_000]), 1);
-        assert_eq!(estimate_block_count(&[0u8; 10_000]), 1);
-        assert_eq!(estimate_block_count(&[0u8; 30_000]), 3);
-        assert_eq!(estimate_block_count(&[0u8; 100_000]), 10);
-    }
 
     #[test]
     fn test_validator_event_debug() {

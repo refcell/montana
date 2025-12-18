@@ -333,7 +333,13 @@ where
         self.emit(SequencerEvent::BatchBuilt { batch_number, block_count });
 
         // Submit
-        let compressed_batch = CompressedBatch { batch_number, data: compressed_data };
+        let compressed_batch = CompressedBatch {
+            batch_number,
+            data: compressed_data,
+            block_count: block_count as u64,
+            first_block,
+            last_block,
+        };
 
         let receipt = self.batch_sink.submit(compressed_batch).await?;
 

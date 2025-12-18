@@ -763,11 +763,7 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("Txs/s:          ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                if txs_per_sec > 0.0 {
-                    format!("{:.1}", txs_per_sec)
-                } else {
-                    "--".to_string()
-                },
+                if txs_per_sec > 0.0 { format!("{:.1}", txs_per_sec) } else { "--".to_string() },
                 Style::default().fg(Color::White),
             ),
         ]),

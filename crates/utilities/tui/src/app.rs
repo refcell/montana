@@ -485,11 +485,7 @@ impl App {
     pub fn transactions_per_second(&self) -> f64 {
         self.tx_tracking_start_time.map_or(0.0, |start| {
             let elapsed = start.elapsed().as_secs_f64();
-            if elapsed > 0.0 {
-                self.transactions_received as f64 / elapsed
-            } else {
-                0.0
-            }
+            if elapsed > 0.0 { self.transactions_received as f64 / elapsed } else { 0.0 }
         })
     }
 

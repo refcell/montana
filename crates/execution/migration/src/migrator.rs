@@ -21,13 +21,13 @@ use triedb::{
 use crate::reth::{RethAccount, decode_storage_entry};
 
 /// Default batch size for commits.
-pub const DEFAULT_BATCH_SIZE: u64 = 1_000_000;
+pub const DEFAULT_BATCH_SIZE: u64 = 5_000_000;
 
 /// Default interval for progress logging (number of entries between logs).
-pub const DEFAULT_LOG_INTERVAL: u64 = 1_000_000;
+pub const DEFAULT_LOG_INTERVAL: u64 = 100_000;
 
 /// Maximum number of tables to open in the source MDBX database.
-const MAX_MDBX_TABLES: u64 = 256;
+const MAX_MDBX_TABLES: u64 = 16;
 
 /// Configuration for the migrator.
 #[derive(Debug, Clone)]
@@ -286,29 +286,17 @@ impl Migrator {
         let mut dst_txn =
             self.destination.begin_rw().map_err(|e| MigrationError::Destination(e.to_string()))?;
 
-        // Use single-cursor iteration for DupSort tables.
-        // Start with first entry, then use next_nodup() to skip to next address.
+        // Iterate all entries in (key, value) order - works for DupSort tables
         let mut item = cursor
             .first::<Vec<u8>, Vec<u8>>()
             .map_err(|e| MigrationError::Source(e.to_string()))?;
 
-        while let Some((key, first_value)) = item {
+        while let Some((key, value)) = item {
             let address = Address::from_slice(&key);
-
-            // Process first value for this address
-            self.process_storage_entry(&mut dst_txn, address, &first_value, &mut stats);
+            self.process_storage_entry(&mut dst_txn, address, &value, &mut stats);
             batch_count += 1;
 
-            // Process remaining duplicates for this address
-            while let Some((_, dup_value)) = cursor
-                .next_dup::<Vec<u8>, Vec<u8>>()
-                .map_err(|e| MigrationError::Source(e.to_string()))?
-            {
-                self.process_storage_entry(&mut dst_txn, address, &dup_value, &mut stats);
-                batch_count += 1;
-            }
-
-            // Log progress after processing each address
+            // Log progress
             if stats.storage_slots_migrated % self.config.log_interval == 0
                 && stats.storage_slots_migrated > 0
             {
@@ -322,7 +310,7 @@ impl Migrator {
                 );
             }
 
-            // Commit batch after completing all slots for an address
+            // Commit batch
             if batch_count >= self.config.batch_size {
                 dst_txn.commit().map_err(|e| MigrationError::Destination(e.to_string()))?;
                 tracing::debug!(slots = stats.storage_slots_migrated, "committed batch");
@@ -334,9 +322,8 @@ impl Migrator {
                 batch_count = 0;
             }
 
-            // Move to next address (skips any remaining dups we've already processed)
             item = cursor
-                .next_nodup::<Vec<u8>, Vec<u8>>()
+                .next::<Vec<u8>, Vec<u8>>()
                 .map_err(|e| MigrationError::Source(e.to_string()))?;
         }
 
@@ -387,6 +374,8 @@ impl Migrator {
     pub fn migrate_all(&self) -> Result<MigrationStats, MigrationError> {
         let mut total_stats = MigrationStats::default();
 
+        // Accounts must be migrated first since storage paths include the address path,
+        // and triedb requires the account trie structure to exist before storage slots.
         tracing::info!("starting account migration");
         let account_stats = self.migrate_accounts()?;
         total_stats.accounts_migrated = account_stats.accounts_migrated;

@@ -8,7 +8,6 @@ alias h := hack
 alias u := check-udeps
 alias wt := watch-test
 alias wc := watch-check
-alias s := shadow
 alias m := montana
 alias mh := harness
 
@@ -109,14 +108,6 @@ bench *ARGS:
 bench-pipeline *ARGS:
     cargo bench -p montana-local --bench pipeline -- {{ARGS}}
 
-# Runs the analyze binary in roundtrip mode
-roundtrip *ARGS:
-    cargo run --bin analyze -- --mode roundtrip {{ARGS}}
-
-# Runs the shadow TUI for chain shadowing simulation
-shadow *ARGS:
-    cargo run --release -p shadow -- {{ARGS}}
-
 # Run the montana node in sequencer mode with in-memory batch submission
 run-montana-inmemory:
     cargo run --bin montana -- --rpc-url https://base-mainnet-reth-rpc-donotuse.cbhq.net:8545 --mode sequencer --batch-mode in-memory
@@ -158,12 +149,3 @@ harness-sync BLOCKS='100' *ARGS:
 # Poll interval matches block time for responsive updates
 harness-fast *ARGS:
     cargo run --release -p montana -- --with-harness --skip-sync --poll-interval-ms 50 {{ARGS}}
-
-# Run the migration tool to migrate a Reth MDBX database to TrieDB
-migrate SOURCE DEST *ARGS:
-    cargo run --release -p migrate -- --source {{SOURCE}} --dest {{DEST}} {{ARGS}}
-
-# Initialize reth static files for migration testing
-init-reth:
-    @command -v op-reth >/dev/null 2>&1 || cargo install op-reth
-    op-reth init --datadir ./static/reth --chain base

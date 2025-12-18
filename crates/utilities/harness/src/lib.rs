@@ -11,9 +11,10 @@
 //! - Runs in a background thread for continuous activity
 
 mod config;
-mod harness;
-mod progress;
-
 pub use config::HarnessConfig;
+
+mod harness;
 pub use harness::Harness;
+
+mod progress;
 pub use progress::{BoxedProgressReporter, HarnessProgressReporter};

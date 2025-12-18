@@ -4,7 +4,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod base;
-
 pub use base::BASE_MAINNET;
 use op_revm::OpSpecId;
 

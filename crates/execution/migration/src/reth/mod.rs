@@ -4,10 +4,12 @@
 //! MDBX database format for migration to TrieDB.
 
 mod account;
-mod bytecode;
-mod compact;
-mod storage;
-
 pub use account::{DecodeError as AccountDecodeError, RethAccount};
+
+mod bytecode;
 pub use bytecode::{BytecodeDecodeError, decode_bytecode};
+
+mod compact;
+
+mod storage;
 pub use storage::{StorageDecodeError, StorageEntry, decode_storage_entry};

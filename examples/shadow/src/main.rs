@@ -169,9 +169,8 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
     let derivation_config = DerivationConfig::builder().poll_interval_ms(50).build();
 
     // Get starting block
-    let start_block = match args.start {
-        Some(start) => start,
-        None => rt.block_on(async {
+    let start_block = args.start.unwrap_or_else(|| {
+        rt.block_on(async {
             let source = RpcBlockSource::new(args.rpc.clone());
             match source.get_head().await {
                 Ok(head) => {
@@ -187,8 +186,8 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
                     0
                 }
             }
-        }),
-    };
+        })
+    });
 
     // Dispatch to the appropriate compressor-specific runner function
     // This avoids generic type issues by handling each compressor type separately
@@ -230,6 +229,7 @@ fn run_app(mut terminal: DefaultTerminal, args: Args) -> io::Result<()> {
 }
 
 /// Run the TUI with a specific compressor type.
+#[allow(clippy::too_many_arguments)]
 fn run_with_compressor<C: Compressor + Clone + Send + Sync + 'static>(
     terminal: &mut DefaultTerminal,
     rt: &tokio::runtime::Runtime,
@@ -370,7 +370,7 @@ struct TuiCallback {
 }
 
 impl TuiCallback {
-    fn new(app: Arc<Mutex<App>>) -> Self {
+    const fn new(app: Arc<Mutex<App>>) -> Self {
         Self { app }
     }
 }
@@ -464,7 +464,7 @@ struct BatchSourceAdapter {
 }
 
 impl BatchSourceAdapter {
-    fn new(context: Arc<BatchContext>) -> Self {
+    const fn new(context: Arc<BatchContext>) -> Self {
         Self { context }
     }
 }

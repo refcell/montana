@@ -89,17 +89,17 @@ where
     }
 
     /// Get a mutable reference to the metrics.
-    pub fn metrics_mut(&mut self) -> &mut BatchSubmissionMetrics {
+    pub const fn metrics_mut(&mut self) -> &mut BatchSubmissionMetrics {
         &mut self.metrics
     }
 
     /// Pause the runner.
-    pub fn pause(&mut self) {
+    pub const fn pause(&mut self) {
         self.paused = true;
     }
 
     /// Resume the runner.
-    pub fn resume(&mut self) {
+    pub const fn resume(&mut self) {
         self.paused = false;
     }
 
@@ -109,7 +109,7 @@ where
     }
 
     /// Toggle pause state.
-    pub fn toggle_pause(&mut self) {
+    pub const fn toggle_pause(&mut self) {
         self.paused = !self.paused;
     }
 
@@ -135,10 +135,10 @@ where
             }
 
             // Update chain head periodically (for TUI display)
-            if let Ok(head) = self.source.get_head().await {
-                if let Some(ref callback) = self.callback {
-                    callback.on_chain_head_updated(head).await;
-                }
+            if let Ok(head) = self.source.get_head().await
+                && let Some(ref callback) = self.callback
+            {
+                callback.on_chain_head_updated(head).await;
             }
 
             // Try to fetch the next block
@@ -230,7 +230,7 @@ where
     }
 
     /// Check if an error indicates block not found.
-    fn is_block_not_found(error: &BlockSourceError) -> bool {
+    const fn is_block_not_found(error: &BlockSourceError) -> bool {
         matches!(error, BlockSourceError::BlockNotFound(_))
     }
 

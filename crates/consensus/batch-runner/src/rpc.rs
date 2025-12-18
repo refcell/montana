@@ -112,7 +112,7 @@ impl BlockSource for RpcBlockSource {
             )));
         }
 
-        let block = response.result.ok_or_else(|| BlockSourceError::BlockNotFound(block_number))?;
+        let block = response.result.ok_or(BlockSourceError::BlockNotFound(block_number))?;
 
         let timestamp = parse_hex_u64(&block.timestamp)
             .map_err(|e| BlockSourceError::RpcError(format!("Invalid timestamp: {}", e)))?;

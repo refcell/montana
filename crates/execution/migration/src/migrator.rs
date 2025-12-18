@@ -47,14 +47,14 @@ impl Default for MigratorConfig {
 impl MigratorConfig {
     /// Create a new config with the given batch size.
     #[must_use]
-    pub fn with_batch_size(mut self, batch_size: u64) -> Self {
+    pub const fn with_batch_size(mut self, batch_size: u64) -> Self {
         self.batch_size = batch_size;
         self
     }
 
     /// Create a new config with the given log interval.
     #[must_use]
-    pub fn with_log_interval(mut self, log_interval: u64) -> Self {
+    pub const fn with_log_interval(mut self, log_interval: u64) -> Self {
         self.log_interval = log_interval;
         self
     }
@@ -154,14 +154,13 @@ impl Migrator {
             TrieDatabase::open(dest)
         } else {
             // Ensure parent directory exists
-            if let Some(parent) = dest.parent() {
-                if !parent.as_os_str().is_empty() && !parent.exists() {
-                    fs::create_dir_all(parent).map_err(|e| {
-                        MigrationError::Destination(format!(
-                            "failed to create parent directory: {e}"
-                        ))
-                    })?;
-                }
+            if let Some(parent) = dest.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                fs::create_dir_all(parent).map_err(|e| {
+                    MigrationError::Destination(format!("failed to create parent directory: {e}"))
+                })?;
             }
             TrieDatabase::create_new(dest)
         }

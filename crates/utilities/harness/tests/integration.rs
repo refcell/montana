@@ -5,6 +5,11 @@
 //! 2. The transaction generator runs and submits transactions
 //! 3. Blocks are produced continuously over time
 //! 4. The harness shuts down gracefully
+//!
+//! Note: Tests that require anvil are marked with `#[ignore]` and can be run with:
+//! ```sh
+//! cargo test -p montana-harness --test integration -- --ignored
+//! ```
 
 use std::time::Duration;
 
@@ -12,6 +17,7 @@ use alloy::providers::{Provider, ProviderBuilder};
 use montana_harness::{Harness, HarnessConfig};
 
 /// Test that the harness spawns anvil and it's accessible via RPC.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_spawns_anvil() {
     let config = HarnessConfig {
@@ -34,6 +40,7 @@ async fn test_harness_spawns_anvil() {
 }
 
 /// Test that initial blocks are generated.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_generates_initial_blocks() {
     let initial_blocks = 5;
@@ -63,6 +70,7 @@ async fn test_harness_generates_initial_blocks() {
 }
 
 /// Test that blocks are produced continuously over time.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_produces_blocks_over_time() {
     let config = HarnessConfig {
@@ -97,6 +105,7 @@ async fn test_harness_produces_blocks_over_time() {
 }
 
 /// Test that transactions are included in blocks.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_generates_transactions() {
     let config = HarnessConfig {
@@ -143,6 +152,7 @@ async fn test_harness_generates_transactions() {
 }
 
 /// Test that harness works with fast block times.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_fast_block_time() {
     let config = HarnessConfig {
@@ -170,6 +180,7 @@ async fn test_harness_fast_block_time() {
 }
 
 /// Test that the harness can be dropped without panicking.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_graceful_shutdown() {
     let config = HarnessConfig {
@@ -199,6 +210,7 @@ async fn test_harness_graceful_shutdown() {
 }
 
 /// Test transaction generator with high frequency.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_high_frequency_transactions() {
     let config = HarnessConfig {
@@ -229,6 +241,7 @@ async fn test_harness_high_frequency_transactions() {
 }
 
 /// Test that blocks contain the expected transactions.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_harness_block_contents() {
     let config = HarnessConfig {
@@ -268,6 +281,7 @@ async fn test_harness_block_contents() {
 }
 
 /// Test `spawn_if_enabled` with harness enabled.
+#[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_spawn_if_enabled_with_harness() {
     let (harness, rpc_url) = Harness::spawn_if_enabled(true, 1000, 2, None, None)

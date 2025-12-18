@@ -28,12 +28,12 @@ pub enum BatchSubmissionError {
 
 impl BatchSubmissionError {
     /// Classifies whether an error is retryable.
-    pub fn is_retryable(&self) -> bool {
+    pub const fn is_retryable(&self) -> bool {
         matches!(self, Self::SourceError(_) | Self::BlockNotFound(_))
     }
 
     /// Classifies whether an error is fatal.
-    pub fn is_fatal(&self) -> bool {
+    pub const fn is_fatal(&self) -> bool {
         matches!(self, Self::EncodingFailed(_))
     }
 }

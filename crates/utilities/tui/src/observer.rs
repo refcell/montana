@@ -43,10 +43,11 @@ impl NodeObserver for TuiObserver {
             },
 
             // Block events
-            NodeEvent::BlockExecuted { block_number, execution_time_ms } => {
+            NodeEvent::BlockExecuted { block_number, execution_time_ms, gas_used } => {
                 TuiEvent::BlockExecuted {
                     block_number: *block_number,
                     execution_time_ms: *execution_time_ms,
+                    gas_used: *gas_used,
                 }
             }
 
@@ -61,8 +62,8 @@ impl NodeObserver for TuiObserver {
             NodeEvent::BatchDerived { batch_number, block_count } => TuiEvent::BatchDerived {
                 batch_number: *batch_number,
                 block_count: *block_count as u64,
-                first_block: 0, // Not available in NodeEvent
-                last_block: 0,  // Not available in NodeEvent
+                first_block: 0,
+                last_block: 0,
             },
             NodeEvent::BatchValidated { batch_number } => TuiEvent::FinalizedUpdated(*batch_number),
 

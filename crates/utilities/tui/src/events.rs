@@ -155,6 +155,8 @@ pub enum TuiEvent {
         block_number: u64,
         /// Execution time in milliseconds
         execution_time_ms: u64,
+        /// Gas used by the block
+        gas_used: u64,
     },
 
     /// Backlog update (blocks fetched vs executed).
@@ -283,5 +285,25 @@ pub enum TuiEvent {
     WaitingForChain {
         /// Which service is waiting
         service: String,
+    },
+
+    /// New L1 block produced (from anvil in harness mode).
+    ///
+    /// This event is used to visualize the L1 chain in the TUI.
+    L1BlockProduced {
+        /// The L1 block number
+        block_number: u64,
+    },
+
+    /// Batch was included in an L1 block.
+    ///
+    /// This event marks which L1 block contains a specific batch submission.
+    BatchIncludedInL1 {
+        /// The L1 block number that contains the batch
+        l1_block_number: u64,
+        /// The batch number
+        batch_number: u64,
+        /// Number of L2 blocks in the batch
+        block_count: usize,
     },
 }

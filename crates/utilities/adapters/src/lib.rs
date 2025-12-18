@@ -190,8 +190,8 @@ impl TuiExecutionCallback {
 }
 
 impl ExecutionCallback for TuiExecutionCallback {
-    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64) {
-        self.handle.send(TuiEvent::BlockExecuted { block_number, execution_time_ms });
+    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64, gas_used: u64) {
+        self.handle.send(TuiEvent::BlockExecuted { block_number, execution_time_ms, gas_used });
     }
 }
 
@@ -223,6 +223,7 @@ impl BatchCallback for TuiBatchCallback {
         uncompressed_size: usize,
         compressed_size: usize,
         block_tx_counts: &[usize],
+        l1_block_number: u64,
     ) {
         // Store the tx counts for later retrieval during derivation
         self.tx_count_store.record_batch(first_block, block_tx_counts);
@@ -234,6 +235,13 @@ impl BatchCallback for TuiBatchCallback {
             last_block,
             uncompressed_size,
             compressed_size,
+        });
+
+        // Emit the L1 block with batch inclusion for visualization
+        self.handle.send(TuiEvent::BatchIncludedInL1 {
+            l1_block_number,
+            batch_number,
+            block_count,
         });
     }
 }
@@ -292,6 +300,10 @@ impl DerivationCallback for TuiDerivationCallback {
             derivation_time_ms,
             execution_time_ms,
         });
+    }
+
+    fn on_l1_block_produced(&self, l1_block_number: u64) {
+        self.handle.send(TuiEvent::L1BlockProduced { block_number: l1_block_number });
     }
 }
 

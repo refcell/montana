@@ -8,6 +8,22 @@ use montana_tui_common::LogEntry;
 /// Maximum number of log entries to keep in each log buffer.
 const MAX_LOG_ENTRIES: usize = 100;
 
+/// Maximum number of L1 blocks to keep for visualization.
+const MAX_L1_BLOCKS: usize = 50;
+
+/// Represents an L1 block for visualization purposes.
+#[derive(Debug, Clone)]
+pub struct L1Block {
+    /// The L1 block number
+    pub number: u64,
+    /// Optional batch number if this block contains a batch submission
+    pub batch_number: Option<u64>,
+    /// Number of L2 blocks in the batch (if any)
+    pub batch_block_count: Option<usize>,
+    /// Whether this block is the origin of a derived batch
+    pub is_derivation_origin: bool,
+}
+
 /// Sync state tracking
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SyncState {
@@ -84,6 +100,10 @@ pub struct App {
     pub last_executed_block: u64,
     /// Recent execution times in ms (for calculating rate)
     execution_times: Vec<u64>,
+    /// Total gas used across all executed blocks
+    total_gas_used: u128,
+    /// Gas used in recent blocks (for calculating gigagas/s rate)
+    recent_gas_used: Vec<u64>,
     /// Timestamp when execution started (for rate calculation)
     pub execution_start_time: Option<std::time::Instant>,
     /// Timestamp when last block was executed (for stall detection)
@@ -134,6 +154,18 @@ pub struct App {
     pub harness_block: u64,
     /// Block number where harness initialization completed (blocks <= this were logged during init)
     pub harness_init_block: u64,
+
+    // L1 chain visualization
+    /// L1 blocks for visualization (scrolling block display)
+    pub l1_blocks: Vec<L1Block>,
+    /// Current L1 block number
+    pub l1_head: u64,
+    /// L1 block number containing the latest batch submission (for cursor display)
+    pub latest_batch_submission_l1_block: Option<u64>,
+    /// L1 block number that is the origin of the latest derived batch (for cursor display)
+    pub latest_derivation_origin_l1_block: Option<u64>,
+    /// Mapping from batch number to the L1 block where it was submitted
+    batch_to_l1_block: HashMap<u64, u64>,
 }
 
 impl App {
@@ -156,6 +188,8 @@ impl App {
             last_fetched_block: 0,
             last_executed_block: 0,
             execution_times: Vec::new(),
+            total_gas_used: 0,
+            recent_gas_used: Vec::new(),
             execution_start_time: None,
             last_execution_time: None,
             execution_logs: Vec::new(),
@@ -175,6 +209,11 @@ impl App {
             harness_logs: Vec::new(),
             harness_block: 0,
             harness_init_block: 0,
+            l1_blocks: Vec::new(),
+            l1_head: 0,
+            latest_batch_submission_l1_block: None,
+            latest_derivation_origin_l1_block: None,
+            batch_to_l1_block: HashMap::new(),
         }
     }
 
@@ -197,6 +236,8 @@ impl App {
         self.last_fetched_block = 0;
         self.last_executed_block = 0;
         self.execution_times.clear();
+        self.total_gas_used = 0;
+        self.recent_gas_used.clear();
         self.execution_start_time = None;
         self.last_execution_time = None;
         self.execution_logs.clear();
@@ -211,6 +252,11 @@ impl App {
         self.harness_logs.clear();
         self.harness_block = 0;
         self.harness_init_block = 0;
+        self.l1_blocks.clear();
+        self.l1_head = 0;
+        self.latest_batch_submission_l1_block = None;
+        self.latest_derivation_origin_l1_block = None;
+        self.batch_to_l1_block.clear();
     }
 
     /// Toggle the pause state.
@@ -545,7 +591,13 @@ impl App {
     ///
     /// * `block_number` - The block number that was executed
     /// * `execution_time_ms` - Time taken to execute the block in milliseconds
-    pub fn record_block_executed(&mut self, block_number: u64, execution_time_ms: u64) {
+    /// * `gas_used` - Gas used by the block
+    pub fn record_block_executed(
+        &mut self,
+        block_number: u64,
+        execution_time_ms: u64,
+        gas_used: u64,
+    ) {
         self.blocks_executed += 1;
         self.last_executed_block = block_number;
 
@@ -561,6 +613,13 @@ impl App {
         self.execution_times.push(execution_time_ms);
         if self.execution_times.len() > 100 {
             self.execution_times.remove(0);
+        }
+
+        // Track gas usage for gigagas/s calculation
+        self.total_gas_used += gas_used as u128;
+        self.recent_gas_used.push(gas_used);
+        if self.recent_gas_used.len() > 100 {
+            self.recent_gas_used.remove(0);
         }
     }
 
@@ -585,6 +644,22 @@ impl App {
         self.execution_start_time.map_or(0.0, |start| {
             let elapsed = start.elapsed().as_secs_f64();
             if elapsed > 0.0 { self.blocks_executed as f64 / elapsed } else { 0.0 }
+        })
+    }
+
+    /// Get gas per second (Mgas/s).
+    ///
+    /// Returns the gas throughput in megagas per second, calculated from
+    /// total gas used divided by elapsed time.
+    pub fn mgas_per_second(&self) -> f64 {
+        self.execution_start_time.map_or(0.0, |start| {
+            let elapsed = start.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                // Convert gas to megagas (1 Mgas = 1,000,000 gas)
+                (self.total_gas_used as f64 / 1_000_000.0) / elapsed
+            } else {
+                0.0
+            }
         })
     }
 
@@ -657,6 +732,105 @@ impl App {
     /// meaning it should be logged to the harness activity panel.
     pub const fn is_after_harness_init(&self, block_number: u64) -> bool {
         block_number > self.harness_init_block
+    }
+
+    /// Record a new L1 block.
+    ///
+    /// # Arguments
+    ///
+    /// * `block_number` - The L1 block number
+    pub fn record_l1_block(&mut self, block_number: u64) {
+        // Only add if it's a new block
+        if block_number > self.l1_head {
+            self.l1_head = block_number;
+            self.l1_blocks.push(L1Block {
+                number: block_number,
+                batch_number: None,
+                batch_block_count: None,
+                is_derivation_origin: false,
+            });
+
+            // Keep the buffer bounded
+            if self.l1_blocks.len() > MAX_L1_BLOCKS {
+                self.l1_blocks.remove(0);
+            }
+        }
+    }
+
+    /// Record a batch submission in an L1 block.
+    ///
+    /// If the L1 block doesn't exist yet, it will be created.
+    ///
+    /// # Arguments
+    ///
+    /// * `l1_block_number` - The L1 block that contains the batch
+    /// * `batch_number` - The batch number submitted
+    /// * `block_count` - Number of L2 blocks in the batch
+    pub fn record_batch_in_l1_block(
+        &mut self,
+        l1_block_number: u64,
+        batch_number: u64,
+        block_count: usize,
+    ) {
+        // Update latest batch submission L1 block
+        self.latest_batch_submission_l1_block = Some(l1_block_number);
+
+        // Record the mapping from batch to L1 block for later derivation origin lookup
+        self.batch_to_l1_block.insert(batch_number, l1_block_number);
+
+        // First, ensure the L1 block exists
+        if l1_block_number > self.l1_head {
+            self.l1_head = l1_block_number;
+            self.l1_blocks.push(L1Block {
+                number: l1_block_number,
+                batch_number: Some(batch_number),
+                batch_block_count: Some(block_count),
+                is_derivation_origin: false,
+            });
+
+            if self.l1_blocks.len() > MAX_L1_BLOCKS {
+                self.l1_blocks.remove(0);
+            }
+        } else {
+            // Update existing block if found
+            if let Some(block) = self.l1_blocks.iter_mut().find(|b| b.number == l1_block_number) {
+                block.batch_number = Some(batch_number);
+                block.batch_block_count = Some(block_count);
+            }
+        }
+    }
+
+    /// Record that a batch was derived from a specific L1 block.
+    ///
+    /// This updates the derivation origin cursor to point at the L1 block
+    /// that contained the batch data.
+    ///
+    /// # Arguments
+    ///
+    /// * `l1_block_number` - The L1 block that was the origin of the derived batch
+    pub fn record_derivation_origin(&mut self, l1_block_number: u64) {
+        // Update latest derivation origin L1 block
+        self.latest_derivation_origin_l1_block = Some(l1_block_number);
+
+        // Mark the L1 block as a derivation origin
+        if let Some(block) = self.l1_blocks.iter_mut().find(|b| b.number == l1_block_number) {
+            block.is_derivation_origin = true;
+        }
+    }
+
+    /// Record that a batch was derived and update the derivation origin cursor.
+    ///
+    /// Looks up which L1 block the batch was submitted in and updates
+    /// the derivation origin cursor to point at that block.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch_number` - The batch number that was derived
+    pub fn record_batch_derivation_origin(&mut self, batch_number: u64) {
+        // Look up the L1 block where this batch was submitted
+        if let Some(&l1_block) = self.batch_to_l1_block.get(&batch_number) {
+            self.record_derivation_origin(l1_block);
+        }
     }
 }
 

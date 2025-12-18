@@ -24,7 +24,8 @@ pub trait ExecutionCallback: Send + Sync {
     ///
     /// * `block_number` - The block number that was executed
     /// * `execution_time_ms` - Time taken to execute the block in milliseconds
-    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64);
+    /// * `gas_used` - Gas used by the block
+    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64, gas_used: u64);
 }
 
 /// Callback for reporting batch submission events.
@@ -43,6 +44,7 @@ pub trait BatchCallback: Send + Sync {
     /// * `uncompressed_size` - Uncompressed batch size in bytes
     /// * `compressed_size` - Compressed batch size in bytes
     /// * `block_tx_counts` - Transaction counts for each block in the batch (in order)
+    /// * `l1_block_number` - The L1 block number where the batch was included
     #[allow(clippy::too_many_arguments)]
     fn on_batch_submitted(
         &self,
@@ -53,6 +55,7 @@ pub trait BatchCallback: Send + Sync {
         uncompressed_size: usize,
         compressed_size: usize,
         block_tx_counts: &[usize],
+        l1_block_number: u64,
     );
 }
 
@@ -283,11 +286,18 @@ where
         let start = Instant::now();
         let block_number = block.header.number;
         let tx_count = block.transactions.len();
+        let gas_used = block.header.gas_used;
 
         // Calculate the serialized size of this block
         let block_size = serde_json::to_vec(&block).map(|v| v.len()).unwrap_or(0);
 
-        tracing::debug!(block_number, tx_count, block_size, "Processing block in sequencer");
+        tracing::debug!(
+            block_number,
+            tx_count,
+            block_size,
+            gas_used,
+            "Processing block in sequencer"
+        );
 
         // Add block to pending list
         self.pending_blocks.push(block);
@@ -305,7 +315,7 @@ where
 
         // Invoke execution callback for TUI visibility
         if let Some(ref callback) = self.execution_callback {
-            callback.on_block_executed(block_number, execution_time_ms);
+            callback.on_block_executed(block_number, execution_time_ms, gas_used);
         }
 
         // Check if batch is ready
@@ -420,6 +430,7 @@ where
                 last_block,
                 uncompressed_size,
                 compressed_size,
+                l1_block = receipt.l1_block,
                 ?block_tx_counts,
                 "Invoking batch callback for TUI"
             );
@@ -431,6 +442,7 @@ where
                 uncompressed_size,
                 compressed_size,
                 &block_tx_counts,
+                receipt.l1_block,
             );
         }
 

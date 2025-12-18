@@ -28,8 +28,9 @@ pub use handle::TuiHandle;
 /// The [`App`] struct maintains all state for the Montana TUI, including chain
 /// head progression, sync state, statistics, latency metrics, and log buffers
 /// for each component. The [`SyncState`] enum tracks the current sync status.
+/// The [`L1Block`] struct represents L1 blocks for chain visualization.
 mod app;
-pub use app::{App, SyncState};
+pub use app::{App, L1Block, SyncState};
 
 /// TUI implementation.
 ///

@@ -49,6 +49,18 @@ pub trait DerivationCallback: Send + Sync {
         // Default no-op implementation for backwards compatibility
         let _ = (block_number, tx_count, derivation_time_ms, execution_time_ms);
     }
+
+    /// Called when a new L1 block is detected.
+    ///
+    /// This is called when polling L1 detects a new head block. It allows
+    /// the TUI to visualize the L1 chain progression.
+    ///
+    /// # Arguments
+    /// * `l1_block_number` - The new L1 head block number
+    fn on_l1_block_produced(&self, l1_block_number: u64) {
+        // Default no-op implementation for backwards compatibility
+        let _ = l1_block_number;
+    }
 }
 
 /// Events emitted by the validator.
@@ -104,6 +116,8 @@ pub struct Validator<S, C, E> {
     event_tx: Option<mpsc::UnboundedSender<ValidatorEvent>>,
     /// Callback for derivation events (TUI visibility).
     derivation_callback: Option<Arc<dyn DerivationCallback>>,
+    /// Last known L1 head for change detection.
+    last_l1_head: u64,
 }
 
 impl<S: std::fmt::Debug, C: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug
@@ -119,6 +133,7 @@ impl<S: std::fmt::Debug, C: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug
             .field("poll_interval_ms", &self.poll_interval_ms)
             .field("event_tx", &self.event_tx.is_some())
             .field("derivation_callback", &self.derivation_callback.is_some())
+            .field("last_l1_head", &self.last_l1_head)
             .finish()
     }
 }
@@ -178,6 +193,7 @@ where
             poll_interval_ms: 50,
             event_tx: None,
             derivation_callback: None,
+            last_l1_head: 0,
         })
     }
 
@@ -341,6 +357,18 @@ where
     }
 
     async fn tick(&mut self) -> eyre::Result<TickResult> {
+        // Check for L1 head changes and emit L1BlockProduced events
+        if let Some(ref callback) = self.derivation_callback
+            && let Ok(l1_head) = self.batch_source.l1_head().await
+            && l1_head > self.last_l1_head
+        {
+            // Emit events for all new L1 blocks since last check
+            for block_num in (self.last_l1_head + 1)..=l1_head {
+                callback.on_l1_block_produced(block_num);
+            }
+            self.last_l1_head = l1_head;
+        }
+
         // Poll for next batch
         match self.batch_source.next_batch().await {
             Ok(Some(batch)) => {

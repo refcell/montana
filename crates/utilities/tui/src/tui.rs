@@ -17,6 +17,12 @@ use montana_tui_common::{LogEntry, format_bytes, render_logs_reversed};
 
 use crate::{App, SyncState, TuiEvent, TuiHandle};
 
+/// Color for batch submission indicators (matches Batch Submissions border)
+const BATCH_SUBMISSION_COLOR: Color = Color::Cyan;
+
+/// Color for derivation origin indicators (matches Derived Blocks border)
+const DERIVATION_ORIGIN_COLOR: Color = Color::Magenta;
+
 /// The main Montana TUI.
 ///
 /// This struct manages the TUI event loop, rendering the 4-pane layout and
@@ -283,6 +289,8 @@ fn process_event(app: &mut App, event: TuiEvent) {
             // Record the batch derivation (increments counter and calculates latency)
             app.record_batch_derived(batch_number);
             app.set_finalized_head(last_block);
+            // Update the derivation origin cursor by looking up the L1 block from batch submission
+            app.record_batch_derivation_origin(batch_number);
             app.log_derivation(LogEntry::info(format!(
                 "Batch #{}: derived {} blocks ({}-{})",
                 batch_number, block_count, first_block, last_block
@@ -300,13 +308,14 @@ fn process_event(app: &mut App, event: TuiEvent) {
         TuiEvent::ModeInfo { node_role, start_block, skip_sync } => {
             app.set_mode_info(node_role, start_block, skip_sync);
         }
-        TuiEvent::BlockExecuted { block_number, execution_time_ms } => {
-            app.record_block_executed(block_number, execution_time_ms);
+        TuiEvent::BlockExecuted { block_number, execution_time_ms, gas_used } => {
+            app.record_block_executed(block_number, execution_time_ms, gas_used);
             let backlog = app.backlog_size();
             let rate = app.execution_rate();
+            let mgas = app.mgas_per_second();
             app.log_execution(LogEntry::info(format!(
-                "Block #{}: {}ms, {:.1} blks/s, {} in backlog",
-                block_number, execution_time_ms, rate, backlog
+                "Block #{}: {}ms, {:.1} blks/s, {:.1} Mgas/s, {} backlog",
+                block_number, execution_time_ms, rate, mgas, backlog
             )));
         }
         TuiEvent::BacklogUpdated { blocks_fetched, last_fetched_block } => {
@@ -409,6 +418,12 @@ fn process_event(app: &mut App, event: TuiEvent) {
             }
             _ => {}
         },
+        TuiEvent::L1BlockProduced { block_number } => {
+            app.record_l1_block(block_number);
+        }
+        TuiEvent::BatchIncludedInL1 { l1_block_number, batch_number, block_count } => {
+            app.record_batch_in_l1_block(l1_block_number, batch_number, block_count);
+        }
     }
 }
 
@@ -416,16 +431,17 @@ fn process_event(app: &mut App, event: TuiEvent) {
 fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
     let area = frame.area();
 
-    // If harness mode is enabled, add a banner at the top
+    // If harness mode is enabled, add a banner at the top and L1 chain section
     if app.harness_mode {
-        // Layout with harness banner (1 line), header (1/4), body (flexible), footer (3 lines)
+        // Layout with harness banner (1 line), header (8 lines), body (flexible), L1 chain (5 lines), footer (3 lines)
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
-                Constraint::Ratio(1, 4),
-                Constraint::Min(5),
-                Constraint::Length(3),
+                Constraint::Length(1), // harness banner
+                Constraint::Length(8), // header (reduced from 1/4)
+                Constraint::Min(5),    // body
+                Constraint::Length(5), // L1 chain visualization
+                Constraint::Length(3), // footer
             ])
             .split(area);
 
@@ -438,13 +454,21 @@ fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
         // Draw body (4 equal columns)
         draw_body(frame, app, main_chunks[2]);
 
+        // Draw L1 chain visualization
+        draw_l1_chain(frame, app, main_chunks[3]);
+
         // Draw footer
-        draw_footer(frame, app, main_chunks[3]);
+        draw_footer(frame, app, main_chunks[4]);
     } else {
-        // Main layout: header (1/4 height), body (flexible), footer (3 lines)
+        // Main layout: header (8 lines), body (flexible), L1 chain (5 lines), footer (3 lines)
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Ratio(1, 4), Constraint::Min(5), Constraint::Length(3)])
+            .constraints([
+                Constraint::Length(8), // header (reduced from 1/4)
+                Constraint::Min(5),    // body
+                Constraint::Length(5), // L1 chain visualization
+                Constraint::Length(3), // footer
+            ])
             .split(area);
 
         // Draw header (split into chain state + metrics)
@@ -453,8 +477,11 @@ fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
         // Draw body (4 equal columns)
         draw_body(frame, app, main_chunks[1]);
 
+        // Draw L1 chain visualization
+        draw_l1_chain(frame, app, main_chunks[2]);
+
         // Draw footer
-        draw_footer(frame, app, main_chunks[2]);
+        draw_footer(frame, app, main_chunks[3]);
     }
 }
 
@@ -666,6 +693,7 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let blocks_per_sec = if avg_latency > 0.0 { 1000.0 / avg_latency } else { 0.0 };
     let avg_compression = app.avg_compression_ratio();
     let compression_stddev = app.compression_stddev();
+    let mgas_per_sec = app.mgas_per_second();
 
     let sync_status = if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
         Span::styled("IN SYNC ✓", Style::default().fg(Color::Green).bold())
@@ -678,10 +706,35 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Span::styled("WAITING...", Style::default().fg(Color::DarkGray))
     };
 
+    // Format gas throughput - show in appropriate units (Mgas/s or Ggas/s)
+    let gas_throughput_str = if mgas_per_sec >= 1000.0 {
+        // Show in Ggas/s for very high throughput
+        format!("{:.2} Ggas/s", mgas_per_sec / 1000.0)
+    } else if mgas_per_sec > 0.0 {
+        format!("{:.1} Mgas/s", mgas_per_sec)
+    } else {
+        "--".to_string()
+    };
+
+    // Color code gas throughput based on performance
+    let gas_color = if mgas_per_sec >= 1000.0 {
+        Color::Green // Gigagas territory!
+    } else if mgas_per_sec >= 100.0 {
+        Color::Cyan // High throughput
+    } else if mgas_per_sec > 0.0 {
+        Color::White // Normal
+    } else {
+        Color::DarkGray
+    };
+
     let text = vec![
         Line::from(vec![
             Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
             sync_status,
+        ]),
+        Line::from(vec![
+            Span::styled("Gas throughput: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(gas_throughput_str, Style::default().fg(gas_color).bold()),
         ]),
         Line::from(vec![
             Span::styled("Round-trip:     ", Style::default().fg(Color::DarkGray)),
@@ -727,13 +780,6 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 },
                 Style::default().fg(Color::DarkGray),
             ),
-        ]),
-        Line::from(vec![
-            Span::styled("Batches:        ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("{}", app.batches_submitted), Style::default().fg(Color::Blue)),
-            Span::raw(" submitted, "),
-            Span::styled(format!("{}", app.batches_derived), Style::default().fg(Color::Magenta)),
-            Span::raw(" derived"),
         ]),
     ];
 
@@ -1041,8 +1087,11 @@ fn draw_batch_submissions(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect)
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_style(Style::default().fg(BATCH_SUBMISSION_COLOR))
                 .title(" Batch Submissions ")
-                .title_style(Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+                .title_style(
+                    Style::default().fg(BATCH_SUBMISSION_COLOR).add_modifier(Modifier::BOLD),
+                ),
         )
         .wrap(Wrap { trim: true });
 
@@ -1088,8 +1137,11 @@ fn draw_derivation_logs(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_style(Style::default().fg(DERIVATION_ORIGIN_COLOR))
                 .title(" Derived Blocks ")
-                .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+                .title_style(
+                    Style::default().fg(DERIVATION_ORIGIN_COLOR).add_modifier(Modifier::BOLD),
+                ),
         )
         .wrap(Wrap { trim: true });
 
@@ -1149,6 +1201,131 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             .title(" Montana TUI ")
             .title_style(Style::default().fg(Color::Cyan)),
     );
+
+    frame.render_widget(widget, area);
+}
+
+/// Draw the L1 chain visualization with scrolling blocks.
+///
+/// This displays a horizontal row of L1 blocks with cursor arrows pointing up
+/// to indicate the latest batch submission and derivation origin blocks.
+/// The cursor colors match their respective log section borders.
+fn draw_l1_chain(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Build the visual representation of L1 blocks
+    // Each block is represented as a small box: [###] for empty, [B#n] for batch
+    // Block width is 7 chars: "[" + 5 chars content + "]"
+    const BLOCK_WIDTH: u16 = 8;
+
+    // Calculate how many blocks we can fit in the available width (minus borders)
+    let inner_width = area.width.saturating_sub(2); // account for borders
+    let max_visible_blocks = (inner_width / BLOCK_WIDTH) as usize;
+
+    // Get the blocks to display (most recent ones that fit)
+    let blocks_to_display: Vec<_> = if app.l1_blocks.len() > max_visible_blocks {
+        app.l1_blocks[(app.l1_blocks.len() - max_visible_blocks)..].to_vec()
+    } else {
+        app.l1_blocks.clone()
+    };
+
+    // Build the visual lines
+    // Line 1: Block numbers
+    // Line 2: Visual blocks (with batch indicators)
+    // Line 3: Cursor arrows (pointing up) for batch submission and derivation origin
+    let mut block_number_spans: Vec<Span<'_>> = Vec::new();
+    let mut block_visual_spans: Vec<Span<'_>> = Vec::new();
+    let mut cursor_spans: Vec<Span<'_>> = Vec::new();
+
+    if blocks_to_display.is_empty() {
+        // No blocks yet - show placeholder
+        block_number_spans
+            .push(Span::styled("Waiting for L1 blocks...", Style::default().fg(Color::DarkGray)));
+        block_visual_spans.push(Span::raw(""));
+        cursor_spans.push(Span::raw(""));
+    } else {
+        // Add arrow indicator for scrolling
+        if app.l1_blocks.len() > max_visible_blocks {
+            block_number_spans.push(Span::styled("← ", Style::default().fg(Color::DarkGray)));
+            block_visual_spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
+            cursor_spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
+        }
+
+        for block in &blocks_to_display {
+            // Block number display (padded to BLOCK_WIDTH)
+            let num_str = format!("{:^7}", block.number);
+            block_number_spans.push(Span::styled(num_str, Style::default().fg(Color::DarkGray)));
+            block_number_spans.push(Span::raw(" "));
+
+            // Visual block representation - all in normal text color
+            if let Some(batch_num) = block.batch_number {
+                // This block contains a batch submission
+                let batch_label = format!("[B{:>4}]", batch_num);
+                block_visual_spans
+                    .push(Span::styled(batch_label, Style::default().fg(Color::White)));
+            } else {
+                // Empty block - show as dimmed box
+                block_visual_spans
+                    .push(Span::styled("[  ·  ]", Style::default().fg(Color::DarkGray)));
+            }
+            block_visual_spans.push(Span::raw(" "));
+
+            // Cursor arrow line - show arrows for latest batch submission and derivation origin
+            let is_batch_cursor = app.latest_batch_submission_l1_block == Some(block.number);
+            let is_derivation_cursor = app.latest_derivation_origin_l1_block == Some(block.number);
+
+            if is_batch_cursor && is_derivation_cursor {
+                // Both cursors on same block - show both arrows side by side
+                cursor_spans.push(Span::styled("  ", Style::default()));
+                cursor_spans
+                    .push(Span::styled("▲", Style::default().fg(BATCH_SUBMISSION_COLOR).bold()));
+                cursor_spans
+                    .push(Span::styled("▲", Style::default().fg(DERIVATION_ORIGIN_COLOR).bold()));
+                cursor_spans.push(Span::styled("   ", Style::default()));
+            } else if is_batch_cursor {
+                // Batch submission cursor - centered arrow
+                cursor_spans.push(Span::styled("   ", Style::default()));
+                cursor_spans
+                    .push(Span::styled("▲", Style::default().fg(BATCH_SUBMISSION_COLOR).bold()));
+                cursor_spans.push(Span::styled("    ", Style::default()));
+            } else if is_derivation_cursor {
+                // Derivation origin cursor - centered arrow
+                cursor_spans.push(Span::styled("   ", Style::default()));
+                cursor_spans
+                    .push(Span::styled("▲", Style::default().fg(DERIVATION_ORIGIN_COLOR).bold()));
+                cursor_spans.push(Span::styled("    ", Style::default()));
+            } else {
+                // No cursor - empty space
+                cursor_spans.push(Span::styled("        ", Style::default()));
+            }
+        }
+
+        // Add scroll indicator if there are more blocks to the right (future)
+        block_number_spans.push(Span::styled(" →", Style::default().fg(Color::DarkGray)));
+        block_visual_spans.push(Span::raw("  "));
+        cursor_spans.push(Span::raw("  "));
+    }
+
+    let text = vec![
+        Line::from(block_number_spans),
+        Line::from(block_visual_spans),
+        Line::from(cursor_spans),
+    ];
+
+    // Build title with L1 head info and legend
+    let title = if app.l1_head > 0 {
+        format!(" L1 Chain (Head: #{}) ", app.l1_head)
+    } else {
+        " L1 Chain ".to_string()
+    };
+
+    let widget = Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow))
+                .title(title)
+                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        )
+        .alignment(ratatui::layout::Alignment::Left);
 
     frame.render_widget(widget, area);
 }

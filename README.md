@@ -107,41 +107,96 @@ The consensus layer handles data availability via a duplex pipeline:
 
 ## Crates
 
-**Binaries**
+<details>
+<summary><strong>Binaries</strong></summary>
 
-- [`montana`](./bin/montana): The Montana node binary for running sequencer, validator, or dual nodes.
+| Crate | Description |
+|-------|-------------|
+| [`montana`](./bin/montana) | Montana block executor node binary |
 
-See the [`examples/`](./examples) directory for additional example binaries and tools.
+</details>
 
-**Consensus**
+<details>
+<summary><strong>Examples</strong></summary>
 
-- [`montana-pipeline`](./crates/consensus/pipeline): Core pipeline types and traits.
-- [`montana-batcher`](./crates/consensus/batcher): Batcher service for L2 batch submission orchestration.
-- [`montana-batch-runner`](./crates/consensus/batch-runner): Batch submission runner.
-- [`montana-derivation-runner`](./crates/consensus/derivation-runner): Derivation pipeline runner.
-- [`montana-txmgr`](./crates/consensus/txmgr): Transaction manager for L1 batch submission with blob and calldata support.
-- [`montana-local`](./crates/consensus/local): Local file-based source and sink implementations.
-- [`montana-anvil`](./crates/consensus/anvil): Anvil-based testing utilities.
-- [`montana-brotli`](./crates/consensus/brotli): Brotli compression implementation.
-- [`montana-zlib`](./crates/consensus/zlib): Zlib compression implementation.
-- [`montana-zstd`](./crates/consensus/zstd): Zstandard compression implementation.
+| Crate | Description |
+|-------|-------------|
+| [`shadow`](./examples/shadow) | Real-time batch submission and derivation monitoring TUI |
+| [`analyze`](./examples/analyze) | Compression analyzer for benchmarking compression algorithms |
+| [`fetcher`](./examples/fetcher) | Base L2 block fetcher utility |
+| [`migrate`](./examples/migrate) | Reth MDBX to TrieDB database migration tool |
 
-**Utilities**
+</details>
 
-- [`montana-cli`](./crates/utilities/cli): CLI utilities and argument parsing.
+<details>
+<summary><strong>Node</strong></summary>
 
-**Common**
+| Crate | Description |
+|-------|-------------|
+| [`montana-node`](./crates/node/node) | Core node abstractions |
+| [`montana-runtime`](./crates/node/runtime) | Runtime functions for node building and execution |
+| [`montana-roles`](./crates/node/roles) | Role abstractions (sequencer, validator) |
+| [`montana-checkpoint`](./crates/node/checkpoint) | Checkpoint persistence for node resumption |
 
-- [`chainspec`](./crates/common/chainspec): Chain specification for Base stack chains.
-- [`channel`](./crates/common/channel): Channel utilities.
-- [`primitives`](./crates/common/primitives): Primitive types.
+</details>
 
-**Execution**
+<details>
+<summary><strong>Consensus</strong></summary>
 
-- [`blocksource`](./crates/execution/blocksource): Block source implementations for fetching Base stack blocks.
-- [`database`](./crates/execution/database): Database implementations for EVM state.
-- [`runner`](./crates/execution/runner): Block execution runner.
-- [`vm`](./crates/execution/vm): Block executor using op-revm.
+| Crate | Description |
+|-------|-------------|
+| [`montana-pipeline`](./crates/consensus/pipeline) | Core pipeline traits and types |
+| [`montana-batcher`](./crates/consensus/batcher) | Batcher service for L2 batch submission orchestration |
+| [`montana-batch-runner`](./crates/consensus/batch-runner) | Batch submission runner for L2 block streaming |
+| [`montana-batch-context`](./crates/consensus/batch-context) | Sink and source abstractions for batch submission modes |
+| [`montana-block-feeder`](./crates/consensus/block-feeder) | Block feeder for fetching and forwarding blocks |
+| [`montana-derivation-runner`](./crates/consensus/derivation-runner) | Derivation pipeline runner for batch decompression |
+| [`montana-txmgr`](./crates/consensus/txmgr) | Transaction manager for L1 batch submission (blob/calldata) |
+| [`montana-local`](./crates/consensus/local) | Local file-based source and sink implementations |
+| [`montana-anvil`](./crates/consensus/anvil) | Anvil integration for local testing and development |
+| [`montana-brotli`](./crates/consensus/brotli) | Brotli compression implementation |
+| [`montana-zlib`](./crates/consensus/zlib) | Zlib compression implementation |
+| [`montana-zstd`](./crates/consensus/zstd) | Zstandard compression implementation |
+
+</details>
+
+<details>
+<summary><strong>Execution</strong></summary>
+
+| Crate | Description |
+|-------|-------------|
+| [`blocksource`](./crates/execution/blocksource) | Block source implementations for fetching Base stack blocks |
+| [`database`](./crates/execution/database) | Database implementations for EVM state (TrieDB + RocksDB) |
+| [`vm`](./crates/execution/vm) | Block executor using op-revm |
+| [`runner`](./crates/execution/runner) | Block execution runner |
+| [`migration`](./crates/execution/migration) | Reth MDBX database migration utilities |
+
+</details>
+
+<details>
+<summary><strong>Common</strong></summary>
+
+| Crate | Description |
+|-------|-------------|
+| [`chainspec`](./crates/common/chainspec) | Chain specification for Base stack chains |
+| [`channels`](./crates/common/channel) | Channel utilities for async communication |
+| [`primitives`](./crates/common/primitives) | Core primitive types |
+| [`sequencer`](./crates/common/sequencer) | Sequencer buffer bridging execution to batch submission |
+
+</details>
+
+<details>
+<summary><strong>Utilities</strong></summary>
+
+| Crate | Description |
+|-------|-------------|
+| [`montana-cli`](./crates/utilities/cli) | CLI utilities and argument parsing |
+| [`montana-tui`](./crates/utilities/tui) | TUI for the Montana node binary |
+| [`montana-tui-common`](./crates/utilities/tui-common) | Common TUI utilities |
+| [`montana-adapters`](./crates/utilities/adapters) | Adapter types for binary composition |
+| [`montana-harness`](./crates/utilities/harness) | Test harness with synthetic transaction activity |
+
+</details>
 
 ## Performance
 
@@ -157,18 +212,58 @@ Brotli provides the best compression ratio for L2 batch data, reducing the raw b
 
 ## Usage
 
+### Quick Start
+
 ```sh
 # Build the project
 cargo build --release
 
-# Run the compression analyzer
+# Run with just (recommended)
+just --list              # Show all available commands
+just build               # Build release binary
+just test                # Run tests
+just ci                  # Run full CI checks
+```
+
+### Running the Node
+
+```sh
+# Run Montana node (default: dual mode - sequencer + validator)
+cargo run --release -p montana -- --rpc-url <L2_RPC>
+
+# Run in sequencer mode
+cargo run --release -p montana -- --rpc-url <L2_RPC> --mode sequencer
+
+# Run in validator mode
+cargo run --release -p montana -- --rpc-url <L2_RPC> --mode validator
+
+# Run with local test harness (spawns anvil with synthetic activity)
+just harness
+```
+
+### Examples
+
+```sh
+# Run the shadow TUI for monitoring
+just shadow
+
+# Run compression analyzer
 cargo run -p analyze -- --help
 
-# Run the Montana node
-cargo run -p montana -- --rpc-url <L2_RPC>
+# Run block fetcher
+cargo run -p fetcher -- --help
 
-# Run with specific configuration
-cargo run -p montana -- --rpc-url <L2_RPC> --mode sequencer --start 1000000
+# Migrate Reth MDBX database to TrieDB
+just migrate <SOURCE_PATH> <DEST_PATH>
+```
+
+### Development
+
+```sh
+just fix                 # Auto-fix formatting and clippy issues
+just check               # Run all checks (format, clippy, tests)
+just bench               # Run compression benchmarks
+just hack                # Check feature powerset
 ```
 
 ## Contributing

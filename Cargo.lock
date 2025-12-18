@@ -3543,12 +3543,12 @@ dependencies = [
 name = "montana-batch-runner"
 version = "0.0.1"
 dependencies = [
+ "alloy",
  "async-trait",
  "montana-pipeline",
- "reqwest",
+ "op-alloy",
+ "primitives",
  "rstest",
- "serde",
- "serde_json",
  "thiserror",
  "tokio",
  "tracing",
@@ -3576,9 +3576,10 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "eyre",
- "montana-pipeline",
  "montana-tui",
  "op-alloy",
+ "primitives",
+ "serde_json",
  "tokio",
  "tracing",
 ]
@@ -3619,6 +3620,7 @@ dependencies = [
  "async-trait",
  "montana-checkpoint",
  "montana-pipeline",
+ "primitives",
  "rstest",
  "thiserror",
  "tokio",
@@ -3691,6 +3693,8 @@ dependencies = [
  "montana-batcher",
  "montana-checkpoint",
  "montana-pipeline",
+ "primitives",
+ "serde_json",
  "tokio",
  "tracing",
 ]
@@ -3716,6 +3720,7 @@ dependencies = [
  "montana-roles",
  "montana-tui",
  "op-alloy",
+ "primitives",
  "ratatui",
  "tokio",
  "tracing",
@@ -4387,7 +4392,11 @@ dependencies = [
 name = "primitives"
 version = "0.0.1"
 dependencies = [
+ "alloy",
  "alloy-primitives",
+ "op-alloy",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5569,6 +5578,7 @@ dependencies = [
 name = "shadow"
 version = "0.0.1"
 dependencies = [
+ "alloy",
  "async-trait",
  "clap",
  "crossterm",
@@ -5581,6 +5591,8 @@ dependencies = [
  "montana-tui-common",
  "montana-zlib",
  "montana-zstd",
+ "op-alloy",
+ "primitives",
  "ratatui",
  "tokio",
 ]

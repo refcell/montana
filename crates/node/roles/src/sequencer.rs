@@ -5,10 +5,11 @@
 use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
-use montana_batcher::BatchDriver;
+use montana_batcher::BatcherConfig;
 use montana_checkpoint::Checkpoint;
-use montana_pipeline::{BatchSink, CompressedBatch, Compressor, L2BlockData};
+use montana_pipeline::{BatchSink, CompressedBatch, Compressor};
+use primitives::{OpBlock, OpBlockBatch};
+use tokio::sync::mpsc;
 
 use crate::{Role, RoleCheckpoint, TickResult};
 
@@ -90,23 +91,33 @@ pub enum SequencerEvent {
 /// - `S`: The batch sink implementation (e.g., blob sink, calldata sink)
 /// - `C`: The compressor implementation (e.g., Brotli, Zstd)
 ///
-/// The sequencer receives L2 blocks via an unbounded channel, batches them according
-/// to configured criteria, compresses them, and submits them to L1. The unbounded
-/// channel allows block fetching to be decoupled from execution - the feeder can
-/// continuously fetch blocks while the sequencer processes them at its own pace.
+/// The sequencer receives full `OpBlock` types via an unbounded channel, batches them
+/// according to configured criteria, serializes them as `OpBlockBatch`, compresses the
+/// serialized data, and submits to L1. Using full `OpBlock` preserves all block information
+/// for the validator to deserialize. The unbounded channel allows block fetching to be
+/// decoupled from execution - the feeder can continuously fetch blocks while the
+/// sequencer processes them at its own pace.
 pub struct Sequencer<S, C> {
     /// Batch sink for L1 submission.
     batch_sink: S,
     /// Compressor for batch data.
     compressor: C,
-    /// Batch driver managing batch building logic.
-    batch_driver: BatchDriver,
+    /// Batcher configuration for batch submission criteria.
+    batcher_config: BatcherConfig,
     /// Checkpoint for resumption.
     checkpoint: Checkpoint,
     /// Path to save checkpoints (None disables checkpoint persistence).
     checkpoint_path: Option<PathBuf>,
-    /// Unbounded channel for receiving blocks (decouples fetching from execution).
-    block_rx: mpsc::UnboundedReceiver<L2BlockData>,
+    /// Unbounded channel for receiving full OpBlocks (decouples fetching from execution).
+    block_rx: mpsc::UnboundedReceiver<OpBlock>,
+    /// Pending blocks waiting to be batched.
+    pending_blocks: Vec<OpBlock>,
+    /// Current accumulated batch size in bytes (serialized size).
+    current_batch_size: usize,
+    /// Last batch submission time.
+    last_submission: Instant,
+    /// Next batch number to submit.
+    next_batch_number: u64,
     /// Event sender (for observers).
     event_tx: Option<mpsc::UnboundedSender<SequencerEvent>>,
     /// Optional callback for execution events.
@@ -122,10 +133,13 @@ impl<S: std::fmt::Debug, C: std::fmt::Debug> std::fmt::Debug for Sequencer<S, C>
         f.debug_struct("Sequencer")
             .field("batch_sink", &self.batch_sink)
             .field("compressor", &self.compressor)
-            .field("batch_driver", &self.batch_driver)
+            .field("batcher_config", &self.batcher_config)
             .field("checkpoint", &self.checkpoint)
             .field("checkpoint_path", &self.checkpoint_path)
             .field("blocks_executed", &self.blocks_executed)
+            .field("pending_blocks", &self.pending_blocks.len())
+            .field("current_batch_size", &self.current_batch_size)
+            .field("next_batch_number", &self.next_batch_number)
             .finish_non_exhaustive()
     }
 }
@@ -141,10 +155,10 @@ where
     ///
     /// * `batch_sink` - The sink for submitting batches to L1
     /// * `compressor` - The compressor for batch data
-    /// * `batch_driver` - The batch driver managing batch building logic
+    /// * `batcher_config` - Configuration for batch submission criteria
     /// * `checkpoint_path` - Optional path to save/load checkpoints. If `None`, checkpointing
     ///   is disabled (useful for harness/demo mode where fresh starts are expected).
-    /// * `block_rx` - Unbounded channel for receiving L2 blocks (allows decoupled fetching)
+    /// * `block_rx` - Unbounded channel for receiving full OpBlocks (allows decoupled fetching)
     ///
     /// # Errors
     ///
@@ -152,9 +166,9 @@ where
     pub fn new(
         batch_sink: S,
         compressor: C,
-        batch_driver: BatchDriver,
+        batcher_config: BatcherConfig,
         checkpoint_path: Option<PathBuf>,
-        block_rx: mpsc::UnboundedReceiver<L2BlockData>,
+        block_rx: mpsc::UnboundedReceiver<OpBlock>,
     ) -> eyre::Result<Self> {
         let checkpoint = if let Some(ref path) = checkpoint_path {
             Checkpoint::load(path)?.map_or_else(
@@ -179,10 +193,14 @@ where
         Ok(Self {
             batch_sink,
             compressor,
-            batch_driver,
+            batcher_config,
             checkpoint,
             checkpoint_path,
             block_rx,
+            pending_blocks: Vec::new(),
+            current_batch_size: 0,
+            last_submission: Instant::now(),
+            next_batch_number: 1, // Start at 1 to avoid checkpoint skip issue with batch 0
             event_tx: None,
             execution_callback: None,
             batch_callback: None,
@@ -239,28 +257,41 @@ where
         }
     }
 
+    /// Determines if a batch should be submitted based on configured criteria.
+    fn should_submit(&self) -> bool {
+        let size_ready = self.current_batch_size >= self.batcher_config.min_batch_size;
+        let time_ready = self.last_submission.elapsed() >= self.batcher_config.batch_interval;
+        let blocks_ready =
+            self.pending_blocks.len() >= self.batcher_config.max_blocks_per_batch as usize;
+
+        size_ready || time_ready || blocks_ready
+    }
+
     /// Processes a single incoming block.
     ///
-    /// Adds the block to the batch driver and checks if a batch should be submitted.
+    /// Adds the block to the pending list and checks if a batch should be submitted.
     /// Measures execution time and emits events for TUI visibility.
     ///
     /// # Arguments
     ///
-    /// * `block` - The L2 block data to process
+    /// * `block` - The full OpBlock to process
     ///
     /// # Errors
     ///
     /// Returns an error if batch submission fails.
-    async fn process_block(&mut self, block: L2BlockData) -> eyre::Result<()> {
+    async fn process_block(&mut self, block: OpBlock) -> eyre::Result<()> {
         let start = Instant::now();
-        let block_number = block.block_number;
+        let block_number = block.header.number;
         let tx_count = block.transactions.len();
-        let tx_size: usize = block.transactions.iter().map(|tx| tx.len()).sum();
 
-        tracing::debug!(block_number, tx_count, tx_size, "Processing block in sequencer");
+        // Calculate the serialized size of this block
+        let block_size = serde_json::to_vec(&block).map(|v| v.len()).unwrap_or(0);
 
-        // Add block to batch driver
-        self.batch_driver.add_blocks(vec![block.clone()]);
+        tracing::debug!(block_number, tx_count, block_size, "Processing block in sequencer");
+
+        // Add block to pending list
+        self.pending_blocks.push(block);
+        self.current_batch_size += block_size;
 
         // Calculate execution time
         let execution_time_ms = start.elapsed().as_millis() as u64;
@@ -268,21 +299,21 @@ where
 
         // Emit block executed event
         self.emit(SequencerEvent::BlockExecuted {
-            block_number: block.block_number,
+            block_number,
             block_hash: [0u8; 32], // TODO: compute actual block hash
         });
 
         // Invoke execution callback for TUI visibility
         if let Some(ref callback) = self.execution_callback {
-            callback.on_block_executed(block.block_number, execution_time_ms);
+            callback.on_block_executed(block_number, execution_time_ms);
         }
 
         // Check if batch is ready
-        let should = self.batch_driver.should_submit();
+        let should = self.should_submit();
         tracing::debug!(
             should_submit = should,
-            pending_count = self.batch_driver.pending_count(),
-            current_size = self.batch_driver.current_size(),
+            pending_count = self.pending_blocks.len(),
+            current_size = self.current_batch_size,
             "Checking if batch should be submitted"
         );
         if should {
@@ -294,45 +325,59 @@ where
 
     /// Submits a pending batch to L1.
     ///
-    /// Builds the batch, compresses it, and submits it to the batch sink.
-    /// Updates the checkpoint after successful submission.
+    /// Builds the batch, serializes as OpBlockBatch, compresses it, and submits it to the batch
+    /// sink. Updates the checkpoint after successful submission.
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Batch building fails
+    /// - Serialization fails
     /// - Compression fails
     /// - Submission to L1 fails
     /// - Checkpoint save fails
     async fn submit_pending_batch(&mut self) -> eyre::Result<()> {
-        let Some(pending) = self.batch_driver.build_batch() else {
+        if self.pending_blocks.is_empty() {
             return Ok(());
-        };
+        }
 
-        let batch_number = pending.batch_number;
+        let batch_number = self.next_batch_number;
 
         // Skip if already submitted
         if self.checkpoint.should_skip_batch(batch_number) {
             tracing::info!(batch_number, "Skipping already-submitted batch");
+            self.pending_blocks.clear();
+            self.current_batch_size = 0;
             return Ok(());
         }
 
-        // Encode the batch data (concatenate all transaction data)
-        let mut batch_data = Vec::new();
-        for block in &pending.blocks {
-            for tx in &block.transactions {
-                batch_data.extend_from_slice(&tx.0);
-            }
-        }
+        // Take blocks up to max_blocks_per_batch
+        let max_blocks = self.batcher_config.max_blocks_per_batch as usize;
+        let blocks_to_submit: Vec<OpBlock> = if self.pending_blocks.len() > max_blocks {
+            self.pending_blocks.drain(..max_blocks).collect()
+        } else {
+            std::mem::take(&mut self.pending_blocks)
+        };
+
+        let block_count = blocks_to_submit.len();
+        let first_block = blocks_to_submit.first().map(|b| b.header.number).unwrap_or(0);
+        let last_block = blocks_to_submit.last().map(|b| b.header.number).unwrap_or(0);
+
+        // Collect transaction counts for each block
+        let block_tx_counts: Vec<usize> =
+            blocks_to_submit.iter().map(|b| b.transactions.len()).collect();
+
+        // Serialize the blocks as OpBlockBatch
+        let batch_payload = OpBlockBatch::new(blocks_to_submit);
+        let batch_data = batch_payload
+            .to_bytes()
+            .map_err(|e| eyre::eyre!("Failed to serialize OpBlockBatch: {}", e))?;
+
+        let uncompressed_size = batch_data.len();
 
         // Compress
-        let uncompressed_size = batch_data.len();
         let compressed_data = self.compressor.compress(&batch_data)?;
         let compressed_size = compressed_data.len();
 
-        let block_count = pending.blocks.len();
-        let first_block = pending.blocks.first().map(|b| b.block_number).unwrap_or(0);
-        let last_block = pending.blocks.last().map(|b| b.block_number).unwrap_or(0);
         self.emit(SequencerEvent::BatchBuilt { batch_number, block_count });
 
         // Submit
@@ -353,17 +398,21 @@ where
             self.checkpoint.save(path)?;
         }
 
-        // Record in batch driver as well
-        self.batch_driver.record_batch_submitted(batch_number)?;
+        // Update internal state
+        self.next_batch_number += 1;
+        self.last_submission = Instant::now();
+
+        // Recalculate remaining batch size
+        self.current_batch_size = self
+            .pending_blocks
+            .iter()
+            .map(|b| serde_json::to_vec(b).map(|v| v.len()).unwrap_or(0))
+            .sum();
 
         self.emit(SequencerEvent::BatchSubmitted { batch_number, tx_hash: receipt.tx_hash });
 
         // Invoke batch callback for TUI visibility
         if let Some(ref callback) = self.batch_callback {
-            // Collect transaction counts for each block
-            let block_tx_counts: Vec<usize> =
-                pending.blocks.iter().map(|b| b.transactions.len()).collect();
-
             tracing::debug!(
                 batch_number,
                 block_count,
@@ -430,7 +479,7 @@ where
             }
             Err(mpsc::error::TryRecvError::Empty) => {
                 // No blocks available, check if we should time-submit
-                if self.batch_driver.should_submit() && self.batch_driver.pending_count() > 0 {
+                if self.should_submit() && !self.pending_blocks.is_empty() {
                     self.submit_pending_batch().await?;
                     Ok(TickResult::Progress)
                 } else {
@@ -439,7 +488,7 @@ where
             }
             Err(mpsc::error::TryRecvError::Disconnected) => {
                 // Block producer finished, flush remaining
-                if self.batch_driver.pending_count() > 0 {
+                if !self.pending_blocks.is_empty() {
                     self.submit_pending_batch().await?;
                 }
                 Ok(TickResult::Complete)

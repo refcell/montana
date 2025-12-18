@@ -1,7 +1,7 @@
 //! Block source trait for the batch submission runner.
 
 use async_trait::async_trait;
-use montana_pipeline::L2BlockData;
+use primitives::OpBlock;
 use thiserror::Error;
 
 /// Block source errors.
@@ -26,8 +26,11 @@ pub enum BlockSourceError {
 pub trait BlockSource: Send + Sync {
     /// Fetch a block by its number.
     ///
+    /// Returns the full `OpBlock` which includes all block metadata, header,
+    /// and full transaction data. This is used for batch serialization.
+    ///
     /// Returns `BlockSourceError::BlockNotFound` if the block doesn't exist yet.
-    async fn get_block(&mut self, block_number: u64) -> Result<L2BlockData, BlockSourceError>;
+    async fn get_block(&mut self, block_number: u64) -> Result<OpBlock, BlockSourceError>;
 
     /// Get the current chain head block number.
     async fn get_head(&self) -> Result<u64, BlockSourceError>;

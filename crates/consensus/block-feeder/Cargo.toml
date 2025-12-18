@@ -13,8 +13,10 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+# common crates
+primitives.workspace = true
+
 # montana crates
-montana-pipeline.workspace = true
 montana-tui.workspace = true
 
 # alloy
@@ -26,4 +28,5 @@ tokio.workspace = true
 
 # misc
 eyre.workspace = true
+serde_json.workspace = true
 tracing.workspace = true

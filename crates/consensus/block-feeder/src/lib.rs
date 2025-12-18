@@ -5,11 +5,11 @@
 
 use std::time::Duration;
 
-use alloy::{eips::eip2718::Encodable2718, providers::Provider};
+use alloy::providers::Provider;
 use eyre::Result;
-use montana_pipeline::{Bytes, L2BlockData};
 use montana_tui::{TuiEvent, TuiHandle};
 use op_alloy::network::Optimism;
+use primitives::OpBlock;
 use tokio::sync::mpsc;
 
 /// Fetches blocks and sends them to the sequencer via channel.
@@ -18,11 +18,13 @@ use tokio::sync::mpsc;
 /// Uses an unbounded channel to decouple block fetching from execution - the feeder
 /// continuously pulls blocks from the RPC while the sequencer processes them at its
 /// own pace. The TUI shows both blocks fetched (backlog) and blocks executed.
+///
+/// Sends full `OpBlock` types to preserve all block information for serialization.
 pub async fn run_block_feeder<P: Provider<Optimism> + Clone>(
     provider: P,
     start: u64,
     poll_interval_ms: u64,
-    tx: mpsc::UnboundedSender<L2BlockData>,
+    tx: mpsc::UnboundedSender<OpBlock>,
     tui_handle: Option<TuiHandle>,
 ) -> Result<()> {
     tracing::info!(start, has_tui_handle = tui_handle.is_some(), "Block feeder started");
@@ -46,23 +48,8 @@ pub async fn run_block_feeder<P: Provider<Optimism> + Clone>(
             let tx_count = block.transactions.len();
             let gas_used = block.header.gas_used;
 
-            // Convert to L2BlockData
-            let block_data = L2BlockData {
-                block_number: current,
-                timestamp: block.header.timestamp,
-                transactions: block
-                    .transactions
-                    .txns()
-                    .map(|rpc_tx| {
-                        // Get the inner OpTxEnvelope and encode it
-                        let envelope = rpc_tx.inner.inner.inner();
-                        Bytes::from(envelope.encoded_2718())
-                    })
-                    .collect(),
-            };
-
-            // Calculate approximate block size from transaction data
-            let size_bytes: usize = block_data.transactions.iter().map(|tx| tx.len()).sum();
+            // Calculate approximate block size from serialized block
+            let size_bytes = serde_json::to_vec(&block).map(|v| v.len()).unwrap_or(0);
 
             // Emit TUI events for the block fetched
             if let Some(ref handle) = tui_handle {
@@ -75,8 +62,8 @@ pub async fn run_block_feeder<P: Provider<Optimism> + Clone>(
                 handle.send(TuiEvent::UnsafeHeadUpdated(current));
             }
 
-            // Send to sequencer (unbounded - never blocks)
-            if tx.send(block_data).is_err() {
+            // Send full OpBlock to sequencer (unbounded - never blocks)
+            if tx.send(block).is_err() {
                 tracing::info!("Block receiver closed, stopping feeder");
                 return Ok(());
             }

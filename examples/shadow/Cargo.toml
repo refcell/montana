@@ -22,6 +22,11 @@ montana-pipeline.workspace = true
 montana-tui-common.workspace = true
 montana-zlib.workspace = true
 montana-zstd.workspace = true
+primitives.workspace = true
+
+# alloy
+alloy.workspace = true
+op-alloy.workspace = true
 
 # async
 async-trait.workspace = true

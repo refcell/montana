@@ -20,6 +20,9 @@ blocksource.workspace = true
 alloy.workspace = true
 op-alloy.workspace = true
 
+# common crates
+primitives.workspace = true
+
 # consensus crates
 montana-batch-context.workspace = true
 montana-batcher.workspace = true

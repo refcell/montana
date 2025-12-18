@@ -8,7 +8,7 @@ repository = "https://github.com/base/montana"
 
 [workspace]
 resolver = "2"
-members = ["bin/*", "examples/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/node/*", "crates/utilities/*"]
+members = ["bin/*", "examples/*", "crates/common/*", "crates/consensus/*", "crates/execution/*", "crates/node/*", "crates/utilities/*", "crates/utilities/adapters"]
 default-members = ["bin/montana"]
 
 [workspace.lints.rust]
@@ -52,6 +52,7 @@ montana-anvil = { version = "0.0.1", path = "crates/consensus/anvil" }
 montana-batch-context = { version = "0.0.1", path = "crates/consensus/batch-context" }
 montana-batch-runner = { version = "0.0.1", path = "crates/consensus/batch-runner" }
 montana-batcher = { version = "0.0.1", path = "crates/consensus/batcher" }
+montana-block-feeder = { version = "0.0.1", path = "crates/consensus/block-feeder" }
 montana-brotli = { version = "0.0.1", path = "crates/consensus/brotli" }
 montana-derivation-runner = { version = "0.0.1", path = "crates/consensus/derivation-runner" }
 montana-local = { version = "0.0.1", path = "crates/consensus/local" }
@@ -64,8 +65,10 @@ montana-zstd = { version = "0.0.1", path = "crates/consensus/zstd" }
 montana-checkpoint = { version = "0.0.1", path = "crates/node/checkpoint" }
 montana-node = { version = "0.0.1", path = "crates/node/node" }
 montana-roles = { version = "0.0.1", path = "crates/node/roles" }
+montana-runtime = { version = "0.0.1", path = "crates/node/runtime" }
 
 # utilities crates
+montana-adapters = { version = "0.0.1", path = "crates/utilities/adapters" }
 montana-cli = { version = "0.0.1", path = "crates/utilities/cli" }
 montana-harness = { version = "0.0.1", path = "crates/utilities/harness" }
 montana-tui = { version = "0.0.1", path = "crates/utilities/tui" }

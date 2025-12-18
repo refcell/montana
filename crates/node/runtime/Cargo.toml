@@ -1,6 +1,6 @@
 [package]
-name = "montana"
-description = "Montana Block Executor"
+name = "montana-runtime"
+description = "Montana runtime functions for node building and execution"
 
 version.workspace = true
 edition.workspace = true
@@ -24,14 +24,13 @@ op-alloy.workspace = true
 montana-batch-context.workspace = true
 montana-batcher.workspace = true
 montana-block-feeder.workspace = true
-montana-checkpoint = { workspace = true }
 montana-brotli.workspace = true
+montana-checkpoint.workspace = true
 montana-pipeline.workspace = true
 
 # node crates
 montana-node.workspace = true
 montana-roles.workspace = true
-montana-runtime.workspace = true
 
 # utilities
 montana-adapters.workspace = true
@@ -44,11 +43,7 @@ async-trait.workspace = true
 tokio.workspace = true
 
 # misc
-clap.workspace = true
 crossterm = { workspace = true, features = ["event-stream"] }
-derive_more.workspace = true
 eyre.workspace = true
 ratatui.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true

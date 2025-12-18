@@ -1,0 +1,254 @@
+//! Adapter types for Montana binary.
+//!
+//! This crate provides adapter types that bridge different trait interfaces
+//! between Montana's consensus, node, and utility crates.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use montana_harness::HarnessProgressReporter;
+use montana_roles::{BatchCallback, DerivationCallback, ExecutionCallback};
+use montana_tui::{TuiEvent, TuiHandle};
+use tokio::sync::mpsc;
+
+/// Boxed block producer for type erasure.
+pub type BoxedBlockProducer = Box<dyn blocksource::BlockProducer>;
+
+/// Debug wrapper for boxed block producer.
+pub struct BlockProducerWrapper {
+    inner: BoxedBlockProducer,
+    #[allow(dead_code)]
+    description: &'static str,
+}
+
+impl std::fmt::Debug for BlockProducerWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BlockProducerWrapper({})", self.description)
+    }
+}
+
+impl BlockProducerWrapper {
+    /// Create a new block producer wrapper.
+    pub fn new<P: blocksource::BlockProducer + 'static>(
+        producer: P,
+        description: &'static str,
+    ) -> Self {
+        Self { inner: Box::new(producer), description }
+    }
+}
+
+#[async_trait]
+impl blocksource::BlockProducer for BlockProducerWrapper {
+    async fn produce(&self, tx: mpsc::Sender<blocksource::OpBlock>) -> eyre::Result<()> {
+        self.inner.produce(tx).await
+    }
+
+    async fn get_chain_tip(&self) -> eyre::Result<u64> {
+        self.inner.get_chain_tip().await
+    }
+
+    async fn get_block(&self, number: u64) -> eyre::Result<Option<blocksource::OpBlock>> {
+        self.inner.get_block(number).await
+    }
+}
+
+/// Adapter that bridges montana_batch_context::BatchSink to montana_pipeline::BatchSink.
+pub struct BatchSinkAdapter {
+    inner: Arc<Box<dyn montana_batch_context::BatchSink>>,
+}
+
+impl std::fmt::Debug for BatchSinkAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BatchSinkAdapter").finish_non_exhaustive()
+    }
+}
+
+impl BatchSinkAdapter {
+    /// Create a new batch sink adapter.
+    pub fn new(inner: Arc<Box<dyn montana_batch_context::BatchSink>>) -> Self {
+        Self { inner }
+    }
+}
+
+#[async_trait]
+impl montana_pipeline::BatchSink for BatchSinkAdapter {
+    async fn submit(
+        &mut self,
+        batch: montana_pipeline::CompressedBatch,
+    ) -> Result<montana_pipeline::SubmissionReceipt, montana_pipeline::SinkError> {
+        self.inner
+            .submit(batch)
+            .await
+            .map_err(|e| montana_pipeline::SinkError::Connection(e.to_string()))
+    }
+
+    async fn capacity(&self) -> Result<usize, montana_pipeline::SinkError> {
+        // Return a reasonable default capacity
+        // In a real implementation, this would query the underlying sink
+        Ok(1000)
+    }
+
+    async fn health_check(&self) -> Result<(), montana_pipeline::SinkError> {
+        // For now, always return healthy
+        // In a real implementation, this would check the underlying sink
+        Ok(())
+    }
+}
+
+/// Adapter that bridges BatchContext source to montana_pipeline::L1BatchSource.
+#[derive(Debug)]
+pub struct BatchSourceAdapter {
+    inner: Arc<montana_batch_context::BatchContext>,
+}
+
+impl BatchSourceAdapter {
+    /// Create a new batch source adapter.
+    pub const fn new(inner: Arc<montana_batch_context::BatchContext>) -> Self {
+        Self { inner }
+    }
+}
+
+#[async_trait]
+impl montana_pipeline::L1BatchSource for BatchSourceAdapter {
+    async fn next_batch(
+        &mut self,
+    ) -> Result<Option<montana_pipeline::CompressedBatch>, montana_pipeline::SourceError> {
+        self.inner
+            .source()
+            .next_batch()
+            .await
+            .map_err(|e| montana_pipeline::SourceError::Connection(e.to_string()))
+    }
+
+    async fn l1_head(&self) -> Result<u64, montana_pipeline::SourceError> {
+        self.inner
+            .source()
+            .l1_head()
+            .await
+            .map_err(|e| montana_pipeline::SourceError::Connection(e.to_string()))
+    }
+}
+
+/// Adapter that implements ExecutionCallback and sends TUI events.
+///
+/// This allows the sequencer to report execution metrics to the TUI
+/// without depending on the TUI crate directly.
+#[derive(Debug)]
+pub struct TuiExecutionCallback {
+    handle: TuiHandle,
+}
+
+impl TuiExecutionCallback {
+    /// Create a new TUI execution callback.
+    pub const fn new(handle: TuiHandle) -> Self {
+        Self { handle }
+    }
+}
+
+impl ExecutionCallback for TuiExecutionCallback {
+    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64) {
+        self.handle.send(TuiEvent::BlockExecuted { block_number, execution_time_ms });
+    }
+}
+
+/// Adapter that implements BatchCallback and sends TUI events.
+///
+/// This allows the sequencer to report batch submissions to the TUI
+/// without depending on the TUI crate directly.
+#[derive(Debug)]
+pub struct TuiBatchCallback {
+    handle: TuiHandle,
+}
+
+impl TuiBatchCallback {
+    /// Create a new TUI batch callback.
+    pub const fn new(handle: TuiHandle) -> Self {
+        Self { handle }
+    }
+}
+
+impl BatchCallback for TuiBatchCallback {
+    fn on_batch_submitted(
+        &self,
+        batch_number: u64,
+        block_count: usize,
+        first_block: u64,
+        last_block: u64,
+        uncompressed_size: usize,
+        compressed_size: usize,
+    ) {
+        self.handle.send(TuiEvent::BatchSubmitted {
+            batch_number,
+            block_count,
+            first_block,
+            last_block,
+            uncompressed_size,
+            compressed_size,
+        });
+    }
+}
+
+/// Adapter that implements DerivationCallback and sends TUI events.
+///
+/// This allows the validator to report batch derivation events to the TUI
+/// without depending on the TUI crate directly.
+#[derive(Debug)]
+pub struct TuiDerivationCallback {
+    handle: TuiHandle,
+}
+
+impl TuiDerivationCallback {
+    /// Create a new TUI derivation callback.
+    pub const fn new(handle: TuiHandle) -> Self {
+        Self { handle }
+    }
+}
+
+impl DerivationCallback for TuiDerivationCallback {
+    fn on_batch_derived(
+        &self,
+        _batch_number: u64,
+        _block_count: usize,
+        first_block: u64,
+        last_block: u64,
+    ) {
+        // Send BlockDerived events for each block in the batch
+        // For now, we estimate derivation and execution times
+        for block_num in first_block..=last_block {
+            self.handle.send(TuiEvent::BlockDerived {
+                number: block_num,
+                derivation_time_ms: 1, // Placeholder - actual timing would be measured
+                execution_time_ms: 1,  // Placeholder - actual timing would be measured
+            });
+        }
+    }
+}
+
+/// Adapter that implements HarnessProgressReporter for TUI feedback.
+///
+/// This bridges the harness progress reporting to TUI events.
+#[derive(Debug)]
+pub struct HarnessProgressAdapter {
+    handle: TuiHandle,
+}
+
+impl HarnessProgressAdapter {
+    /// Create a new harness progress adapter.
+    pub const fn new(handle: TuiHandle) -> Self {
+        Self { handle }
+    }
+}
+
+impl HarnessProgressReporter for HarnessProgressAdapter {
+    fn report_progress(&self, current_block: u64, total_blocks: u64, message: &str) {
+        self.handle.send(TuiEvent::HarnessInitProgress {
+            current_block,
+            total_blocks,
+            message: message.to_string(),
+        });
+    }
+
+    fn report_init_complete(&self, final_block: u64) {
+        self.handle.send(TuiEvent::HarnessInitComplete { final_block });
+    }
+}

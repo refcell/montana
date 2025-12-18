@@ -3427,8 +3427,10 @@ dependencies = [
  "crossterm",
  "derive_more",
  "eyre",
+ "montana-adapters",
  "montana-batch-context",
  "montana-batcher",
+ "montana-block-feeder",
  "montana-brotli",
  "montana-checkpoint",
  "montana-cli",
@@ -3436,6 +3438,7 @@ dependencies = [
  "montana-node",
  "montana-pipeline",
  "montana-roles",
+ "montana-runtime",
  "montana-tui",
  "op-alloy",
  "ratatui",
@@ -3443,6 +3446,21 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.22",
+]
+
+[[package]]
+name = "montana-adapters"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "blocksource",
+ "eyre",
+ "montana-batch-context",
+ "montana-harness",
+ "montana-pipeline",
+ "montana-roles",
+ "montana-tui",
+ "tokio",
 ]
 
 [[package]]
@@ -3495,6 +3513,19 @@ dependencies = [
  "montana-txmgr",
  "rstest",
  "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "montana-block-feeder"
+version = "0.0.1"
+dependencies = [
+ "alloy",
+ "eyre",
+ "montana-pipeline",
+ "montana-tui",
+ "op-alloy",
  "tokio",
  "tracing",
 ]
@@ -3604,6 +3635,33 @@ dependencies = [
  "montana-batcher",
  "montana-checkpoint",
  "montana-pipeline",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "montana-runtime"
+version = "0.0.1"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "blocksource",
+ "crossterm",
+ "eyre",
+ "montana-adapters",
+ "montana-batch-context",
+ "montana-batcher",
+ "montana-block-feeder",
+ "montana-brotli",
+ "montana-checkpoint",
+ "montana-cli",
+ "montana-harness",
+ "montana-node",
+ "montana-pipeline",
+ "montana-roles",
+ "montana-tui",
+ "op-alloy",
+ "ratatui",
  "tokio",
  "tracing",
 ]

@@ -17,7 +17,7 @@ default:
     @just --list
 
 # Runs all ci checks.
-ci: fix check lychee zepter
+ci: fix check lychee zepter check-udeps
 
 # Performs lychee checks, installing the lychee command if necessary
 lychee:

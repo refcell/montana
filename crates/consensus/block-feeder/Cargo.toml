@@ -1,0 +1,29 @@
+[package]
+name = "montana-block-feeder"
+description = "Montana block feeder for fetching blocks and sending them to the sequencer"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# montana crates
+montana-pipeline.workspace = true
+montana-tui.workspace = true
+
+# alloy
+alloy.workspace = true
+op-alloy.workspace = true
+
+# async
+tokio.workspace = true
+
+# misc
+eyre.workspace = true
+tracing.workspace = true

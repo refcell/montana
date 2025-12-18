@@ -244,20 +244,27 @@ async fn test_harness_block_contents() {
     let provider =
         ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil RPC");
 
-    // Get one of the initial blocks (should have a transaction from the initial generation)
-    let block = provider
-        .get_block_by_number(1u64.into())
-        .full()
-        .await
-        .expect("Failed to get block")
-        .expect("Block 1 should exist");
+    // Check that at least one of the initial blocks has transactions
+    // Block 1 might be empty if anvil mines before transactions are submitted
+    let mut found_tx = false;
+    for block_num in 1..=3 {
+        if let Some(block) = provider
+            .get_block_by_number(block_num.into())
+            .full()
+            .await
+            .expect("Failed to get block")
+        {
+            // Verify block header fields
+            assert!(block.header.number >= 1);
+            assert!(block.header.timestamp > 0);
 
-    // Initial blocks are created by sending transfers, so they should have transactions
-    assert!(!block.transactions.is_empty(), "Initial block should have at least one transaction");
-
-    // Verify block header fields
-    assert!(block.header.number >= 1);
-    assert!(block.header.timestamp > 0);
+            if !block.transactions.is_empty() {
+                found_tx = true;
+                break;
+            }
+        }
+    }
+    assert!(found_tx, "At least one initial block should have transactions");
 }
 
 /// Test `spawn_if_enabled` with harness enabled.

@@ -68,9 +68,12 @@ For detailed documentation on the consensus pipeline architecture, see the [pipe
 
 > [!NOTE]
 >
-> The demo runs `just s` which is aliased to run the shadow binary.
-> It shows pausing batch submission and resuming it by pressing "p".
-> This demo uses a local anvil instance as the data availability provider.
+> The demo runs `just harness-fast` which is aliased to run the montana binary.
+>
+> This demo shows an L2 anvil chain that a sequencer takes transactions from
+> and batch submits them to an anvil L1 chain. A validator then derives these
+> batches and then re-executes them, resulting in the canonical finalized L2 chain.
+
 
 ## Overview
 

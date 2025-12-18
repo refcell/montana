@@ -1,7 +1,7 @@
-//! Batch sink and source implementations for different submission modes.
-//!
-//! This crate provides the abstraction layer for submitting batches and
-//! retrieving them in different modes (in-memory, anvil, remote).
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use std::sync::Arc;
 

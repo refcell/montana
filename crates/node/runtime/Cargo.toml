@@ -39,7 +39,6 @@ montana-harness.workspace = true
 montana-tui.workspace = true
 
 # async
-async-trait.workspace = true
 tokio.workspace = true
 
 # misc

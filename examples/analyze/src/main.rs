@@ -1,30 +1,3 @@
-//! Montana compression analyzer binary.
-//!
-//! A modular and extensible duplex pipeline for L2 batch submission and derivation.
-//! This binary compresses L2 block data using various compression algorithms (Brotli, Zstd, Zlib)
-//! and provides performance metrics and validation capabilities.
-//!
-//! # Operation Modes
-//!
-//! - **Batch Mode**: Compresses L2 blocks and simulates batch submission
-//! - **Derivation Mode**: Decompresses batches from output files
-//! - **Roundtrip Mode**: Validates compression/decompression integrity
-//!
-//! # Examples
-//!
-//! ```bash
-//! # Basic usage with defaults (batch mode, brotli compression)
-//! analyze
-//!
-//! # Compare all compression algorithms
-//! analyze --mode batch --compression all -v
-//!
-//! # Validate roundtrip with zstd
-//! analyze --mode roundtrip --compression zstd -vv
-//! ```
-//!
-//! See the README.md for complete documentation.
-
 #![doc = include_str!("../README.md")]
 #![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]

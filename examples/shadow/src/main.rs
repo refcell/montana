@@ -3,13 +3,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-//! Shadow binary for chain shadowing with TUI.
-//!
-//! This binary shadows a chain by streaming blocks from an RPC endpoint
-//! and simulates batch submission to L1, displaying real-time progress
-//! in a terminal user interface with batch submission on the left and
-//! derivation on the right.
-
 use std::{io, sync::Arc};
 
 use clap::Parser;

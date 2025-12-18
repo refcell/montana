@@ -3376,7 +3376,6 @@ dependencies = [
  "hex-literal",
  "libmdbx",
  "revm",
- "serde",
  "tempfile",
  "tracing",
  "triedb",
@@ -3420,32 +3419,12 @@ dependencies = [
 name = "montana"
 version = "0.0.1"
 dependencies = [
- "alloy",
- "async-trait",
- "blocksource",
  "clap",
- "crossterm",
- "derive_more",
  "eyre",
- "montana-adapters",
- "montana-batch-context",
- "montana-batcher",
- "montana-block-feeder",
- "montana-brotli",
- "montana-checkpoint",
  "montana-cli",
- "montana-harness",
- "montana-node",
- "montana-pipeline",
- "montana-roles",
  "montana-runtime",
- "montana-tui",
- "op-alloy",
- "ratatui",
- "thiserror",
  "tokio",
  "tracing",
- "tracing-subscriber 0.3.22",
 ]
 
 [[package]]
@@ -3644,7 +3623,6 @@ name = "montana-runtime"
 version = "0.0.1"
 dependencies = [
  "alloy",
- "async-trait",
  "blocksource",
  "crossterm",
  "eyre",
@@ -3692,11 +3670,9 @@ name = "montana-txmgr"
 version = "0.0.1"
 dependencies = [
  "alloy",
- "async-trait",
  "rstest",
  "thiserror",
  "tokio",
- "tracing",
 ]
 
 [[package]]

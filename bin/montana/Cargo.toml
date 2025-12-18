@@ -13,42 +13,14 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-# execution crates
-blocksource.workspace = true
-
-# alloy
-alloy.workspace = true
-op-alloy.workspace = true
-
-# consensus crates
-montana-batch-context.workspace = true
-montana-batcher.workspace = true
-montana-block-feeder.workspace = true
-montana-checkpoint = { workspace = true }
-montana-brotli.workspace = true
-montana-pipeline.workspace = true
-
 # node crates
-montana-node.workspace = true
-montana-roles.workspace = true
+montana-cli.workspace = true
 montana-runtime.workspace = true
 
-# utilities
-montana-adapters.workspace = true
-montana-cli.workspace = true
-montana-harness.workspace = true
-montana-tui.workspace = true
-
 # async
-async-trait.workspace = true
 tokio.workspace = true
 
 # misc
 clap.workspace = true
-crossterm = { workspace = true, features = ["event-stream"] }
-derive_more.workspace = true
 eyre.workspace = true
-ratatui.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true

@@ -6,7 +6,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-eyre.workspace = true
 tracing.workspace = true
 
 # NOTE: libmdbx is ONLY to be used in this crate for database migration purposes.
@@ -17,10 +16,10 @@ libmdbx.workspace = true
 alloy-primitives.workspace = true
 hex-literal = "0.4"
 revm.workspace = true
-serde.workspace = true
 triedb.workspace = true
 
 [dev-dependencies]
+eyre.workspace = true
 tempfile.workspace = true
 
 [lints]

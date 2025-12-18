@@ -26,12 +26,10 @@ alloy = { version = "1.0", default-features = false, features = [
 ] }
 
 # async
-async-trait.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
 
 # misc
 thiserror.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 alloy = { version = "1.0", features = ["node-bindings"] }

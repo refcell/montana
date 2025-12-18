@@ -1,8 +1,7 @@
-//! Montana Runtime
-//!
-//! This crate provides the runtime functions for building and running the Montana node.
-//! It extracts the node building logic, runtime management, and TUI integration from
-//! the binary crate to keep the binary minimal.
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use std::{io, sync::Arc, time::Duration};
 

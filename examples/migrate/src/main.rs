@@ -1,13 +1,7 @@
-//! Migrate Reth MDBX database to TrieDB.
-//!
-//! This tool reads account and storage state from a Reth MDBX database
-//! and writes it to a new TrieDB database.
-//!
-//! # Usage
-//!
-//! ```bash
-//! cargo run -p migrate -- --source /path/to/reth/db --dest /path/to/triedb
-//! ```
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use std::path::PathBuf;
 

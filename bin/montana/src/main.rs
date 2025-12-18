@@ -1,8 +1,7 @@
-//! Montana Base stack Node binary.
-//!
-//! This is a thin binary that wires up components from library crates.
-//! All business logic lives in the library crates; this file only handles
-//! configuration parsing, component construction, and runtime setup.
+#![doc = include_str!("../README.md")]
+#![doc(issue_tracker_base_url = "https://github.com/base/montana/issues/")]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use clap::Parser;
 use eyre::Result;

@@ -253,6 +253,8 @@ fn process_event(app: &mut App, event: TuiEvent) {
             } else {
                 100.0
             };
+            // Track compression ratio for stats
+            app.record_compression_ratio(ratio);
             app.log_batch(LogEntry::info(format!(
                 "Batch #{}: blocks {}-{} ({} blocks), {} -> {} ({:.1}%)",
                 batch_number,
@@ -662,6 +664,8 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let avg_latency = app.avg_latency_ms();
     let stddev = app.latency_stddev_ms();
     let blocks_per_sec = if avg_latency > 0.0 { 1000.0 / avg_latency } else { 0.0 };
+    let avg_compression = app.avg_compression_ratio();
+    let compression_stddev = app.compression_stddev();
 
     let sync_status = if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
         Span::styled("IN SYNC ✓", Style::default().fg(Color::Green).bold())
@@ -703,6 +707,25 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                     "--".to_string()
                 },
                 Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Compression:    ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                if avg_compression > 0.0 {
+                    format!("{:.1}% avg", avg_compression)
+                } else {
+                    "--".to_string()
+                },
+                Style::default().fg(Color::White),
+            ),
+            Span::styled(
+                if compression_stddev > 0.0 {
+                    format!(" (±{:.1}%)", compression_stddev)
+                } else {
+                    String::new()
+                },
+                Style::default().fg(Color::DarkGray),
             ),
         ]),
         Line::from(vec![
@@ -797,44 +820,108 @@ fn draw_execution_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(widget, area);
 }
 
-/// Draw the body with 4 vertical columns (5 in harness mode).
+/// Draw the body with grouped sections: Sync Updates (optional), Sequencer, and Validator.
 fn draw_body(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     if app.harness_mode {
-        // In harness mode, add a 5th column for harness activity
+        if app.skip_sync {
+            // Harness mode with sync skipped: Anvil (20%), gap, Sequencer (39%), gap, Validator (39%)
+            let body_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(20),
+                    Constraint::Length(1), // gap
+                    Constraint::Percentage(39),
+                    Constraint::Length(1), // gap
+                    Constraint::Percentage(39),
+                ])
+                .split(area);
+
+            draw_harness_activity(frame, app, body_chunks[0]);
+            draw_sequencer_section(frame, app, body_chunks[2]);
+            draw_validator_section(frame, app, body_chunks[4]);
+        } else {
+            // In harness mode with sync: Anvil (16%), Sync (16%), gap, Sequencer (33%), gap, Validator (33%)
+            let body_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(16),
+                    Constraint::Percentage(16),
+                    Constraint::Length(1), // gap
+                    Constraint::Percentage(33),
+                    Constraint::Length(1), // gap
+                    Constraint::Percentage(33),
+                ])
+                .split(area);
+
+            draw_harness_activity(frame, app, body_chunks[0]);
+            draw_sync_updates(frame, app, body_chunks[1]);
+            draw_sequencer_section(frame, app, body_chunks[3]);
+            draw_validator_section(frame, app, body_chunks[5]);
+        }
+    } else if app.skip_sync {
+        // Sync skipped: Sequencer (49%), gap, Validator (49%)
         let body_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(20),
-                Constraint::Percentage(20),
-                Constraint::Percentage(20),
-                Constraint::Percentage(20),
-                Constraint::Percentage(20),
+                Constraint::Percentage(49),
+                Constraint::Length(2), // gap
+                Constraint::Percentage(49),
             ])
             .split(area);
 
-        draw_harness_activity(frame, app, body_chunks[0]);
-        draw_sync_updates(frame, app, body_chunks[1]);
-        draw_block_builder(frame, app, body_chunks[2]);
-        draw_execution_and_batches(frame, app, body_chunks[3]);
-        draw_derived_blocks(frame, app, body_chunks[4]);
+        draw_sequencer_section(frame, app, body_chunks[0]);
+        draw_validator_section(frame, app, body_chunks[2]);
     } else {
-        // Split into 4 equal columns
+        // Normal mode: Sync Updates (24%), gap, Sequencer (37%), gap, Validator (37%)
         let body_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
+                Constraint::Percentage(24),
+                Constraint::Length(1), // gap
+                Constraint::Percentage(37),
+                Constraint::Length(1), // gap
+                Constraint::Percentage(37),
             ])
             .split(area);
 
         draw_sync_updates(frame, app, body_chunks[0]);
-        draw_block_builder(frame, app, body_chunks[1]);
-        // Third column is split: Execution on top, Batch Submissions below
-        draw_execution_and_batches(frame, app, body_chunks[2]);
-        draw_derived_blocks(frame, app, body_chunks[3]);
+        draw_sequencer_section(frame, app, body_chunks[2]);
+        draw_validator_section(frame, app, body_chunks[4]);
     }
+}
+
+/// Draw the Sequencer section with a grouping box containing Block Builder, Execution Logs, and Batch Submissions.
+fn draw_sequencer_section(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Draw the outer Sequencer box
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Sequencer ")
+        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    let inner_area = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    // Split inner area into two columns: Block Builder (50%) and Execution+Batches (50%)
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(inner_area);
+
+    draw_block_builder(frame, app, columns[0]);
+    draw_execution_and_batches(frame, app, columns[1]);
+}
+
+/// Draw the Validator section with a grouping box containing Execution Logs and Derivation.
+fn draw_validator_section(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Draw the outer Validator box
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Validator ")
+        .title_style(Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD));
+    let inner_area = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    // Draw the derivation content (execution logs on top, derivation logs below)
+    draw_derived_blocks(frame, app, inner_area);
 }
 
 /// Draw harness activity (only shown in harness mode).
@@ -842,14 +929,15 @@ fn draw_harness_activity(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) 
     // Render logs in reverse order (newest first) since wrap() and scroll() conflict
     let logs = render_logs_reversed(&app.harness_logs);
 
-    let title = format!(" Anvil (Block #{}) ", app.harness_block);
+    let title = format!(" L2 Anvil (Block #{}) ", app.harness_block);
 
     let widget = Paragraph::new(logs)
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Blue))
                 .title(title)
-                .title_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+                .title_style(Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 

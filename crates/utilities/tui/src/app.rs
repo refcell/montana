@@ -97,6 +97,10 @@ pub struct App {
     /// Round-trip latencies in milliseconds (submit to re-derive)
     round_trip_latencies: Vec<u64>,
 
+    // Compression tracking
+    /// Compression ratios as percentages (compressed/uncompressed * 100)
+    compression_ratios: Vec<f64>,
+
     // Log buffers
     /// Sync update logs (replaces tx_pool_logs)
     pub sync_logs: Vec<LogEntry>,
@@ -157,6 +161,7 @@ impl App {
             execution_logs: Vec::new(),
             batch_submit_times: HashMap::new(),
             round_trip_latencies: Vec::new(),
+            compression_ratios: Vec::new(),
             sync_logs: Vec::new(),
             block_builder_logs: Vec::new(),
             batch_logs: Vec::new(),
@@ -197,6 +202,7 @@ impl App {
         self.execution_logs.clear();
         self.batch_submit_times.clear();
         self.round_trip_latencies.clear();
+        self.compression_ratios.clear();
         self.sync_logs.clear();
         self.block_builder_logs.clear();
         self.batch_logs.clear();
@@ -477,6 +483,56 @@ impl App {
             })
             .sum::<f64>()
             / self.round_trip_latencies.len() as f64;
+
+        variance.sqrt()
+    }
+
+    /// Record a compression ratio.
+    ///
+    /// Ratios are kept in a circular buffer. The maximum number of entries
+    /// is 1000.
+    ///
+    /// # Arguments
+    ///
+    /// * `ratio` - The compression ratio as a percentage (compressed/uncompressed * 100)
+    pub fn record_compression_ratio(&mut self, ratio: f64) {
+        self.compression_ratios.push(ratio);
+        if self.compression_ratios.len() > 1000 {
+            self.compression_ratios.remove(0);
+        }
+    }
+
+    /// Calculate the average compression ratio.
+    ///
+    /// Returns the average compression ratio as a percentage, or 0.0 if no ratios
+    /// have been recorded.
+    pub fn avg_compression_ratio(&self) -> f64 {
+        if self.compression_ratios.is_empty() {
+            return 0.0;
+        }
+        let sum: f64 = self.compression_ratios.iter().sum();
+        sum / self.compression_ratios.len() as f64
+    }
+
+    /// Calculate the standard deviation of compression ratio.
+    ///
+    /// Returns the standard deviation as a percentage, or 0.0 if fewer than
+    /// 2 ratios have been recorded.
+    pub fn compression_stddev(&self) -> f64 {
+        if self.compression_ratios.len() < 2 {
+            return 0.0;
+        }
+
+        let avg = self.avg_compression_ratio();
+        let variance = self
+            .compression_ratios
+            .iter()
+            .map(|&x| {
+                let diff = x - avg;
+                diff * diff
+            })
+            .sum::<f64>()
+            / self.compression_ratios.len() as f64;
 
         variance.sqrt()
     }

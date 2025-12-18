@@ -1,3 +1,5 @@
+use montana_cli::MontanaMode;
+
 /// The operational role of the node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NodeRole {
@@ -19,5 +21,18 @@ impl NodeRole {
     /// Returns true if this role runs the validator
     pub const fn runs_validator(&self) -> bool {
         matches!(self, Self::Validator | Self::Dual)
+    }
+}
+
+impl TryFrom<MontanaMode> for NodeRole {
+    type Error = &'static str;
+
+    fn try_from(mode: MontanaMode) -> Result<Self, Self::Error> {
+        match mode {
+            MontanaMode::Executor => Err("Executor mode is not supported"),
+            MontanaMode::Sequencer => Ok(Self::Sequencer),
+            MontanaMode::Validator => Ok(Self::Validator),
+            MontanaMode::Dual => Ok(Self::Dual),
+        }
     }
 }

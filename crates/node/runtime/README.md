@@ -18,7 +18,6 @@ This crate extracts the node building logic, runtime management, and TUI integra
 | `run_headless` | Run the node in headless mode (without TUI) |
 | `run_with_tui` | Run the node with the terminal user interface |
 | `build_node` | Build a node with the appropriate block producer |
-| `mode_to_node_role` | Convert CLI mode to node role |
 
 ## Usage
 

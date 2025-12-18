@@ -3661,6 +3661,7 @@ dependencies = [
  "blocksource",
  "eyre",
  "montana-checkpoint",
+ "montana-cli",
  "montana-roles",
  "tokio",
  "tracing",

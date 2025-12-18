@@ -22,7 +22,7 @@ use montana_brotli::BrotliCompressor;
 use montana_checkpoint::Checkpoint;
 use montana_cli::{MontanaCli, MontanaMode};
 use montana_harness::Harness;
-use montana_node::{Node, NodeBuilder, NodeConfig, NodeRole, SyncConfig, SyncStage};
+use montana_node::{Node, NodeBuilder, NodeConfig, SyncConfig, SyncStage};
 use montana_pipeline::{L2BlockData, NoopExecutor};
 use montana_roles::{Sequencer, Validator};
 use montana_tui::{TuiEvent, TuiHandle, TuiObserver, create_tui};
@@ -199,7 +199,7 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
 ) -> Result<Node<BlockProducerWrapper>> {
     // Build node config
     let config = NodeConfig {
-        role: mode_to_node_role(&cli.mode),
+        role: cli.mode.try_into().expect("Executor mode is not supported"),
         checkpoint_path: cli.checkpoint_path.clone(),
         checkpoint_interval_secs: cli.checkpoint_interval,
         skip_sync: cli.skip_sync,
@@ -387,19 +387,3 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
     builder.build()
 }
 
-/// Convert MontanaMode to NodeRole.
-///
-/// # Panics
-/// Panics if called with Executor mode, which is not supported in the new architecture.
-pub fn mode_to_node_role(mode: &MontanaMode) -> NodeRole {
-    match mode {
-        MontanaMode::Executor => {
-            // Executor mode is not supported in the new architecture
-            // This should never be reached due to the check in main()
-            panic!("Executor mode is not supported")
-        }
-        MontanaMode::Sequencer => NodeRole::Sequencer,
-        MontanaMode::Validator => NodeRole::Validator,
-        MontanaMode::Dual => NodeRole::Dual,
-    }
-}

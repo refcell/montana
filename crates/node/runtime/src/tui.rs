@@ -64,6 +64,7 @@ pub fn run_with_tui(cli: MontanaCli) -> Result<()> {
                 cli.with_harness,
                 cli.harness_block_time_ms,
                 cli.harness_initial_blocks,
+                cli.harness_tx_per_block,
                 cli.rpc_url.clone(),
                 progress_reporter,
             )

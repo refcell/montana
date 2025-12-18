@@ -25,6 +25,7 @@ async fn test_harness_spawns_anvil() {
         tx_per_block: 10,
         initial_delay_blocks: 0,
         accounts: 10,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -49,6 +50,7 @@ async fn test_harness_generates_initial_blocks() {
         tx_per_block: 10,
         initial_delay_blocks: initial_blocks,
         accounts: 10,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -78,6 +80,7 @@ async fn test_harness_produces_blocks_over_time() {
         tx_per_block: 10,    // 10 transactions per block
         initial_delay_blocks: 0,
         accounts: 10,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -113,6 +116,7 @@ async fn test_harness_generates_transactions() {
         tx_per_block: 10,    // 10 transactions per block
         initial_delay_blocks: 0,
         accounts: 10,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -160,6 +164,7 @@ async fn test_harness_fast_block_time() {
         tx_per_block: 20,
         initial_delay_blocks: 2,
         accounts: 5,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -188,6 +193,7 @@ async fn test_harness_graceful_shutdown() {
         tx_per_block: 10,
         initial_delay_blocks: 1,
         accounts: 5,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -218,6 +224,7 @@ async fn test_harness_high_frequency_transactions() {
         tx_per_block: 100, // 100 tx/block
         initial_delay_blocks: 0,
         accounts: 10,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -249,6 +256,7 @@ async fn test_harness_block_contents() {
         tx_per_block: 5,
         initial_delay_blocks: 3,
         accounts: 10,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -347,6 +355,7 @@ async fn test_harness_50ms_block_time() {
         tx_per_block: 10,
         initial_delay_blocks: 0, // No initial blocks - we want to measure production rate
         accounts: 5,
+        ..Default::default()
     };
 
     let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -426,6 +435,7 @@ async fn test_harness_50ms_initial_blocks() {
         tx_per_block: 10,
         initial_delay_blocks: initial_blocks,
         accounts: 5,
+        ..Default::default()
     };
 
     // Measure how long it takes to spawn (which includes initial block generation)
@@ -463,4 +473,311 @@ async fn test_harness_50ms_initial_blocks() {
         spawn_time,
         max_expected_time
     );
+}
+
+/// Test that initial state can be dumped to a file.
+///
+/// This verifies the `dump_initial_state` configuration works correctly
+/// and produces a valid state file when Anvil exits.
+#[ignore = "requires anvil"]
+#[tokio::test]
+async fn test_harness_dumps_initial_state() {
+    use tempfile::tempdir;
+
+    // Create a temporary directory for the state file
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let state_path = temp_dir.path().join("anvil_state.json");
+
+    let config = HarnessConfig {
+        block_time_ms: 1000,
+        tx_per_block: 0,         // No transactions to get clean genesis state
+        initial_delay_blocks: 0, // No initial blocks - we want clean genesis state
+        accounts: 10,
+        use_default_genesis: false, // Don't use default - we're testing dump functionality
+        state_path: Some(state_path.clone()),
+        dump_initial_state: true,
+    };
+
+    // Spawn harness and immediately drop it to trigger state dump on exit
+    {
+        let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
+        let rpc_url = harness.rpc_url();
+
+        // Verify anvil is running
+        let provider =
+            ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil");
+        let _ = provider.get_chain_id().await.expect("Failed to get chain ID");
+
+        // Drop harness - this triggers the --dump-state on exit
+        drop(harness);
+    }
+
+    // Wait for anvil to fully shut down and write state
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify state file was created
+    assert!(state_path.exists(), "State file should have been created on exit");
+
+    // Verify it has content
+    let state_data = std::fs::read(&state_path).expect("Failed to read state file");
+    assert!(!state_data.is_empty(), "State file should not be empty");
+
+    println!("State file created with {} bytes", state_data.len());
+}
+
+/// Test that state can be loaded from a previously dumped file.
+///
+/// This verifies the full cycle: dump state, then load it in a new instance.
+#[ignore = "requires anvil"]
+#[tokio::test]
+async fn test_harness_loads_state_from_file() {
+    use tempfile::tempdir;
+
+    // Create a temporary directory for the state file
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let state_path = temp_dir.path().join("anvil_state.json");
+
+    // Step 1: Spawn harness and dump initial state (state is dumped on exit)
+    {
+        let config = HarnessConfig {
+            block_time_ms: 1000,
+            tx_per_block: 0,         // No transactions
+            initial_delay_blocks: 0, // No initial blocks for clean genesis
+            accounts: 10,
+            use_default_genesis: false, // Testing dump functionality
+            state_path: Some(state_path.clone()),
+            dump_initial_state: true,
+        };
+
+        let harness = Harness::spawn(config).await.expect("Failed to spawn harness for dump");
+        let rpc_url = harness.rpc_url();
+
+        // Get the chain ID and genesis block hash to compare later
+        let provider =
+            ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil");
+
+        let chain_id = provider.get_chain_id().await.expect("Failed to get chain ID");
+        let block_0 = provider
+            .get_block_by_number(0.into())
+            .full()
+            .await
+            .expect("Failed to get block 0")
+            .expect("Block 0 should exist");
+
+        println!(
+            "Original instance - Chain ID: {}, Block 0 hash: {:?}",
+            chain_id, block_0.header.hash
+        );
+
+        // Drop harness to stop anvil and trigger state dump
+        drop(harness);
+    }
+
+    // Wait for anvil to fully shut down and write state file
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify state file was created
+    assert!(state_path.exists(), "State file should exist after first instance shutdown");
+
+    // Step 2: Spawn new harness loading from the state file
+    {
+        let config = HarnessConfig {
+            block_time_ms: 1000,
+            tx_per_block: 0,
+            initial_delay_blocks: 0,
+            accounts: 10,
+            use_default_genesis: false, // Using custom state file
+            state_path: Some(state_path.clone()),
+            dump_initial_state: false, // Load state, don't overwrite
+        };
+
+        let harness =
+            Harness::spawn(config).await.expect("Failed to spawn harness with loaded state");
+        let rpc_url = harness.rpc_url();
+
+        let provider =
+            ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil");
+
+        // Verify we can query the chain
+        let chain_id = provider.get_chain_id().await.expect("Failed to get chain ID");
+        assert!(chain_id > 0, "Chain ID should be positive");
+
+        let block_number = provider.get_block_number().await.expect("Failed to get block number");
+        println!("Loaded instance - Chain ID: {}, Block number: {}", chain_id, block_number);
+
+        // The instance should have loaded the state successfully
+        // Block number should be 0 since we dumped at genesis with no initial blocks
+        assert_eq!(block_number, 0, "Block number should be 0 when loading fresh genesis state");
+    }
+}
+
+/// Test that loaded state preserves account balances.
+///
+/// This verifies that the pre-funded test accounts are correctly preserved
+/// when loading state from a file.
+#[ignore = "requires anvil"]
+#[tokio::test]
+async fn test_harness_state_preserves_accounts() {
+    use alloy::primitives::utils::format_ether;
+    use tempfile::tempdir;
+
+    // Create a temporary directory for the state file
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let state_path = temp_dir.path().join("anvil_state.json");
+
+    // The expected balance for Anvil's default test accounts
+    // Anvil gives each account 10000 ETH by default
+    let expected_balance_eth = 10000.0;
+
+    // Step 1: Spawn harness and record account addresses/balances
+    let (addresses, original_balances) = {
+        let config = HarnessConfig {
+            block_time_ms: 1000,
+            tx_per_block: 0, // No transactions to preserve exact balances
+            initial_delay_blocks: 0,
+            accounts: 10,
+            use_default_genesis: false, // Testing state file functionality
+            state_path: Some(state_path.clone()),
+            dump_initial_state: true,
+        };
+
+        let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
+        let rpc_url = harness.rpc_url();
+
+        let provider =
+            ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil");
+
+        // Get all accounts (Anvil's deterministic test accounts)
+        let accounts: Vec<alloy::primitives::Address> =
+            provider.get_accounts().await.expect("Failed to get accounts");
+
+        // Get balances for all accounts
+        let mut balances = Vec::new();
+        for account in &accounts {
+            let balance = provider.get_balance(*account).await.expect("Failed to get balance");
+            balances.push(balance);
+
+            let balance_eth: f64 = format_ether(balance).parse().unwrap();
+            println!("Account {}: {} ETH", account, balance_eth);
+
+            // Verify original balance is approximately 10000 ETH
+            assert!(
+                (balance_eth - expected_balance_eth).abs() < 1.0,
+                "Original balance should be ~10000 ETH, got {} ETH",
+                balance_eth
+            );
+        }
+
+        (accounts, balances)
+    };
+
+    // Wait for anvil to fully shut down
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Step 2: Load state and verify balances are preserved
+    {
+        let config = HarnessConfig {
+            block_time_ms: 1000,
+            tx_per_block: 0,
+            initial_delay_blocks: 0,
+            accounts: 10,
+            use_default_genesis: false, // Using custom state file
+            state_path: Some(state_path.clone()),
+            dump_initial_state: false,
+        };
+
+        let harness =
+            Harness::spawn(config).await.expect("Failed to spawn harness with loaded state");
+        let rpc_url = harness.rpc_url();
+
+        let provider =
+            ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil");
+
+        // Get the accounts again (should be same deterministic accounts)
+        let loaded_accounts: Vec<alloy::primitives::Address> =
+            provider.get_accounts().await.expect("Failed to get accounts");
+
+        // Verify same accounts
+        assert_eq!(addresses.len(), loaded_accounts.len(), "Should have same number of accounts");
+
+        for (i, (original, loaded)) in addresses.iter().zip(loaded_accounts.iter()).enumerate() {
+            assert_eq!(
+                original, loaded,
+                "Account {} should match: {:?} vs {:?}",
+                i, original, loaded
+            );
+        }
+
+        // Verify balances are preserved
+        for (i, (account, original_balance)) in
+            loaded_accounts.iter().zip(original_balances.iter()).enumerate()
+        {
+            let loaded_balance =
+                provider.get_balance(*account).await.expect("Failed to get balance");
+
+            assert_eq!(
+                *original_balance, loaded_balance,
+                "Account {} balance should be preserved: {:?} vs {:?}",
+                i, original_balance, loaded_balance
+            );
+
+            let balance_eth: f64 = format_ether(loaded_balance).parse().unwrap();
+            println!("Loaded account {}: {} ETH (preserved)", account, balance_eth);
+        }
+
+        println!("All {} account balances preserved correctly!", loaded_accounts.len());
+    }
+}
+
+/// Test that the default embedded genesis state works correctly.
+///
+/// This verifies that:
+/// 1. The default genesis loads without errors
+/// 2. All 10 pre-funded accounts are available
+/// 3. Each account has exactly 10000 ETH
+#[ignore = "requires anvil"]
+#[tokio::test]
+async fn test_harness_default_genesis() {
+    use alloy::primitives::utils::format_ether;
+
+    // Use default config which has use_default_genesis: true
+    let config = HarnessConfig::default();
+
+    let harness =
+        Harness::spawn(config).await.expect("Failed to spawn harness with default genesis");
+    let rpc_url = harness.rpc_url();
+
+    let provider =
+        ProviderBuilder::new().connect(rpc_url).await.expect("Failed to connect to anvil");
+
+    // Verify chain is running
+    let chain_id = provider.get_chain_id().await.expect("Failed to get chain ID");
+    assert_eq!(chain_id, 31337, "Chain ID should be Anvil's default 31337");
+
+    // Get all accounts
+    let accounts: Vec<alloy::primitives::Address> =
+        provider.get_accounts().await.expect("Failed to get accounts");
+
+    // Should have 10 pre-funded accounts
+    assert_eq!(accounts.len(), 10, "Should have 10 pre-funded accounts");
+
+    // Verify each account has approximately 10000 ETH
+    // Some accounts may have spent a tiny amount on gas during initial block generation
+    let expected_balance_eth = 10000.0;
+    for (i, account) in accounts.iter().enumerate() {
+        let balance = provider.get_balance(*account).await.expect("Failed to get balance");
+        let balance_eth: f64 = format_ether(balance).parse().unwrap();
+
+        println!("Account {}: {} - {} ETH", i, account, balance_eth);
+
+        // Allow 1 ETH tolerance for gas spent during initial block generation
+        assert!(
+            (balance_eth - expected_balance_eth).abs() < 1.0,
+            "Account {} should have ~10000 ETH, got {} ETH",
+            i,
+            balance_eth
+        );
+    }
+
+    println!("Default genesis loaded successfully with all 10 accounts at 10000 ETH each");
 }

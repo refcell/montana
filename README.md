@@ -54,6 +54,7 @@ Montana is an experimental, high-performance implementation of Base stack compon
 └─────────────────────────────────────┴───────────────────────────────────────┘
 ```
 
+
 **Execution** handles block processing using op-revm, providing state transitions for Base stack chains. The execution layer fetches blocks, executes transactions, and manages state via an in-memory database with RPC fallback.
 
 **Consensus** manages the data availability layer through a trait-abstracted compression pipeline. For sequencers, this means batch submission to L1 via EIP-4844 blobs or calldata. For validators, this means derivation—fetching batches from L1, decompressing, and feeding blocks to execution.

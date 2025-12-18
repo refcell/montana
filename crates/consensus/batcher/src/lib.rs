@@ -3,10 +3,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-// Used in tests and future implementation
-#[cfg(not(test))]
-use montana_txmgr as _;
-
 mod config;
 pub use config::{BatcherConfig, BatcherConfigBuilder};
 

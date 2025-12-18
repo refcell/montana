@@ -3563,7 +3563,6 @@ dependencies = [
  "montana-checkpoint",
  "montana-cli",
  "montana-pipeline",
- "montana-txmgr",
  "rstest",
  "thiserror",
  "tokio",

@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 montana-cli = { workspace = true }
 montana-pipeline = { workspace = true }
-montana-txmgr = { workspace = true }
 montana-anvil = { workspace = true }
 montana-checkpoint = { workspace = true }
 async-trait = { workspace = true }

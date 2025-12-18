@@ -292,7 +292,7 @@ async fn test_harness_block_contents() {
 #[ignore = "requires anvil"]
 #[tokio::test]
 async fn test_spawn_if_enabled_with_harness() {
-    let (harness, rpc_url) = Harness::spawn_if_enabled(true, 1000, 2, None, None)
+    let (harness, rpc_url) = Harness::spawn_if_enabled(true, 1000, 2, 10_000, None, None)
         .await
         .expect("Failed to spawn harness");
 
@@ -315,7 +315,7 @@ async fn test_spawn_if_enabled_with_harness() {
 async fn test_spawn_if_enabled_without_harness() {
     let custom_rpc = "http://localhost:8545".to_string();
     let (harness, rpc_url) =
-        Harness::spawn_if_enabled(false, 1000, 0, Some(custom_rpc.clone()), None)
+        Harness::spawn_if_enabled(false, 1000, 0, 10_000, Some(custom_rpc.clone()), None)
             .await
             .expect("Should succeed with RPC URL provided");
 
@@ -329,7 +329,7 @@ async fn test_spawn_if_enabled_without_harness() {
 /// Test `spawn_if_enabled` errors when harness disabled but no RPC URL.
 #[tokio::test]
 async fn test_spawn_if_enabled_error_without_rpc() {
-    let result = Harness::spawn_if_enabled(false, 1000, 0, None, None).await;
+    let result = Harness::spawn_if_enabled(false, 1000, 0, 10_000, None, None).await;
 
     // Should return an error
     assert!(result.is_err(), "Should error when harness disabled and no RPC URL provided");
@@ -496,6 +496,7 @@ async fn test_harness_dumps_initial_state() {
         use_default_genesis: false, // Don't use default - we're testing dump functionality
         state_path: Some(state_path.clone()),
         dump_initial_state: true,
+        ..Default::default()
     };
 
     // Spawn harness and immediately drop it to trigger state dump on exit
@@ -547,6 +548,7 @@ async fn test_harness_loads_state_from_file() {
             use_default_genesis: false, // Testing dump functionality
             state_path: Some(state_path.clone()),
             dump_initial_state: true,
+            ..Default::default()
         };
 
         let harness = Harness::spawn(config).await.expect("Failed to spawn harness for dump");
@@ -589,6 +591,7 @@ async fn test_harness_loads_state_from_file() {
             use_default_genesis: false, // Using custom state file
             state_path: Some(state_path.clone()),
             dump_initial_state: false, // Load state, don't overwrite
+            ..Default::default()
         };
 
         let harness =
@@ -639,6 +642,7 @@ async fn test_harness_state_preserves_accounts() {
             use_default_genesis: false, // Testing state file functionality
             state_path: Some(state_path.clone()),
             dump_initial_state: true,
+            ..Default::default()
         };
 
         let harness = Harness::spawn(config).await.expect("Failed to spawn harness");
@@ -684,6 +688,7 @@ async fn test_harness_state_preserves_accounts() {
             use_default_genesis: false, // Using custom state file
             state_path: Some(state_path.clone()),
             dump_initial_state: false,
+            ..Default::default()
         };
 
         let harness =

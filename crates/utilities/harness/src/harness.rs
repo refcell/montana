@@ -79,10 +79,11 @@ impl Harness {
     /// // With harness enabled:
     /// let (harness, rpc_url) = Harness::spawn_if_enabled(
     ///     true,
-    ///     1000,  // 1 second block time
-    ///     10,    // 10 initial blocks
+    ///     1000,   // 1 second block time
+    ///     10,     // 10 initial blocks
+    ///     10_000, // 10k transactions per block
     ///     None,
-    ///     None,  // No progress reporter
+    ///     None,   // No progress reporter
     /// ).await?;
     /// assert!(harness.is_some());
     /// // Use rpc_url to connect...
@@ -90,6 +91,7 @@ impl Harness {
     /// // With harness disabled:
     /// let (harness, rpc_url) = Harness::spawn_if_enabled(
     ///     false,
+    ///     0,
     ///     0,
     ///     0,
     ///     Some("http://localhost:8545".to_string()),
@@ -104,6 +106,7 @@ impl Harness {
         with_harness: bool,
         block_time_ms: u64,
         initial_blocks: u64,
+        tx_per_block: u64,
         rpc_url: Option<String>,
         progress: Option<BoxedProgressReporter>,
     ) -> Result<(Option<Self>, String)> {
@@ -111,6 +114,7 @@ impl Harness {
             let config = HarnessConfig {
                 block_time_ms,
                 initial_delay_blocks: initial_blocks,
+                tx_per_block,
                 ..Default::default()
             };
             let harness = Self::spawn_with_progress(config, progress).await?;
@@ -168,8 +172,13 @@ impl Harness {
         // Calculate block time in seconds (supports sub-second via f64)
         let block_time_secs = config.block_time_ms as f64 / 1000.0;
 
-        // Build anvil with configured block time (block_time_f64 supports sub-second intervals)
-        let mut anvil_builder = alloy::node_bindings::Anvil::new().block_time_f64(block_time_secs);
+        // Build anvil with configured block time and gas limit
+        // block_time_f64 supports sub-second intervals
+        // gas_limit sets the max gas per block (default 30M is too low for high throughput)
+        let mut anvil_builder = alloy::node_bindings::Anvil::new()
+            .block_time_f64(block_time_secs)
+            .arg("--gas-limit")
+            .arg(config.block_gas_limit.to_string());
 
         // Track temp file for default genesis (must live until after anvil spawns)
         let _genesis_temp_file: Option<tempfile::NamedTempFile>;
@@ -353,7 +362,7 @@ impl std::fmt::Debug for Harness {
 ///
 /// Continuously sends random transfers between test accounts until stopped.
 /// Runs indefinitely to simulate a real chain that never stops producing blocks.
-/// Sends `tx_per_block` transactions spread across each block period.
+/// Sends transactions in parallel batches for maximum throughput.
 async fn run_tx_generator(
     rpc_url: String,
     signers: Vec<PrivateKeySigner>,
@@ -361,99 +370,117 @@ async fn run_tx_generator(
     block_time_ms: u64,
     stop_signal: Arc<AtomicBool>,
 ) -> Result<()> {
+    use futures::stream::{FuturesUnordered, StreamExt};
+
     let addresses: Vec<Address> = signers.iter().map(|s| s.address()).collect();
-    let mut rng = rand::thread_rng();
 
     // Create providers for each signer
     let mut providers = Vec::new();
     for signer in &signers {
         let wallet = EthereumWallet::from(signer.clone());
         let provider = ProviderBuilder::new().wallet(wallet).connect(&rpc_url).await?;
-        providers.push(provider);
+        providers.push(Arc::new(provider));
     }
+    let providers = Arc::new(providers);
+    let addresses = Arc::new(addresses);
 
-    // Calculate interval between transactions to spread them across the block time
-    // Use 80% of block time to leave buffer before next block
-    let effective_block_time_ms = (block_time_ms * 80) / 100;
-    let tx_interval_ms = if tx_per_block > 0 {
-        effective_block_time_ms / tx_per_block
+    // Calculate batch size and interval
+    // Send tx_per_block transactions per block_time_ms
+    // Use parallel batches - limited to avoid exhausting file descriptors
+    // 10 parallel transactions × 10 accounts = manageable connection count
+    let batch_size = 10usize;
+    let batches_per_block = (tx_per_block as usize).div_ceil(batch_size);
+    let batch_interval_ms = if batches_per_block > 0 {
+        (block_time_ms as usize * 80 / 100) / batches_per_block
     } else {
-        effective_block_time_ms
+        block_time_ms as usize
     };
 
     tracing::info!(
         tx_per_block = tx_per_block,
         block_time_ms = block_time_ms,
-        tx_interval_ms = tx_interval_ms,
+        batch_size = batch_size,
+        batches_per_block = batches_per_block,
+        batch_interval_ms = batch_interval_ms,
         num_accounts = providers.len(),
-        "Transaction generator started - will run indefinitely"
+        "Transaction generator started - will run indefinitely with parallel batches"
     );
 
-    let mut tx_count: u64 = 0;
+    let tx_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut consecutive_errors: u32 = 0;
-    const MAX_CONSECUTIVE_ERRORS: u32 = 10;
+    const MAX_CONSECUTIVE_ERRORS: u32 = 50;
 
     loop {
         if stop_signal.load(Ordering::SeqCst) {
-            tracing::info!(total_transactions = tx_count, "Transaction generator stopping");
+            tracing::info!(
+                total_transactions = tx_count.load(Ordering::Relaxed),
+                "Transaction generator stopping"
+            );
             break;
         }
 
-        // Pick random sender and recipient
-        let sender_idx = rng.gen_range(0..providers.len());
-        let recipient_idx = (sender_idx + rng.gen_range(1..addresses.len())) % addresses.len();
+        // Send a batch of transactions in parallel
+        let mut futures = FuturesUnordered::new();
 
-        let to = addresses[recipient_idx];
-        let value = U256::from(rng.gen_range(1_000_000_000_000u64..10_000_000_000_000_000u64));
+        for i in 0..batch_size {
+            let providers = Arc::clone(&providers);
+            let addresses = Arc::clone(&addresses);
+            let tx_count = Arc::clone(&tx_count);
 
-        let tx = alloy::rpc::types::TransactionRequest::default().to(to).value(value);
+            futures.push(async move {
+                let mut rng = rand::thread_rng();
+                let sender_idx = i % providers.len();
+                let recipient_idx =
+                    (sender_idx + rng.gen_range(1..addresses.len())) % addresses.len();
 
-        // Send transaction (don't wait for receipt to keep it fast)
-        match providers[sender_idx].send_transaction(tx).await {
-            Ok(pending) => {
-                tx_count += 1;
-                consecutive_errors = 0;
+                let to = addresses[recipient_idx];
+                let value =
+                    U256::from(rng.gen_range(1_000_000_000_000u64..10_000_000_000_000_000u64));
 
-                // Log every 100 transactions at debug level, every 10 at trace level
-                if tx_count.is_multiple_of(100) {
-                    tracing::debug!(
-                        tx_count = tx_count,
-                        hash = %pending.tx_hash(),
-                        "Transaction generator progress"
-                    );
-                } else {
-                    tracing::trace!(
-                        from = %addresses[sender_idx],
-                        to = %to,
-                        value = %value,
-                        hash = %pending.tx_hash(),
-                        "Sent transaction"
-                    );
+                let tx = alloy::rpc::types::TransactionRequest::default().to(to).value(value);
+
+                match providers[sender_idx].send_transaction(tx).await {
+                    Ok(pending) => {
+                        let count = tx_count.fetch_add(1, Ordering::Relaxed) + 1;
+                        if count.is_multiple_of(1000) {
+                            tracing::debug!(
+                                tx_count = count,
+                                hash = %pending.tx_hash(),
+                                "Transaction generator progress"
+                            );
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
                 }
-            }
-            Err(e) => {
-                consecutive_errors += 1;
-                tracing::warn!(
-                    error = %e,
-                    consecutive_errors = consecutive_errors,
-                    "Failed to send transaction"
-                );
+            });
+        }
 
-                // If we get too many consecutive errors, back off more aggressively
-                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-                    tracing::error!(
-                        consecutive_errors = consecutive_errors,
-                        "Too many consecutive transaction errors, backing off for 5 seconds"
-                    );
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    consecutive_errors = 0;
-                }
+        // Wait for all transactions in the batch to complete
+        let mut batch_errors = 0u32;
+        while let Some(result) = futures.next().await {
+            if result.is_err() {
+                batch_errors += 1;
             }
         }
 
-        // If tx_interval_ms is 0 (very high tx_per_block), yield to allow other tasks
-        if tx_interval_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(tx_interval_ms)).await;
+        if batch_errors > 0 {
+            consecutive_errors += batch_errors;
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                tracing::warn!(
+                    consecutive_errors = consecutive_errors,
+                    "Many transaction errors, backing off for 1 second"
+                );
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                consecutive_errors = 0;
+            }
+        } else {
+            consecutive_errors = 0;
+        }
+
+        // Sleep between batches if needed
+        if batch_interval_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(batch_interval_ms as u64)).await;
         } else {
             tokio::task::yield_now().await;
         }

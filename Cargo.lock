@@ -3634,6 +3634,7 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "eyre",
+ "futures",
  "rand 0.8.5",
  "serde_json",
  "tempfile",

@@ -100,4 +100,13 @@ pub struct MontanaCli {
     /// Only used when --with-harness is enabled.
     #[arg(long, default_value = "10")]
     pub harness_initial_blocks: u64,
+
+    /// Transactions per block for the harness transaction generator.
+    ///
+    /// Controls how many transactions are generated per block.
+    /// Higher values = more gas throughput (each tx is ~21,000 gas).
+    /// Default is 10,000 tx/block (~210 Mgas/block at 50ms = ~4.2 Ggas/s potential).
+    /// Only used when --with-harness is enabled.
+    #[arg(long, default_value = "10000")]
+    pub harness_tx_per_block: u64,
 }

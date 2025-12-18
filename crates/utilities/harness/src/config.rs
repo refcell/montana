@@ -74,18 +74,29 @@ pub struct HarnessConfig {
     ///
     /// Default: false
     pub dump_initial_state: bool,
+
+    /// Block gas limit for Anvil.
+    ///
+    /// Higher values allow more transactions per block, increasing throughput.
+    /// To reach 1 Ggas/s at 50ms blocks (20 blocks/sec), need 50 Mgas/block minimum.
+    ///
+    /// Default: 1 billion gas (1,000,000,000) - allows ~47,619 simple transfers/block
+    pub block_gas_limit: u64,
 }
 
 impl Default for HarnessConfig {
     fn default() -> Self {
         Self {
             block_time_ms: 50,
-            tx_per_block: 1000,
+            tx_per_block: 10_000,
             initial_delay_blocks: 10,
             accounts: 10,
             use_default_genesis: true,
             state_path: None,
             dump_initial_state: false,
+            // 1 billion gas allows ~47,619 simple transfers per block
+            // At 50ms blocks (20/sec), this enables ~1 Ggas/s theoretical max
+            block_gas_limit: 1_000_000_000,
         }
     }
 }
@@ -98,12 +109,13 @@ mod tests {
     fn config_default() {
         let config = HarnessConfig::default();
         assert_eq!(config.block_time_ms, 50);
-        assert_eq!(config.tx_per_block, 1000);
+        assert_eq!(config.tx_per_block, 10_000);
         assert_eq!(config.initial_delay_blocks, 10);
         assert_eq!(config.accounts, 10);
         assert!(config.use_default_genesis);
         assert!(config.state_path.is_none());
         assert!(!config.dump_initial_state);
+        assert_eq!(config.block_gas_limit, 1_000_000_000);
     }
 
     #[test]
@@ -116,6 +128,7 @@ mod tests {
             use_default_genesis: false,
             state_path: Some(PathBuf::from("/tmp/state.json")),
             dump_initial_state: true,
+            block_gas_limit: 30_000_000,
         };
         assert_eq!(config.block_time_ms, 500);
         assert_eq!(config.tx_per_block, 150);
@@ -123,6 +136,7 @@ mod tests {
         assert_eq!(config.accounts, 5);
         assert!(!config.use_default_genesis);
         assert_eq!(config.state_path.unwrap().to_str().unwrap(), "/tmp/state.json");
+        assert_eq!(config.block_gas_limit, 30_000_000);
     }
 
     #[test]

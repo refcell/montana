@@ -89,6 +89,7 @@ vm = { path = "crates/execution/vm" }
 
 # async
 async-trait = "0.1.89"
+futures = "0.3"
 reqwest = "0.12.26"
 
 # compression

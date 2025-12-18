@@ -157,7 +157,7 @@ harness-sync BLOCKS='100' *ARGS:
 # Uses --skip-sync to feed blocks directly to sequencer for batch submissions
 # Poll interval matches block time for responsive updates
 harness-fast *ARGS:
-    cargo run --release -p montana -- --with-harness --skip-sync --start 1 --poll-interval-ms 50 {{ARGS}}
+    cargo run --release -p montana -- --with-harness --skip-sync --poll-interval-ms 50 {{ARGS}}
 
 # Run the migration tool to migrate a Reth MDBX database to TrieDB
 migrate SOURCE DEST *ARGS:

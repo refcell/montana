@@ -63,7 +63,7 @@ For detailed documentation on the consensus pipeline architecture, see the [pipe
 
 ## Demo
 
-<https://github.com/user-attachments/assets/ac59dcd6-a887-4e75-8e28-7317812c8b20>
+<https://github.com/user-attachments/assets/23c68bad-61ea-49b9-9c22-b3f574acda7c>
 
 
 > [!NOTE]

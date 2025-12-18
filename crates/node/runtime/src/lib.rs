@@ -24,8 +24,7 @@ use montana_cli::{MontanaCli, MontanaMode};
 use montana_harness::Harness;
 use montana_node::{Node, NodeBuilder, NodeConfig, SyncConfig, SyncStage};
 use montana_pipeline::NoopExecutor;
-use primitives::OpBlock;
-use primitives::OpBlockBatch;
+use primitives::{OpBlock, OpBlockBatch};
 use montana_roles::{Sequencer, Validator};
 use montana_tui::{TuiEvent, TuiHandle, TuiObserver, create_tui};
 use op_alloy::network::Optimism;
@@ -317,8 +316,13 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         let checkpoint_path =
             if cli.with_harness { None } else { Some(cli.checkpoint_path.clone()) };
 
-        let mut sequencer =
-            Sequencer::new(sink_adapter, compressor, batcher_config.clone(), checkpoint_path, block_rx)?;
+        let mut sequencer = Sequencer::new(
+            sink_adapter,
+            compressor,
+            batcher_config.clone(),
+            checkpoint_path,
+            block_rx,
+        )?;
 
         // Wire up callbacks for TUI visibility if available
         if let Some(ref handle) = tui_handle {

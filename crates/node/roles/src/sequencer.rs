@@ -359,10 +359,7 @@ where
         };
 
         let block_count = blocks_to_submit.len();
-        let first_block = blocks_to_submit
-            .first()
-            .map(|b| b.header.number)
-            .unwrap_or(0);
+        let first_block = blocks_to_submit.first().map(|b| b.header.number).unwrap_or(0);
         let last_block = blocks_to_submit.last().map(|b| b.header.number).unwrap_or(0);
 
         // Collect transaction counts for each block

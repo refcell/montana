@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 # alloy
-alloy = { workspace = true, features = ["node-bindings"] }
+alloy = { workspace = true, features = ["genesis", "node-bindings"] }
 
 # async
 tokio.workspace = true
@@ -26,6 +26,9 @@ tracing.workspace = true
 rand.workspace = true
 tempfile.workspace = true
 
+# serde
+serde.workspace = true
+serde_json.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
-serde_json.workspace = true

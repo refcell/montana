@@ -3734,6 +3734,7 @@ dependencies = [
  "alloy-primitives",
  "crossterm",
  "derive_more",
+ "montana-cli",
  "montana-node",
  "montana-tui-common",
  "ratatui",

@@ -436,8 +436,8 @@ impl<P: BlockProducer> Node<P> {
 
         // Run sync loop
         loop {
-            // Check for shutdown signal
-            if self.shutdown_rx.try_recv().is_ok() {
+            // Check for shutdown signal (either via channel or global flag from Ctrl+C)
+            if self.shutdown_rx.try_recv().is_ok() || montana_cli::is_shutdown_requested() {
                 tracing::info!("Shutdown requested during sync");
                 return Ok(());
             }
@@ -492,8 +492,8 @@ impl<P: BlockProducer> Node<P> {
         tracing::info!("Node active, running roles");
 
         loop {
-            // Check for shutdown signal
-            if self.shutdown_rx.try_recv().is_ok() {
+            // Check for shutdown signal (either via channel or global flag from Ctrl+C)
+            if self.shutdown_rx.try_recv().is_ok() || montana_cli::is_shutdown_requested() {
                 tracing::info!("Shutdown requested");
                 break;
             }

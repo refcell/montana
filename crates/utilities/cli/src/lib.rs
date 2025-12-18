@@ -58,7 +58,11 @@ pub use crate::tracing_init::{init_tracing, init_tracing_with_level};
 
 /// Ctrl+C signal handler utilities.
 ///
-/// The [`install_ctrlc_handler`] function installs a handler that exits on Ctrl+C.
+/// The [`install_ctrlc_handler`] function installs a handler that sets a shutdown flag on Ctrl+C.
+/// The [`is_shutdown_requested`] function checks if shutdown was requested.
+/// The [`request_shutdown`] function programmatically requests shutdown.
 /// The [`wait_for_ctrlc`] function waits for Ctrl+C and returns, allowing custom handling.
 mod ctrlc;
-pub use crate::ctrlc::{install_ctrlc_handler, wait_for_ctrlc};
+pub use crate::ctrlc::{
+    install_ctrlc_handler, is_shutdown_requested, request_shutdown, wait_for_ctrlc,
+};

@@ -5,11 +5,16 @@
 
 use clap::Parser;
 use eyre::Result;
-use montana_cli::{MontanaCli, MontanaMode, init_tracing_with_level};
+use montana_cli::{MontanaCli, MontanaMode, init_tracing_with_level, install_ctrlc_handler};
 use montana_runtime::{run_headless, run_with_tui};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install Ctrl+C handler early so it's active during all operations.
+    // This sets a shutdown flag instead of calling process::exit(), allowing
+    // graceful cleanup of child processes (like anvil).
+    install_ctrlc_handler();
+
     let cli = MontanaCli::parse();
 
     // Check for unsupported executor mode

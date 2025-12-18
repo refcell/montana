@@ -104,6 +104,11 @@ impl MontanaTui {
     /// Main event loop - polls for keyboard events and TUI events.
     fn event_loop(&mut self, terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
         loop {
+            // Check for shutdown signal (from Ctrl+C handler)
+            if montana_cli::is_shutdown_requested() {
+                return Ok(());
+            }
+
             // Draw the UI
             terminal.draw(|frame| draw_ui(frame, app))?;
 
@@ -114,6 +119,8 @@ impl MontanaTui {
             {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
+                        // Request shutdown so other components also stop
+                        montana_cli::request_shutdown();
                         return Ok(());
                     }
                     KeyCode::Char('p') => {

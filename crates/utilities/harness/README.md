@@ -35,7 +35,7 @@ async fn main() -> eyre::Result<()> {
 | Option | Default | Description |
 |--------|---------|-------------|
 | `block_time_ms` | 1000 | Anvil block time in milliseconds |
-| `tx_interval_ms` | 500 | Interval between transaction generation |
+| `tx_per_block` | 1000 | Number of transactions to generate per block (higher values improve batch compression) |
 | `initial_delay_blocks` | 10 | Blocks to generate before returning (creates sync backlog) |
 | `accounts` | 10 | Number of test accounts to use |
 

@@ -16,7 +16,7 @@ use montana_harness::{Harness, HarnessConfig};
 async fn test_harness_spawns_anvil() {
     let config = HarnessConfig {
         block_time_ms: 1000,
-        tx_interval_ms: 100,
+        tx_per_block: 10,
         initial_delay_blocks: 0,
         accounts: 10,
     };
@@ -39,7 +39,7 @@ async fn test_harness_generates_initial_blocks() {
     let initial_blocks = 5;
     let config = HarnessConfig {
         block_time_ms: 1000,
-        tx_interval_ms: 100,
+        tx_per_block: 10,
         initial_delay_blocks: initial_blocks,
         accounts: 10,
     };
@@ -67,7 +67,7 @@ async fn test_harness_generates_initial_blocks() {
 async fn test_harness_produces_blocks_over_time() {
     let config = HarnessConfig {
         block_time_ms: 1000, // 1 second block time
-        tx_interval_ms: 100, // 100ms between transactions
+        tx_per_block: 10,    // 10 transactions per block
         initial_delay_blocks: 0,
         accounts: 10,
     };
@@ -101,7 +101,7 @@ async fn test_harness_produces_blocks_over_time() {
 async fn test_harness_generates_transactions() {
     let config = HarnessConfig {
         block_time_ms: 1000, // 1 second block time
-        tx_interval_ms: 100, // 100ms between transactions (10 tx/second)
+        tx_per_block: 10,    // 10 transactions per block
         initial_delay_blocks: 0,
         accounts: 10,
     };
@@ -147,7 +147,7 @@ async fn test_harness_generates_transactions() {
 async fn test_harness_fast_block_time() {
     let config = HarnessConfig {
         block_time_ms: 500, // 500ms block time (min 1s for anvil, but config should handle)
-        tx_interval_ms: 50,
+        tx_per_block: 20,
         initial_delay_blocks: 2,
         accounts: 5,
     };
@@ -174,7 +174,7 @@ async fn test_harness_fast_block_time() {
 async fn test_harness_graceful_shutdown() {
     let config = HarnessConfig {
         block_time_ms: 1000,
-        tx_interval_ms: 100,
+        tx_per_block: 10,
         initial_delay_blocks: 1,
         accounts: 5,
     };
@@ -203,7 +203,7 @@ async fn test_harness_graceful_shutdown() {
 async fn test_harness_high_frequency_transactions() {
     let config = HarnessConfig {
         block_time_ms: 1000,
-        tx_interval_ms: 50, // 20 tx/second
+        tx_per_block: 100, // 100 tx/block
         initial_delay_blocks: 0,
         accounts: 10,
     };
@@ -233,7 +233,7 @@ async fn test_harness_high_frequency_transactions() {
 async fn test_harness_block_contents() {
     let config = HarnessConfig {
         block_time_ms: 1000,
-        tx_interval_ms: 200,
+        tx_per_block: 5,
         initial_delay_blocks: 3,
         accounts: 10,
     };

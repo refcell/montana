@@ -238,7 +238,8 @@ impl Harness {
         let stop_signal_clone = Arc::clone(&stop_signal);
 
         // Spawn background transaction generator
-        let tx_interval_ms = config.tx_interval_ms;
+        let tx_per_block = config.tx_per_block;
+        let block_time_ms = config.block_time_ms;
         let rpc_url_clone = rpc_url.clone();
         let signers_clone = signers.clone();
 
@@ -256,7 +257,8 @@ impl Harness {
                 if let Err(e) = run_tx_generator(
                     rpc_url_clone,
                     signers_clone,
-                    tx_interval_ms,
+                    tx_per_block,
+                    block_time_ms,
                     stop_signal_clone,
                 )
                 .await
@@ -296,10 +298,12 @@ impl std::fmt::Debug for Harness {
 ///
 /// Continuously sends random transfers between test accounts until stopped.
 /// Runs indefinitely to simulate a real chain that never stops producing blocks.
+/// Sends `tx_per_block` transactions spread across each block period.
 async fn run_tx_generator(
     rpc_url: String,
     signers: Vec<PrivateKeySigner>,
-    tx_interval_ms: u64,
+    tx_per_block: u64,
+    block_time_ms: u64,
     stop_signal: Arc<AtomicBool>,
 ) -> Result<()> {
     let addresses: Vec<Address> = signers.iter().map(|s| s.address()).collect();
@@ -313,7 +317,18 @@ async fn run_tx_generator(
         providers.push(provider);
     }
 
+    // Calculate interval between transactions to spread them across the block time
+    // Use 80% of block time to leave buffer before next block
+    let effective_block_time_ms = (block_time_ms * 80) / 100;
+    let tx_interval_ms = if tx_per_block > 0 {
+        effective_block_time_ms / tx_per_block
+    } else {
+        effective_block_time_ms
+    };
+
     tracing::info!(
+        tx_per_block = tx_per_block,
+        block_time_ms = block_time_ms,
         tx_interval_ms = tx_interval_ms,
         num_accounts = providers.len(),
         "Transaction generator started - will run indefinitely"
@@ -381,7 +396,12 @@ async fn run_tx_generator(
             }
         }
 
-        tokio::time::sleep(Duration::from_millis(tx_interval_ms)).await;
+        // If tx_interval_ms is 0 (very high tx_per_block), yield to allow other tasks
+        if tx_interval_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(tx_interval_ms)).await;
+        } else {
+            tokio::task::yield_now().await;
+        }
     }
 
     Ok(())

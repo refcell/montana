@@ -12,11 +12,11 @@ pub struct HarnessConfig {
     /// Default: 1000ms (1 second)
     pub block_time_ms: u64,
 
-    /// Interval between transaction generation in milliseconds.
+    /// Number of transactions to generate per block.
     ///
-    /// Controls how often new transactions are submitted to the chain.
-    /// Default: 500ms
-    pub tx_interval_ms: u64,
+    /// Higher values create blocks with more data, improving batch compression ratios.
+    /// Default: 1000
+    pub tx_per_block: u64,
 
     /// Number of blocks to generate before returning from spawn.
     ///
@@ -34,7 +34,7 @@ pub struct HarnessConfig {
 
 impl Default for HarnessConfig {
     fn default() -> Self {
-        Self { block_time_ms: 1000, tx_interval_ms: 500, initial_delay_blocks: 10, accounts: 10 }
+        Self { block_time_ms: 1000, tx_per_block: 1000, initial_delay_blocks: 10, accounts: 10 }
     }
 }
 
@@ -46,7 +46,7 @@ mod tests {
     fn config_default() {
         let config = HarnessConfig::default();
         assert_eq!(config.block_time_ms, 1000);
-        assert_eq!(config.tx_interval_ms, 500);
+        assert_eq!(config.tx_per_block, 1000);
         assert_eq!(config.initial_delay_blocks, 10);
         assert_eq!(config.accounts, 10);
     }
@@ -55,12 +55,12 @@ mod tests {
     fn config_custom() {
         let config = HarnessConfig {
             block_time_ms: 500,
-            tx_interval_ms: 250,
+            tx_per_block: 150,
             initial_delay_blocks: 100,
             accounts: 5,
         };
         assert_eq!(config.block_time_ms, 500);
-        assert_eq!(config.tx_interval_ms, 250);
+        assert_eq!(config.tx_per_block, 150);
         assert_eq!(config.initial_delay_blocks, 100);
         assert_eq!(config.accounts, 5);
     }

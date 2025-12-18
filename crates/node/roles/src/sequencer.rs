@@ -41,6 +41,8 @@ pub trait BatchCallback: Send + Sync {
     /// * `last_block` - Last block number in the batch
     /// * `uncompressed_size` - Uncompressed batch size in bytes
     /// * `compressed_size` - Compressed batch size in bytes
+    /// * `block_tx_counts` - Transaction counts for each block in the batch (in order)
+    #[allow(clippy::too_many_arguments)]
     fn on_batch_submitted(
         &self,
         batch_number: u64,
@@ -49,6 +51,7 @@ pub trait BatchCallback: Send + Sync {
         last_block: u64,
         uncompressed_size: usize,
         compressed_size: usize,
+        block_tx_counts: &[usize],
     );
 }
 
@@ -357,6 +360,10 @@ where
 
         // Invoke batch callback for TUI visibility
         if let Some(ref callback) = self.batch_callback {
+            // Collect transaction counts for each block
+            let block_tx_counts: Vec<usize> =
+                pending.blocks.iter().map(|b| b.transactions.len()).collect();
+
             tracing::debug!(
                 batch_number,
                 block_count,
@@ -364,6 +371,7 @@ where
                 last_block,
                 uncompressed_size,
                 compressed_size,
+                ?block_tx_counts,
                 "Invoking batch callback for TUI"
             );
             callback.on_batch_submitted(
@@ -373,6 +381,7 @@ where
                 last_block,
                 uncompressed_size,
                 compressed_size,
+                &block_tx_counts,
             );
         }
 

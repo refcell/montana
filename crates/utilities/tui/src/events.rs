@@ -104,6 +104,8 @@ pub enum TuiEvent {
     BlockDerived {
         /// Block number
         number: u64,
+        /// Number of transactions in the block
+        tx_count: usize,
         /// Time spent deriving the block from L1 data (in milliseconds)
         derivation_time_ms: u64,
         /// Time spent executing the block (in milliseconds)

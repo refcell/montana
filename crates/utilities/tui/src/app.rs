@@ -106,6 +106,8 @@ pub struct App {
     pub batch_logs: Vec<LogEntry>,
     /// Derivation logs
     pub derivation_logs: Vec<LogEntry>,
+    /// Derivation execution logs (block execution during derivation)
+    pub derivation_execution_logs: Vec<LogEntry>,
 
     // Mode information
     /// Node role (Sequencer, Validator, or Dual)
@@ -159,6 +161,7 @@ impl App {
             block_builder_logs: Vec::new(),
             batch_logs: Vec::new(),
             derivation_logs: Vec::new(),
+            derivation_execution_logs: Vec::new(),
             node_role: "Unknown".to_string(),
             start_block: None,
             skip_sync: false,
@@ -198,6 +201,7 @@ impl App {
         self.block_builder_logs.clear();
         self.batch_logs.clear();
         self.derivation_logs.clear();
+        self.derivation_execution_logs.clear();
         self.harness_logs.clear();
         self.harness_block = 0;
         self.harness_init_block = 0;
@@ -345,6 +349,20 @@ impl App {
         self.derivation_logs.push(entry);
         if self.derivation_logs.len() > MAX_LOG_ENTRIES {
             self.derivation_logs.remove(0);
+        }
+    }
+
+    /// Add a log entry to the derivation execution logs.
+    ///
+    /// Log entries are kept in a circular buffer with a maximum of 100 entries.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - The log entry to add
+    pub fn log_derivation_execution(&mut self, entry: LogEntry) {
+        self.derivation_execution_logs.push(entry);
+        if self.derivation_execution_logs.len() > MAX_LOG_ENTRIES {
+            self.derivation_execution_logs.remove(0);
         }
     }
 

@@ -30,6 +30,24 @@ pub trait DerivationCallback: Send + Sync {
         first_block: u64,
         last_block: u64,
     );
+
+    /// Called when an individual block has been derived and executed.
+    ///
+    /// # Arguments
+    /// * `block_number` - The block number that was derived
+    /// * `tx_count` - Number of transactions in the block
+    /// * `derivation_time_ms` - Time spent deriving the block (in milliseconds)
+    /// * `execution_time_ms` - Time spent executing the block (in milliseconds)
+    fn on_block_derived(
+        &self,
+        block_number: u64,
+        tx_count: usize,
+        derivation_time_ms: u64,
+        execution_time_ms: u64,
+    ) {
+        // Default no-op implementation for backwards compatibility
+        let _ = (block_number, tx_count, derivation_time_ms, execution_time_ms);
+    }
 }
 
 /// Events emitted by the validator.
@@ -269,6 +287,17 @@ where
                 "Invoking derivation callback for TUI"
             );
             callback.on_batch_derived(batch.batch_number, block_count, first_block, last_block);
+
+            // Also emit per-block events for the execution logs section
+            // Note: tx_count is not available at this level (would require parsing decompressed data)
+            // Timing is also estimated as we don't track per-block timing during batch processing
+            for block_num in first_block..=last_block {
+                callback.on_block_derived(
+                    block_num, 0, // tx_count not available at batch level
+                    1, // derivation_time_ms placeholder
+                    1, // execution_time_ms placeholder
+                );
+            }
         }
 
         tracing::info!(

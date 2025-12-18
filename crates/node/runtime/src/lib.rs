@@ -12,8 +12,8 @@ use crossterm::{
 };
 use eyre::Result;
 use montana_adapters::{
-    BatchSinkAdapter, BatchSourceAdapter, BlockProducerWrapper, HarnessProgressAdapter,
-    TuiBatchCallback, TuiDerivationCallback, TuiExecutionCallback,
+    BatchSinkAdapter, BatchSourceAdapter, BlockProducerWrapper, BlockTxCountStore,
+    HarnessProgressAdapter, TuiBatchCallback, TuiDerivationCallback, TuiExecutionCallback,
 };
 use montana_batch_context::BatchContext;
 use montana_batcher::{Address, BatchDriver, BatcherConfig};
@@ -289,6 +289,10 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         Checkpoint::load(&cli.checkpoint_path).ok().flatten().unwrap_or_default()
     };
 
+    // Create shared store for block transaction counts (shared between batch and derivation callbacks)
+    // This allows the derivation callback to know tx counts that were recorded at batch submission time
+    let tx_count_store = Arc::new(BlockTxCountStore::new());
+
     // Add sequencer if role requires it
     if config.role.runs_sequencer() {
         // Use optimized config for harness mode (faster batch submissions for demo/testing)
@@ -318,7 +322,8 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         if let Some(ref handle) = tui_handle {
             tracing::debug!("Wiring up TUI callbacks for sequencer");
             let exec_callback = Arc::new(TuiExecutionCallback::new(handle.clone()));
-            let batch_callback = Arc::new(TuiBatchCallback::new(handle.clone()));
+            let batch_callback =
+                Arc::new(TuiBatchCallback::new(handle.clone(), Arc::clone(&tx_count_store)));
             sequencer = sequencer
                 .with_execution_callback(exec_callback)
                 .with_batch_callback(batch_callback);
@@ -361,7 +366,8 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         // Wire up derivation callback for TUI visibility if available
         if let Some(ref handle) = tui_handle {
             tracing::debug!("Wiring up TUI derivation callback for validator");
-            let derivation_callback = Arc::new(TuiDerivationCallback::new(handle.clone()));
+            let derivation_callback =
+                Arc::new(TuiDerivationCallback::new(handle.clone(), Arc::clone(&tx_count_store)));
             validator = validator.with_derivation_callback(derivation_callback);
 
             // Send validator initialization event to TUI

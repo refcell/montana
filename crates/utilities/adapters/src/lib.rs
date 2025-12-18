@@ -3,13 +3,57 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use async_trait::async_trait;
 use montana_harness::HarnessProgressReporter;
 use montana_roles::{BatchCallback, DerivationCallback, ExecutionCallback};
 use montana_tui::{TuiEvent, TuiHandle};
 use tokio::sync::mpsc;
+
+/// Shared state for tracking per-block transaction counts between batch submission and derivation.
+///
+/// This allows the derivation callback to know the transaction count for each block
+/// when it's derived, even though that information is only available at batch submission time.
+#[derive(Debug, Default)]
+pub struct BlockTxCountStore {
+    /// Map of block number to transaction count
+    tx_counts: RwLock<HashMap<u64, usize>>,
+}
+
+impl BlockTxCountStore {
+    /// Create a new empty store.
+    pub fn new() -> Self {
+        Self { tx_counts: RwLock::new(HashMap::new()) }
+    }
+
+    /// Record transaction counts for a range of blocks.
+    ///
+    /// # Arguments
+    /// * `first_block` - First block number in the batch
+    /// * `block_tx_counts` - Transaction counts for each block (in order)
+    pub fn record_batch(&self, first_block: u64, block_tx_counts: &[usize]) {
+        let mut counts = self.tx_counts.write().unwrap();
+        for (i, &tx_count) in block_tx_counts.iter().enumerate() {
+            counts.insert(first_block + i as u64, tx_count);
+        }
+    }
+
+    /// Get the transaction count for a block.
+    ///
+    /// Returns 0 if the block is not found (e.g., in validator-only mode).
+    pub fn get_tx_count(&self, block_number: u64) -> usize {
+        self.tx_counts.read().unwrap().get(&block_number).copied().unwrap_or(0)
+    }
+
+    /// Remove the transaction count for a block (to prevent unbounded growth).
+    pub fn remove(&self, block_number: u64) {
+        self.tx_counts.write().unwrap().remove(&block_number);
+    }
+}
 
 /// Boxed block producer for type erasure.
 pub type BoxedBlockProducer = Box<dyn blocksource::BlockProducer>;
@@ -158,12 +202,14 @@ impl ExecutionCallback for TuiExecutionCallback {
 #[derive(Debug)]
 pub struct TuiBatchCallback {
     handle: TuiHandle,
+    /// Shared store for block transaction counts
+    tx_count_store: Arc<BlockTxCountStore>,
 }
 
 impl TuiBatchCallback {
-    /// Create a new TUI batch callback.
-    pub const fn new(handle: TuiHandle) -> Self {
-        Self { handle }
+    /// Create a new TUI batch callback with a shared tx count store.
+    pub const fn new(handle: TuiHandle, tx_count_store: Arc<BlockTxCountStore>) -> Self {
+        Self { handle, tx_count_store }
     }
 }
 
@@ -176,7 +222,11 @@ impl BatchCallback for TuiBatchCallback {
         last_block: u64,
         uncompressed_size: usize,
         compressed_size: usize,
+        block_tx_counts: &[usize],
     ) {
+        // Store the tx counts for later retrieval during derivation
+        self.tx_count_store.record_batch(first_block, block_tx_counts);
+
         self.handle.send(TuiEvent::BatchSubmitted {
             batch_number,
             block_count,
@@ -195,12 +245,14 @@ impl BatchCallback for TuiBatchCallback {
 #[derive(Debug)]
 pub struct TuiDerivationCallback {
     handle: TuiHandle,
+    /// Shared store for block transaction counts
+    tx_count_store: Arc<BlockTxCountStore>,
 }
 
 impl TuiDerivationCallback {
-    /// Create a new TUI derivation callback.
-    pub const fn new(handle: TuiHandle) -> Self {
-        Self { handle }
+    /// Create a new TUI derivation callback with a shared tx count store.
+    pub const fn new(handle: TuiHandle, tx_count_store: Arc<BlockTxCountStore>) -> Self {
+        Self { handle, tx_count_store }
     }
 }
 
@@ -209,18 +261,33 @@ impl DerivationCallback for TuiDerivationCallback {
         &self,
         _batch_number: u64,
         _block_count: usize,
-        first_block: u64,
-        last_block: u64,
+        _first_block: u64,
+        _last_block: u64,
     ) {
-        // Send BlockDerived events for each block in the batch
-        // For now, we estimate derivation and execution times
-        for block_num in first_block..=last_block {
-            self.handle.send(TuiEvent::BlockDerived {
-                number: block_num,
-                derivation_time_ms: 1, // Placeholder - actual timing would be measured
-                execution_time_ms: 1,  // Placeholder - actual timing would be measured
-            });
-        }
+        // Block-level events are now sent via on_block_derived
+        // This callback is used only for batch-level processing
+    }
+
+    fn on_block_derived(
+        &self,
+        block_number: u64,
+        _tx_count: usize,
+        derivation_time_ms: u64,
+        execution_time_ms: u64,
+    ) {
+        // Look up the actual tx count from the shared store (populated by batch callback)
+        // This will return 0 if not found (e.g., in validator-only mode)
+        let actual_tx_count = self.tx_count_store.get_tx_count(block_number);
+
+        // Remove the entry to prevent unbounded growth
+        self.tx_count_store.remove(block_number);
+
+        self.handle.send(TuiEvent::BlockDerived {
+            number: block_number,
+            tx_count: actual_tx_count,
+            derivation_time_ms,
+            execution_time_ms,
+        });
     }
 }
 

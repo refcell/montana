@@ -264,12 +264,17 @@ fn process_event(app: &mut App, event: TuiEvent) {
                 ratio
             )));
         }
-        TuiEvent::BlockDerived { number, derivation_time_ms, execution_time_ms } => {
+        TuiEvent::BlockDerived { number, tx_count, derivation_time_ms, execution_time_ms } => {
             app.set_finalized_head(number);
-            let total_time = derivation_time_ms + execution_time_ms;
+            // Log execution to the derivation execution logs section
+            app.log_derivation_execution(LogEntry::info(format!(
+                "Block #{}: {} txs, {}ms",
+                number, tx_count, execution_time_ms
+            )));
+            // Log derivation time only to the derivation logs section
             app.log_derivation(LogEntry::info(format!(
-                "Block #{}: derived in {}ms + executed in {}ms = {}ms total",
-                number, derivation_time_ms, execution_time_ms, total_time
+                "Block #{}: derived in {}ms",
+                number, derivation_time_ms
             )));
         }
         TuiEvent::BatchDerived { batch_number, block_count, first_block, last_block } => {
@@ -940,8 +945,38 @@ fn draw_batch_submissions(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect)
     frame.render_widget(widget, area);
 }
 
-/// Draw derived blocks logs with timing.
+/// Draw derivation section with execution logs and derivation logs in a vertically split column.
+/// Execution logs on top, derivation logs below.
 fn draw_derived_blocks(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Split vertically: execution logs (top half) and derivation logs (bottom half)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    draw_derivation_execution(frame, app, chunks[0]);
+    draw_derivation_logs(frame, app, chunks[1]);
+}
+
+/// Draw derivation execution logs (block execution during derivation).
+fn draw_derivation_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    // Render logs in reverse order (newest first) since wrap() and scroll() conflict
+    let logs = render_logs_reversed(&app.derivation_execution_logs);
+
+    let widget = Paragraph::new(logs)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Execution Logs ")
+                .title_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(widget, area);
+}
+
+/// Draw derivation logs (batch derivation info).
+fn draw_derivation_logs(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     // Render logs in reverse order (newest first) since wrap() and scroll() conflict
     let logs = render_logs_reversed(&app.derivation_logs);
 

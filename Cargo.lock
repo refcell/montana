@@ -3717,7 +3717,6 @@ dependencies = [
  "montana-cli",
  "montana-harness",
  "montana-node",
- "montana-pipeline",
  "montana-roles",
  "montana-tui",
  "op-alloy",
@@ -5594,7 +5593,6 @@ dependencies = [
  "montana-zlib",
  "montana-zstd",
  "op-alloy",
- "primitives",
  "ratatui",
  "tokio",
 ]

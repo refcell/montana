@@ -1,7 +1,6 @@
 //! Validator role implementation.
 //!
-//! The validator derives and validates batches from L1, executing the payloads
-//! to maintain a derived L2 state.
+//! The validator derives and validates batches from L1.
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -91,21 +90,18 @@ pub enum ValidatorEvent {
 
 /// The validator role: derives and validates batches from L1.
 ///
-/// Generic over three traits:
+/// Generic over two traits:
 /// - `S: L1BatchSource` - Source for reading compressed batches from L1
 /// - `C: Compressor` - For decompressing batch data
-/// - `E: ExecutePayload` - For executing derived payloads
 ///
-/// The validator polls L1 for new batches, decompresses them, executes the
-/// payloads, and validates the state transitions. Progress is checkpointed
-/// to enable resumption after restarts.
-pub struct Validator<S, C, E> {
+/// The validator polls L1 for new batches, decompresses them, and validates
+/// the state transitions. Progress is checkpointed to enable resumption after
+/// restarts.
+pub struct Validator<S, C> {
     /// Source for reading batches from L1.
     batch_source: S,
     /// Compressor for decompressing batch data.
     compressor: C,
-    /// Executor for derived payloads.
-    executor: E,
     /// Checkpoint for resumption.
     checkpoint: Checkpoint,
     /// Path to checkpoint file (None disables checkpoint persistence).
@@ -120,14 +116,11 @@ pub struct Validator<S, C, E> {
     last_l1_head: u64,
 }
 
-impl<S: std::fmt::Debug, C: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug
-    for Validator<S, C, E>
-{
+impl<S: std::fmt::Debug, C: std::fmt::Debug> std::fmt::Debug for Validator<S, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Validator")
             .field("batch_source", &self.batch_source)
             .field("compressor", &self.compressor)
-            .field("executor", &self.executor)
             .field("checkpoint", &self.checkpoint)
             .field("checkpoint_path", &self.checkpoint_path)
             .field("poll_interval_ms", &self.poll_interval_ms)
@@ -138,11 +131,10 @@ impl<S: std::fmt::Debug, C: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug
     }
 }
 
-impl<S, C, E> Validator<S, C, E>
+impl<S, C> Validator<S, C>
 where
     S: montana_pipeline::L1BatchSource + Send + Sync,
     C: montana_pipeline::Compressor + Send + Sync,
-    E: montana_pipeline::ExecutePayload<Payload = OpBlockBatch> + Send + Sync,
 {
     /// Creates a new validator instance.
     ///
@@ -152,7 +144,6 @@ where
     /// # Arguments
     /// * `batch_source` - Source for reading batches from L1
     /// * `compressor` - Compressor for decompressing batch data
-    /// * `executor` - Executor for derived payloads
     /// * `checkpoint_path` - Optional path to checkpoint file. If `None`, checkpointing
     ///   is disabled (useful for harness/demo mode where fresh starts are expected).
     ///
@@ -161,7 +152,6 @@ where
     pub fn new(
         batch_source: S,
         compressor: C,
-        executor: E,
         checkpoint_path: Option<PathBuf>,
     ) -> eyre::Result<Self> {
         let checkpoint = if let Some(ref path) = checkpoint_path {
@@ -187,7 +177,6 @@ where
         Ok(Self {
             batch_source,
             compressor,
-            executor,
             checkpoint,
             checkpoint_path,
             poll_interval_ms: 50,
@@ -280,14 +269,11 @@ where
         // Decompress
         let decompressed = self.compressor.decompress(&batch.data)?;
 
-        // Deserialize the OpBlockBatch from the decompressed data
-        let block_batch = OpBlockBatch::from_bytes(&decompressed)
+        // Deserialize the OpBlockBatch from the decompressed data to validate it
+        let _block_batch = OpBlockBatch::from_bytes(&decompressed)
             .map_err(|e| eyre::eyre!("Failed to deserialize OpBlockBatch: {}", e))?;
 
         self.emit(ValidatorEvent::BatchDerived { batch_number: batch.batch_number, block_count });
-
-        // Execute with the full block data
-        self.executor.execute(block_batch)?;
 
         // Update checkpoint (only save if persistence is enabled)
         self.checkpoint.record_batch_derived(batch.batch_number);
@@ -334,11 +320,10 @@ where
 }
 
 #[async_trait]
-impl<S, C, E> Role for Validator<S, C, E>
+impl<S, C> Role for Validator<S, C>
 where
     S: montana_pipeline::L1BatchSource + Send + Sync,
     C: montana_pipeline::Compressor + Send + Sync,
-    E: montana_pipeline::ExecutePayload<Payload = OpBlockBatch> + Send + Sync,
 {
     fn name(&self) -> &'static str {
         "validator"

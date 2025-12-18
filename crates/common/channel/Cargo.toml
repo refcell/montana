@@ -9,10 +9,10 @@ rust-version.workspace = true
 async-trait.workspace = true
 derive_more.workspace = true
 primitives.workspace = true
-tokio.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

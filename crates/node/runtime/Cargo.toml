@@ -29,7 +29,6 @@ montana-batcher.workspace = true
 montana-block-feeder.workspace = true
 montana-brotli.workspace = true
 montana-checkpoint.workspace = true
-montana-pipeline.workspace = true
 
 # node crates
 montana-node.workspace = true

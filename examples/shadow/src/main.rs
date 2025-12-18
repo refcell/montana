@@ -18,14 +18,13 @@ use montana_batch_runner::{
 use montana_brotli::BrotliCompressor;
 use montana_derivation_runner::{DerivationConfig, DerivationRunner};
 use montana_pipeline::{
-    CompressedBatch, Compressor, L1BatchSource, NoopExecutor, SourceError as PipelineSourceError,
+    CompressedBatch, Compressor, L1BatchSource, SourceError as PipelineSourceError,
     SubmissionReceipt,
 };
 use montana_tui_common::{format_bytes, truncate_url};
 use montana_zlib::ZlibCompressor;
 use montana_zstd::ZstdCompressor;
 use op_alloy::network::Optimism;
-use primitives::OpBlockBatch;
 use ratatui::{
     DefaultTerminal,
     layout::{Constraint, Direction, Layout, Rect},
@@ -279,9 +278,8 @@ fn run_with_compressor<C: Compressor + Clone + Send + Sync + 'static>(
 
         // Create derivation runner
         let source_adapter = BatchSourceAdapter::new(Arc::clone(&batch_context));
-        let executor: NoopExecutor<OpBlockBatch> = NoopExecutor::new();
         let derivation_runner =
-            DerivationRunner::new(source_adapter, compressor, executor, derivation_config);
+            DerivationRunner::new(source_adapter, compressor, derivation_config);
         let derivation_runner = Arc::new(Mutex::new(derivation_runner));
 
         (batch_runner, derivation_runner)

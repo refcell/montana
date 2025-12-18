@@ -1,6 +1,5 @@
 //! Derivation error types.
 
-use montana_pipeline::ExecutePayloadError;
 use thiserror::Error;
 
 /// Derivation errors.
@@ -22,9 +21,9 @@ pub enum DerivationError {
     #[error("Pipeline error: {0}")]
     Pipeline(String),
 
-    /// Payload execution failed.
-    #[error("Payload execution failed: {0}")]
-    ExecutionFailed(String),
+    /// Checkpoint or other internal error.
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 impl DerivationError {
@@ -35,13 +34,7 @@ impl DerivationError {
 
     /// Classifies whether an error is fatal.
     pub const fn is_fatal(&self) -> bool {
-        matches!(self, Self::DecompressionFailed(_) | Self::ExecutionFailed(_))
-    }
-}
-
-impl From<ExecutePayloadError> for DerivationError {
-    fn from(err: ExecutePayloadError) -> Self {
-        Self::ExecutionFailed(err.to_string())
+        matches!(self, Self::DecompressionFailed(_))
     }
 }
 
@@ -56,17 +49,17 @@ mod tests {
     #[case(DerivationError::EmptyBatch, true)]
     #[case(DerivationError::DecompressionFailed("test".to_string()), false)]
     #[case(DerivationError::Pipeline("test".to_string()), false)]
-    #[case(DerivationError::ExecutionFailed("test".to_string()), false)]
+    #[case(DerivationError::InternalError("test".to_string()), false)]
     fn test_is_retryable(#[case] error: DerivationError, #[case] expected: bool) {
         assert_eq!(error.is_retryable(), expected);
     }
 
     #[rstest]
     #[case(DerivationError::DecompressionFailed("test".to_string()), true)]
-    #[case(DerivationError::ExecutionFailed("test".to_string()), true)]
     #[case(DerivationError::SourceError("test".to_string()), false)]
     #[case(DerivationError::EmptyBatch, false)]
     #[case(DerivationError::Pipeline("test".to_string()), false)]
+    #[case(DerivationError::InternalError("test".to_string()), false)]
     fn test_is_fatal(#[case] error: DerivationError, #[case] expected: bool) {
         assert_eq!(error.is_fatal(), expected);
     }
@@ -100,7 +93,7 @@ mod tests {
     #[case(DerivationError::DecompressionFailed("test".to_string()))]
     #[case(DerivationError::EmptyBatch)]
     #[case(DerivationError::Pipeline("test".to_string()))]
-    #[case(DerivationError::ExecutionFailed("test".to_string()))]
+    #[case(DerivationError::InternalError("test".to_string()))]
     fn test_error_variants_are_debug(#[case] err: DerivationError) {
         let _ = format!("{:?}", err);
     }
@@ -164,26 +157,5 @@ mod tests {
         let err = DerivationError::Pipeline("error".to_string());
         assert!(!err.is_retryable(), "Expected {} to not be retryable", err);
         assert!(!err.is_fatal(), "Expected {} to not be fatal", err);
-    }
-
-    #[test]
-    fn test_execution_failed_display() {
-        let err = DerivationError::ExecutionFailed("invalid state".to_string());
-        assert_eq!(err.to_string(), "Payload execution failed: invalid state");
-    }
-
-    #[test]
-    fn test_execution_failed_is_fatal() {
-        let err = DerivationError::ExecutionFailed("execution error".to_string());
-        assert!(err.is_fatal());
-        assert!(!err.is_retryable());
-    }
-
-    #[test]
-    fn test_from_execute_payload_error() {
-        let execute_err = ExecutePayloadError::ExecutionFailed("inner error".to_string());
-        let derivation_err: DerivationError = execute_err.into();
-        assert!(matches!(derivation_err, DerivationError::ExecutionFailed(_)));
-        assert!(derivation_err.to_string().contains("inner error"));
     }
 }

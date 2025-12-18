@@ -3,11 +3,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-mod errors;
-pub use errors::ExecutePayloadError;
-
-mod execute;
-pub use execute::{ChannelExecutor, ExecutePayload, NoopExecutor};
 pub use primitives::Bytes;
 
 mod source;

@@ -23,8 +23,7 @@ use montana_checkpoint::Checkpoint;
 use montana_cli::{MontanaCli, MontanaMode};
 use montana_harness::Harness;
 use montana_node::{Node, NodeBuilder, NodeConfig, SyncConfig, SyncStage};
-use montana_pipeline::NoopExecutor;
-use primitives::{OpBlock, OpBlockBatch};
+use primitives::OpBlock;
 use montana_roles::{Sequencer, Validator};
 use montana_tui::{TuiEvent, TuiHandle, TuiObserver, create_tui};
 use op_alloy::network::Optimism;
@@ -370,13 +369,12 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         // We need to create an owned adapter, not a reference-based one
         let source = BatchSourceAdapter::new(Arc::clone(&batch_ctx));
         let compressor = BrotliCompressor::default();
-        let executor: NoopExecutor<OpBlockBatch> = NoopExecutor::new();
 
         // In harness mode, disable checkpoint persistence for fresh starts every time
         let checkpoint_path =
             if cli.with_harness { None } else { Some(cli.checkpoint_path.clone()) };
 
-        let mut validator = Validator::new(source, compressor, executor, checkpoint_path)?;
+        let mut validator = Validator::new(source, compressor, checkpoint_path)?;
 
         // Wire up derivation callback for TUI visibility if available
         if let Some(ref handle) = tui_handle {

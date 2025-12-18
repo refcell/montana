@@ -3,11 +3,9 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-// Used in tests and future implementation
+// Used in tests
 #[cfg(not(test))]
 use async_trait as _;
-#[cfg(not(test))]
-use tokio as _;
 #[cfg(not(test))]
 use tracing as _;
 

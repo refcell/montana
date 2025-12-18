@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use montana_pipeline::{CompressedBatch, Compressor, ExecutePayload, L1BatchSource};
+use montana_pipeline::{CompressedBatch, Compressor, L1BatchSource};
 use primitives::OpBlockBatch;
 use tokio::time::sleep;
 
@@ -14,23 +14,17 @@ use crate::{DerivationConfig, DerivationError, DerivationMetrics};
 /// Derivation runner that polls for batches and derives L2 blocks.
 ///
 /// The runner continuously polls a batch source for new compressed batches,
-/// decompresses them, deserializes the `OpBlockBatch`, executes the payload,
-/// and tracks metrics about the derivation process.
-///
-/// The executor is generic, allowing different implementations to be plugged in
-/// for different use cases (e.g., full execution, validation-only, or no-op for testing).
-pub struct DerivationRunner<S, C, E>
+/// decompresses them, deserializes the `OpBlockBatch`, and tracks metrics
+/// about the derivation process.
+pub struct DerivationRunner<S, C>
 where
     S: L1BatchSource,
     C: Compressor,
-    E: ExecutePayload<Payload = OpBlockBatch>,
 {
     /// The batch source to poll for new batches.
     source: S,
     /// The compressor for decompressing batches.
     compressor: C,
-    /// The executor for processing decompressed payloads.
-    executor: E,
     /// Configuration.
     config: DerivationConfig,
     /// Accumulated metrics.
@@ -50,18 +44,16 @@ where
     checkpoint_path: Option<PathBuf>,
 }
 
-impl<S, C, E> DerivationRunner<S, C, E>
+impl<S, C> DerivationRunner<S, C>
 where
     S: L1BatchSource,
     C: Compressor,
-    E: ExecutePayload<Payload = OpBlockBatch>,
 {
     /// Creates a new derivation runner.
-    pub fn new(source: S, compressor: C, executor: E, config: DerivationConfig) -> Self {
+    pub fn new(source: S, compressor: C, config: DerivationConfig) -> Self {
         Self {
             source,
             compressor,
-            executor,
             config,
             metrics: DerivationMetrics::default(),
             submission_times: std::collections::HashMap::new(),
@@ -79,14 +71,12 @@ where
     pub fn with_start_block(
         source: S,
         compressor: C,
-        executor: E,
         config: DerivationConfig,
         start_block: u64,
     ) -> Self {
         Self {
             source,
             compressor,
-            executor,
             config,
             metrics: DerivationMetrics::default(),
             submission_times: std::collections::HashMap::new(),
@@ -255,25 +245,17 @@ where
 
         let decompressed_size = decompressed.len();
 
-        // Deserialize the OpBlockBatch from the decompressed data
-        let block_batch = OpBlockBatch::from_bytes(&decompressed).map_err(|e| {
+        // Deserialize the OpBlockBatch from the decompressed data to validate it
+        let _block_batch = OpBlockBatch::from_bytes(&decompressed).map_err(|e| {
             DerivationError::DecompressionFailed(format!(
                 "Failed to deserialize OpBlockBatch from batch #{}: {}",
                 batch_number, e
             ))
         })?;
 
-        // Execute the payload with the full block data
-        self.executor.execute(block_batch).map_err(|e| {
-            DerivationError::ExecutionFailed(format!(
-                "Failed to execute payload for batch #{}: {}",
-                batch_number, e
-            ))
-        })?;
-
         // Record the batch derivation in checkpoint
         self.record_batch_derived(batch_number)
-            .map_err(|e| DerivationError::ExecutionFailed(format!("Checkpoint error: {}", e)))?;
+            .map_err(|e| DerivationError::InternalError(format!("Checkpoint error: {}", e)))?;
 
         // Get the block count for this batch (if recorded by sequencer)
         // Default to 1 if not recorded (e.g., validator-only mode)
@@ -315,11 +297,10 @@ where
     }
 }
 
-impl<S, C, E> std::fmt::Debug for DerivationRunner<S, C, E>
+impl<S, C> std::fmt::Debug for DerivationRunner<S, C>
 where
     S: L1BatchSource,
     C: Compressor,
-    E: ExecutePayload<Payload = OpBlockBatch>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DerivationRunner")
@@ -331,8 +312,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use montana_pipeline::{ExecutePayloadError, NoopExecutor};
-
     use super::*;
 
     // Mock batch source for testing
@@ -385,24 +364,12 @@ mod tests {
         }
     }
 
-    // Noop executor for OpBlockBatch
-    struct NoopBlockBatchExecutor;
-
-    impl ExecutePayload for NoopBlockBatchExecutor {
-        type Payload = OpBlockBatch;
-
-        fn execute(&self, _payload: Self::Payload) -> Result<(), ExecutePayloadError> {
-            Ok(())
-        }
-    }
-
     #[tokio::test]
     async fn test_runner_no_batches() {
         let source = MockBatchSource::new(vec![None]);
         let compressor = MockCompressor;
-        let executor = NoopBlockBatchExecutor;
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, executor, config);
+        let mut runner = DerivationRunner::new(source, compressor, config);
 
         let result = runner.tick().await;
         assert!(result.is_ok());
@@ -424,9 +391,8 @@ mod tests {
         };
         let source = MockBatchSource::new(vec![Some(batch)]);
         let compressor = MockCompressor;
-        let executor = NoopBlockBatchExecutor;
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, executor, config);
+        let mut runner = DerivationRunner::new(source, compressor, config);
 
         let result = runner.tick().await;
         assert!(result.is_ok());
@@ -441,9 +407,8 @@ mod tests {
     fn test_runner_debug() {
         let source = MockBatchSource::new(vec![]);
         let compressor = MockCompressor;
-        let executor = NoopBlockBatchExecutor;
         let config = DerivationConfig::default();
-        let runner = DerivationRunner::new(source, compressor, executor, config);
+        let runner = DerivationRunner::new(source, compressor, config);
 
         let debug_str = format!("{:?}", runner);
         assert!(debug_str.contains("DerivationRunner"));
@@ -453,9 +418,8 @@ mod tests {
     fn test_runner_metrics_access() {
         let source = MockBatchSource::new(vec![]);
         let compressor = MockCompressor;
-        let executor = NoopBlockBatchExecutor;
         let config = DerivationConfig::default();
-        let mut runner = DerivationRunner::new(source, compressor, executor, config);
+        let mut runner = DerivationRunner::new(source, compressor, config);
 
         // Test immutable access
         let metrics = runner.metrics();
@@ -465,11 +429,5 @@ mod tests {
         let metrics_mut = runner.metrics_mut();
         metrics_mut.batches_derived = 10;
         assert_eq!(runner.metrics().batches_derived, 10);
-    }
-
-    // Ensure NoopExecutor is still usable (compile test)
-    #[allow(dead_code)]
-    fn _noop_executor_compiles() {
-        let _: NoopExecutor<OpBlockBatch> = NoopExecutor::new();
     }
 }

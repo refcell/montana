@@ -23,6 +23,8 @@ tokio.workspace = true
 eyre.workspace = true
 tracing.workspace = true
 rand.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+serde_json.workspace = true

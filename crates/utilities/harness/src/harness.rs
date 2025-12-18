@@ -19,7 +19,7 @@ use alloy::{
 use eyre::Result;
 use rand::Rng;
 
-use crate::{BoxedProgressReporter, HarnessConfig};
+use crate::{BoxedProgressReporter, HarnessConfig, config::DEFAULT_GENESIS_STATE};
 
 /// Test harness that manages an anvil instance with synthetic transaction activity.
 ///
@@ -168,9 +168,58 @@ impl Harness {
         // Calculate block time in seconds (supports sub-second via f64)
         let block_time_secs = config.block_time_ms as f64 / 1000.0;
 
-        // Spawn anvil with configured block time (block_time_f64 supports sub-second intervals)
-        let anvil = alloy::node_bindings::Anvil::new()
-            .block_time_f64(block_time_secs)
+        // Build anvil with configured block time (block_time_f64 supports sub-second intervals)
+        let mut anvil_builder = alloy::node_bindings::Anvil::new().block_time_f64(block_time_secs);
+
+        // Track temp file for default genesis (must live until after anvil spawns)
+        let _genesis_temp_file: Option<tempfile::NamedTempFile>;
+
+        // Configure state loading/dumping
+        // Priority order:
+        // 1. If state_path is set with dump_initial_state, dump to that path
+        // 2. If state_path is set (without dump), load from that path if it exists
+        // 3. If use_default_genesis is true, load the embedded default genesis
+        if let Some(ref state_path) = config.state_path {
+            let path_str = state_path.to_string_lossy();
+            _genesis_temp_file = None;
+
+            if config.dump_initial_state {
+                // Only dump state on exit (don't load existing state)
+                tracing::info!(path = %path_str, "Will dump Anvil state on exit");
+                anvil_builder = anvil_builder.arg("--dump-state").arg(state_path.as_os_str());
+            } else if state_path.exists() {
+                // Load existing state (don't dump on exit to preserve the original)
+                tracing::info!(path = %path_str, "Loading Anvil state from file");
+                anvil_builder = anvil_builder.arg("--load-state").arg(state_path.as_os_str());
+            } else {
+                tracing::info!(path = %path_str, "State file does not exist, starting fresh");
+            }
+        } else if config.use_default_genesis {
+            // Use the embedded default genesis state
+            // Write it to a temp file since --load-state requires a file path
+            let temp_file = tempfile::Builder::new()
+                .prefix("anvil_genesis_")
+                .suffix(".json")
+                .tempfile()
+                .map_err(|e| eyre::eyre!("Failed to create temp file for genesis state: {}", e))?;
+
+            std::fs::write(temp_file.path(), DEFAULT_GENESIS_STATE)
+                .map_err(|e| eyre::eyre!("Failed to write default genesis state: {}", e))?;
+
+            tracing::info!(
+                path = %temp_file.path().display(),
+                "Loading default genesis state (10 accounts with 10000 ETH each)"
+            );
+            anvil_builder = anvil_builder.arg("--load-state").arg(temp_file.path());
+
+            // Keep the temp file alive until anvil reads it
+            _genesis_temp_file = Some(temp_file);
+        } else {
+            _genesis_temp_file = None;
+            tracing::info!("Starting Anvil fresh (no genesis state)");
+        }
+
+        let anvil = anvil_builder
             .try_spawn()
             .map_err(|e| eyre::eyre!("Failed to spawn anvil: {}", e))?;
 

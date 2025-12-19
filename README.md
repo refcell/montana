@@ -71,40 +71,30 @@ just harness-fast
 
 Full pipeline benchmarks measured across 1,000 batches on local anvil infrastructure:
 
-```
-                                    p50         p95         p99
-  ────────────────────────────────────────────────────────────────
-  Batch Submission (L2 → L1)       12ms        18ms        24ms
-  Derivation (L1 → L2)              8ms        14ms        19ms
-  Full Round Trip                  21ms        34ms        45ms
-  ────────────────────────────────────────────────────────────────
-```
+| Operation | p50 | p95 | p99 |
+|-----------|-----|-----|-----|
+| Batch Submission (L2 → L1) | 12ms | 18ms | 24ms |
+| Derivation (L1 → L2) | 8ms | 14ms | 19ms |
+| Full Round Trip | 21ms | 34ms | 45ms |
 
 ### Block Execution
 
 Measured using op-revm across 10,000 Base mainnet blocks:
 
-```
-                                    p50         p95         p99
-  ────────────────────────────────────────────────────────────────
-  Block Execution                  1.2ms       3.8ms       7.1ms
-  State Commitment                 0.4ms       0.9ms       1.6ms
-  ────────────────────────────────────────────────────────────────
-```
+| Operation | p50 | p95 | p99 |
+|-----------|-----|-----|-----|
+| Block Execution | 1.2ms | 3.8ms | 7.1ms |
+| State Commitment | 0.4ms | 0.9ms | 1.6ms |
 
 ### Compression
 
 Benchmarked with 31 Base mainnet blocks (5,766 transactions, 1.67 MB raw):
 
-```
-  ┌─────────────────────────────────────────────────────────────┐
-  │                                                             │
-  │  Brotli   ████████████████░░░░░░░░░░░░░░░░░░░░░░  16.7%    │
-  │  Zstd     ██████████████████░░░░░░░░░░░░░░░░░░░░  17.9%    │
-  │  Zlib     ██████████████████████████░░░░░░░░░░░░  25.7%    │
-  │                                                             │
-  └─────────────────────────────────────────────────────────────┘
-```
+| Algorithm | Compressed Size |
+|-----------|-----------------|
+| Brotli | 16.7% |
+| Zstd | 17.9% |
+| Zlib | 25.7% |
 
 **Brotli** achieves the best compression at **83.3% reduction**, making it the default for batch submission.
 

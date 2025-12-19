@@ -3433,6 +3433,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "migrate-bytecode"
+version = "0.0.1"
+dependencies = [
+ "alloy-primitives",
+ "clap",
+ "eyre",
+ "migration",
+ "rocksdb",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+]
+
+[[package]]
 name = "migration"
 version = "0.0.1"
 dependencies = [

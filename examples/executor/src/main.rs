@@ -16,7 +16,7 @@ use alloy::{genesis::Genesis, providers::ProviderBuilder};
 use blocksource::{BlockSource, RpcBlockSource};
 use chainspec::BASE_MAINNET;
 use clap::Parser;
-use database::{CachedDatabase, RocksDbKvDatabase, TrieDatabase};
+use database::{CachedDatabase, KeyValueDatabase, RocksDbKvDatabase, TrieDatabase};
 use eyre::Result;
 use op_alloy::network::Optimism;
 use tracing::{info, warn};
@@ -88,7 +88,11 @@ impl ExecutionMetrics {
     pub fn log_summary(&self, blocks_executed: u64) {
         info!("=== Execution Metrics Summary ===");
         info!("Blocks executed: {}", blocks_executed);
-        info!("Total gas used: {} ({:.2} Ggas)", self.total_gas_used, self.total_gas_used as f64 / 1_000_000_000.0);
+        info!(
+            "Total gas used: {} ({:.2} Ggas)",
+            self.total_gas_used,
+            self.total_gas_used as f64 / 1_000_000_000.0
+        );
         info!("Total process time: {:?}", self.total_process_time);
         info!("EVM execution time: {:?}", self.evm_execution_time);
         info!("Commit time: {:?}", self.commit_time);
@@ -114,8 +118,7 @@ async fn main() -> Result<()> {
     // Initialize tracing subscriber for logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("info".parse()?),
+            tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse()?),
         )
         .init();
 
@@ -142,6 +145,7 @@ async fn main() -> Result<()> {
     // Set up RocksDB key-value database
     info!("Opening RocksDB at {:?}", kvdb_path);
     let kvdb = RocksDbKvDatabase::open_or_create(&kvdb_path, &genesis)?;
+    let kvdb_ref = kvdb.clone();
 
     // Set up TrieDB with RocksDB backend
     info!("Opening TrieDB at {:?}", trie_path);
@@ -221,6 +225,12 @@ async fn main() -> Result<()> {
             result.state_root,
             evm_elapsed
         );
+
+        // Write block_number - 1 to the kvdb
+        if block_num > 0 {
+            kvdb_ref.set_unsafe(block_num - 1)?;
+            info!("Wrote block {} - 1 = {} to kvdb", block_num, block_num - 1);
+        }
     }
 
     // Finalize total process time

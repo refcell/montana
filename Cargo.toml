@@ -140,4 +140,4 @@ triedb = { git = "https://github.com/base/triedb" }
 libmdbx = "0.6.4"
 
 # rocksdb - key-value store
-rocksdb = "0.22"
+rocksdb = "0.24"

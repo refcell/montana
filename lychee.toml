@@ -6,11 +6,11 @@ accept = [200, 403]
 exclude = [
     'foo.bar',
     'localhost',
-    'https://img.shields.io/github/commit-activity/w/base/montana',
-    'https://img.shields.io/github/issues-pr-raw/base/montana',
+    'https://img.shields.io/github/commit-activity/w/refcell/montana',
+    'https://img.shields.io/github/issues-pr-raw/refcell/montana',
     'https://rustup.rs/',
-    'https://github.com/base/montana/actions/workflows/ci.yml',
-    'https://github.com/base/montana/blob/main/LICENSE',
+    'https://github.com/refcell/montana/actions/workflows/ci.yml',
+    'https://github.com/refcell/montana/blob/main/LICENSE',
     # GitHub user-attachments URLs are ephemeral and may return 404
     'https://github.com/user-attachments/assets/.*',
     # GitHub profile URLs may be rate limited or cause network errors

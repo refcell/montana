@@ -1,4 +1,4 @@
-module github.com/base/montana/benchmarks/op-stack
+module github.com/refcell/montana/benchmarks/op-stack
 
 go 1.22
 

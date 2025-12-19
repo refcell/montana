@@ -171,7 +171,7 @@ Only report differences as meaningful if:
 
 ```bash
 # Clone the repository
-git clone https://github.com/base/montana.git
+git clone https://github.com/refcell/montana.git
 cd montana
 
 # Checkout specific commit

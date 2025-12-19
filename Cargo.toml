@@ -3,8 +3,8 @@ version = "0.0.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
-homepage = "https://github.com/base/montana"
-repository = "https://github.com/base/montana"
+homepage = "https://github.com/refcell/montana"
+repository = "https://github.com/refcell/montana"
 
 [workspace]
 resolver = "2"

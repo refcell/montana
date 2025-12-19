@@ -17,10 +17,10 @@
   <a href="#whats-montana">What's Montana?</a> •
   <a href="#demo">Demo</a> •
   <a href="#overview">Overview</a> •
-  <a href="#crates">Crates</a> •
   <a href="#performance">Performance</a> •
   <a href="#usage">Usage</a> •
   <a href="#contributing">Contributing</a> •
+  <a href="#provenance">Provenance</a> •
   <a href="#license">License</a>
 </p>
 
@@ -29,35 +29,9 @@
 
 ## What's Montana?
 
-Montana is an experimental, high-performance implementation of Base stack components. It provides both **sequencer** and **validator** node implementations, each with distinct execution and consensus layers.
+Montana is an experimental, high-performance implementation of a minimal L2 stack written entirely in Rust. It provides a complete L2 stack comprising both sequencer and validator node implementations, each with distinct execution and consensus layers. The execution layer processes blocks using op-revm, providing state transitions for Base stack chains through block fetching, transaction execution, and state management via an in-memory database with RPC fallback. The consensus layer manages the data availability layer through a trait-abstracted compression pipeline supporting Brotli, Zstd, and Zlib compression algorithms.
 
-### Architecture
-
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Montana                                         │
-├─────────────────────────────────────┬───────────────────────────────────────┤
-│            Sequencer                │            Validator                   │
-├─────────────────────────────────────┼───────────────────────────────────────┤
-│  ┌───────────────────────────────┐  │  ┌───────────────────────────────┐    │
-│  │          Execution            │  │  │          Execution            │    │
-│  │  • Block building             │  │  │  • Block execution            │    │
-│  │  • Transaction ordering       │  │  │  • State verification         │    │
-│  │  • State transitions          │  │  │  • State reconstruction       │    │
-│  └───────────────────────────────┘  │  └───────────────────────────────┘    │
-│  ┌───────────────────────────────┐  │  ┌───────────────────────────────┐    │
-│  │          Consensus            │  │  │          Consensus            │    │
-│  │  • Batch submission           │  │  │  • Derivation pipeline        │    │
-│  │  • L1 blob/calldata posting   │  │  │  • L1 data retrieval          │    │
-│  │  • Transaction management     │  │  │  • Batch decoding             │    │
-│  └───────────────────────────────┘  │  └───────────────────────────────┘    │
-└─────────────────────────────────────┴───────────────────────────────────────┘
-```
-
-
-**Execution** handles block processing using op-revm, providing state transitions for Base stack chains. The execution layer fetches blocks, executes transactions, and manages state via an in-memory database with RPC fallback.
-
-**Consensus** manages the data availability layer through a trait-abstracted compression pipeline. For sequencers, this means batch submission to L1 via EIP-4844 blobs or calldata. For validators, this means derivation—fetching batches from L1, decompressing, and feeding blocks to execution.
+Montana includes a local simulation harness that orchestrates anvil instances for both L1 and L2 chains, enabling full end-to-end testing of the batch submission and derivation pipeline without external infrastructure. The sequencer batches L2 blocks and submits them to L1 via EIP-4844 blobs or legacy calldata, while the validator derives batches from L1, decompresses them, and re-executes blocks to reconstruct the canonical chain state. The architecture is fully modular with trait-abstracted sources and sinks, allowing batch data to flow through local files, anvil chains, or production L1 endpoints.
 
 For detailed documentation on the consensus pipeline architecture, see the [pipeline crate README](./crates/consensus/pipeline/README.md).
 
@@ -108,99 +82,6 @@ The consensus layer handles data availability via a duplex pipeline:
 └───────────────┘      └───────────────┘      └───────────────┘
 ```
 
-## Crates
-
-<details>
-<summary><strong>Binaries</strong></summary>
-
-| Crate | Description |
-|-------|-------------|
-| [`montana`](./bin/montana) | Montana block executor node binary |
-
-</details>
-
-<details>
-<summary><strong>Examples</strong></summary>
-
-| Crate | Description |
-|-------|-------------|
-| [`shadow`](./examples/shadow) | Real-time batch submission and derivation monitoring TUI |
-| [`analyze`](./examples/analyze) | Compression analyzer for benchmarking compression algorithms |
-| [`fetcher`](./examples/fetcher) | Base L2 block fetcher utility |
-| [`migrate`](./examples/migrate) | Reth MDBX to TrieDB database migration tool |
-
-</details>
-
-<details>
-<summary><strong>Node</strong></summary>
-
-| Crate | Description |
-|-------|-------------|
-| [`montana-node`](./crates/node/node) | Core node abstractions |
-| [`montana-runtime`](./crates/node/runtime) | Runtime functions for node building and execution |
-| [`montana-roles`](./crates/node/roles) | Role abstractions (sequencer, validator) |
-| [`montana-checkpoint`](./crates/node/checkpoint) | Checkpoint persistence for node resumption |
-
-</details>
-
-<details>
-<summary><strong>Consensus</strong></summary>
-
-| Crate | Description |
-|-------|-------------|
-| [`montana-pipeline`](./crates/consensus/pipeline) | Core pipeline traits and types |
-| [`montana-batcher`](./crates/consensus/batcher) | Batcher service for L2 batch submission orchestration |
-| [`montana-batch-runner`](./crates/consensus/batch-runner) | Batch submission runner for L2 block streaming |
-| [`montana-batch-context`](./crates/consensus/batch-context) | Sink and source abstractions for batch submission modes |
-| [`montana-block-feeder`](./crates/consensus/block-feeder) | Block feeder for fetching and forwarding blocks |
-| [`montana-derivation-runner`](./crates/consensus/derivation-runner) | Derivation pipeline runner for batch decompression |
-| [`montana-txmgr`](./crates/consensus/txmgr) | Transaction manager for L1 batch submission (blob/calldata) |
-| [`montana-local`](./crates/consensus/local) | Local file-based source and sink implementations |
-| [`montana-anvil`](./crates/consensus/anvil) | Anvil integration for local testing and development |
-| [`montana-brotli`](./crates/consensus/brotli) | Brotli compression implementation |
-| [`montana-zlib`](./crates/consensus/zlib) | Zlib compression implementation |
-| [`montana-zstd`](./crates/consensus/zstd) | Zstandard compression implementation |
-
-</details>
-
-<details>
-<summary><strong>Execution</strong></summary>
-
-| Crate | Description |
-|-------|-------------|
-| [`blocksource`](./crates/execution/blocksource) | Block source implementations for fetching Base stack blocks |
-| [`database`](./crates/execution/database) | Database implementations for EVM state (TrieDB + RocksDB) |
-| [`vm`](./crates/execution/vm) | Block executor using op-revm |
-| [`runner`](./crates/execution/runner) | Block execution runner |
-| [`migration`](./crates/execution/migration) | Reth MDBX database migration utilities |
-
-</details>
-
-<details>
-<summary><strong>Common</strong></summary>
-
-| Crate | Description |
-|-------|-------------|
-| [`chainspec`](./crates/common/chainspec) | Chain specification for Base stack chains |
-| [`channels`](./crates/common/channel) | Channel utilities for async communication |
-| [`primitives`](./crates/common/primitives) | Core primitive types |
-| [`sequencer`](./crates/common/sequencer) | Sequencer buffer bridging execution to batch submission |
-
-</details>
-
-<details>
-<summary><strong>Utilities</strong></summary>
-
-| Crate | Description |
-|-------|-------------|
-| [`montana-cli`](./crates/utilities/cli) | CLI utilities and argument parsing |
-| [`montana-tui`](./crates/utilities/tui) | TUI for the Montana node binary |
-| [`montana-tui-common`](./crates/utilities/tui-common) | Common TUI utilities |
-| [`montana-adapters`](./crates/utilities/adapters) | Adapter types for binary composition |
-| [`montana-harness`](./crates/utilities/harness) | Test harness with synthetic transaction activity |
-
-</details>
-
 ## Performance
 
 Compression comparison using 31 Base mainnet blocks (5,766 transactions, 1,672,680 bytes raw):
@@ -215,63 +96,22 @@ Brotli provides the best compression ratio for L2 batch data, reducing the raw b
 
 ## Usage
 
-### Quick Start
+Simulate the entire L2 stack locally using anvil instances for both L1 and L2 chains.
 
 ```sh
-# Build the project
-cargo build --release
-
-# Run with just (recommended)
-just --list              # Show all available commands
-just build               # Build release binary
-just test                # Run tests
-just ci                  # Run full CI checks
+just harness-fast
 ```
 
-### Running the Node
-
-```sh
-# Run Montana node (default: dual mode - sequencer + validator)
-cargo run --release -p montana -- --rpc-url <L2_RPC>
-
-# Run in sequencer mode
-cargo run --release -p montana -- --rpc-url <L2_RPC> --mode sequencer
-
-# Run in validator mode
-cargo run --release -p montana -- --rpc-url <L2_RPC> --mode validator
-
-# Run with local test harness (spawns anvil with synthetic activity)
-just harness
-```
-
-### Examples
-
-```sh
-# Run the shadow TUI for monitoring
-just shadow
-
-# Run compression analyzer
-cargo run -p analyze -- --help
-
-# Run block fetcher
-cargo run -p fetcher -- --help
-
-# Migrate Reth MDBX database to TrieDB
-just migrate <SOURCE_PATH> <DEST_PATH>
-```
-
-### Development
-
-```sh
-just fix                 # Auto-fix formatting and clippy issues
-just check               # Run all checks (format, clippy, tests)
-just bench               # Run compression benchmarks
-just hack                # Check feature powerset
-```
+> [!TIP]
+> See the [Justfile](./Justfile) for other useful commands, including `just ci` to run all CI checks locally.
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Provenance
+
+[@danyalprout](https://github.com/danyalprout) and [@refcell](https://github.com/refcell) built this in a week during a [Base](https://github.com/base) Hackathon.
 
 ## License
 

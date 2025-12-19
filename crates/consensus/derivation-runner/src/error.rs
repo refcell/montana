@@ -24,6 +24,10 @@ pub enum DerivationError {
     /// Checkpoint or other internal error.
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    /// Block execution failed.
+    #[error("Execution failed: {0}")]
+    ExecutionFailed(String),
 }
 
 impl DerivationError {
@@ -34,7 +38,7 @@ impl DerivationError {
 
     /// Classifies whether an error is fatal.
     pub const fn is_fatal(&self) -> bool {
-        matches!(self, Self::DecompressionFailed(_))
+        matches!(self, Self::DecompressionFailed(_) | Self::ExecutionFailed(_))
     }
 }
 
@@ -50,12 +54,14 @@ mod tests {
     #[case(DerivationError::DecompressionFailed("test".to_string()), false)]
     #[case(DerivationError::Pipeline("test".to_string()), false)]
     #[case(DerivationError::InternalError("test".to_string()), false)]
+    #[case(DerivationError::ExecutionFailed("test".to_string()), false)]
     fn test_is_retryable(#[case] error: DerivationError, #[case] expected: bool) {
         assert_eq!(error.is_retryable(), expected);
     }
 
     #[rstest]
     #[case(DerivationError::DecompressionFailed("test".to_string()), true)]
+    #[case(DerivationError::ExecutionFailed("test".to_string()), true)]
     #[case(DerivationError::SourceError("test".to_string()), false)]
     #[case(DerivationError::EmptyBatch, false)]
     #[case(DerivationError::Pipeline("test".to_string()), false)]

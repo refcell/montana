@@ -32,8 +32,6 @@ where
     /// The compressor for decompressing batches.
     compressor: C,
     /// Block executor for processing derived blocks.
-    /// Currently dead code - execution is disabled until ready.
-    #[allow(dead_code)]
     executor: BlockExecutor<DB>,
     /// Configuration.
     config: DerivationConfig,
@@ -272,13 +270,17 @@ where
             ))
         })?;
 
-        // Dead code: would execute blocks when enabled
-        // TODO: When ready to enable execution, uncomment the loop below:
-        // for block in block_batch.blocks {
-        //     let result = self.executor.execute_block(block)?;
-        //     tracing::info!(block = result.block_number, "Executed block");
-        // }
-        let _ = (&self.executor, &block_batch); // suppress unused warnings
+        // Execute each block in the batch
+        for block in block_batch.blocks {
+            let block_number = block.header.number;
+            let _result = self.executor.execute_block(block).map_err(|e| {
+                DerivationError::ExecutionFailed(format!(
+                    "Failed to execute block #{} in batch #{}: {}",
+                    block_number, batch_number, e
+                ))
+            })?;
+            tracing::trace!(block = block_number, batch = batch_number, "Executed block");
+        }
 
         // Record the batch derivation in checkpoint
         self.record_batch_derived(batch_number)

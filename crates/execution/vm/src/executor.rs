@@ -6,7 +6,8 @@ use chainspec::Chain;
 use database::Database;
 use derive_more::Display;
 use op_alloy::consensus::OpTxEnvelope;
-use op_revm::{DefaultOp, L1BlockInfo, OpBuilder};
+use op_revm::{DefaultOp, L1BlockInfo, OpBuilder, OpSpecId::OSAKA};
+use op_revm::OpSpecId::JOVIAN;
 use revm::{
     ExecuteEvm,
     context::CfgEnv,
@@ -88,12 +89,17 @@ where
             block_number, tx_count, timestamp
         );
 
-        let spec_id = self.chain.spec_id_at_timestamp(timestamp);
+        // let spec_id = self.chain.spec_id_at_timestamp(timestamp);
         let block_env = block_to_env(&block);
 
-        let mut cfg = CfgEnv::default();
-        cfg.spec = spec_id;
-        cfg.chain_id = self.chain.chain_id();
+        let mut cfg =
+            CfgEnv::new().with_chain_id(self.chain.chain_id()).with_spec(JOVIAN);
+
+        // let mut cfg = CfgEnv::default();
+        // cfg.spec = OSAKA;
+        // cfg.spec = spec_id;
+        // cfg.chain_id = self.chain.chain_id();
+        cfg.disable_eip3607 = true;
 
         let transactions = block.transactions.into_transactions();
         let mut tx_results = Vec::with_capacity(tx_count);

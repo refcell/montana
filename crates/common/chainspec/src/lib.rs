@@ -3,8 +3,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+mod anvil;
 mod base;
+
 pub use base::BASE_MAINNET;
+pub use anvil::ANVIL;
 use op_revm::OpSpecId;
 
 /// Base stack hardforks in chronological order

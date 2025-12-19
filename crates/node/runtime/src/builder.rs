@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::providers::{Provider, ProviderBuilder};
-use chainspec::BASE_MAINNET;
+use chainspec::ANVIL;
 use database::{CachedDatabase, RocksDbKvDatabase, TrieDatabase};
 use eyre::Result;
 use montana_adapters::{
@@ -269,7 +269,7 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         let trie_db = TrieDatabase::open_or_create(&trie_path, &genesis, kvdb)
             .map_err(|e| eyre::eyre!("Failed to create trie db: {:?}", e))?;
         let cached_db = CachedDatabase::new(trie_db);
-        let executor = BlockExecutor::new(cached_db, BASE_MAINNET);
+        let executor = BlockExecutor::new(cached_db, ANVIL);
 
         let mut validator =
             Validator::new(source, compressor, checkpoint_path, Box::new(executor))?;

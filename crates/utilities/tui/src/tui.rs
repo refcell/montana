@@ -17,11 +17,42 @@ use montana_tui_common::{LogEntry, format_bytes, render_logs_reversed};
 
 use crate::{App, SyncState, TuiEvent, TuiHandle};
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Color Theme - Subtle refinements with consistent visual hierarchy
+// ═══════════════════════════════════════════════════════════════════════════
+
 /// Color for batch submission indicators (matches Batch Submissions border)
 const BATCH_SUBMISSION_COLOR: Color = Color::Cyan;
 
 /// Color for derivation origin indicators (matches Derived Blocks border)
 const DERIVATION_ORIGIN_COLOR: Color = Color::Magenta;
+
+/// Color for block builder section
+const BLOCK_BUILDER_COLOR: Color = Color::Green;
+
+/// Color for execution logs section
+const EXECUTION_COLOR: Color = Color::LightGreen;
+
+/// Color for sync updates section
+const SYNC_COLOR: Color = Color::Rgb(100, 149, 237); // Cornflower blue
+
+/// Color for L1 chain visualization
+const L1_CHAIN_COLOR: Color = Color::Rgb(255, 191, 0); // Amber/Gold
+
+/// Color for chain state section
+const CHAIN_STATE_COLOR: Color = Color::Cyan;
+
+/// Color for performance metrics section
+const METRICS_COLOR: Color = Color::Rgb(255, 165, 0); // Orange
+
+/// Color for sequencer section
+const SEQUENCER_COLOR: Color = Color::Rgb(0, 191, 255); // Deep sky blue
+
+/// Color for validator section
+const VALIDATOR_COLOR: Color = Color::Rgb(147, 112, 219); // Medium purple
+
+/// Color for harness/anvil section
+const HARNESS_COLOR: Color = Color::Rgb(65, 105, 225); // Royal blue
 
 /// The main Montana TUI.
 ///
@@ -525,15 +556,18 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 fn draw_chain_state(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let text = vec![
         Line::from(vec![
-            Span::styled("Unsafe Head:  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("◈ ", Style::default().fg(Color::White).bold()),
+            Span::styled("Unsafe:    ", Style::default().fg(Color::DarkGray)),
             Span::styled(format!("#{}", app.unsafe_head), Style::default().fg(Color::White).bold()),
         ]),
         Line::from(vec![
-            Span::styled("Safe Head:    ", Style::default().fg(Color::DarkGray)),
+            Span::styled("◈ ", Style::default().fg(Color::Green).bold()),
+            Span::styled("Safe:      ", Style::default().fg(Color::DarkGray)),
             Span::styled(format!("#{}", app.safe_head), Style::default().fg(Color::Green).bold()),
         ]),
         Line::from(vec![
-            Span::styled("Finalized:    ", Style::default().fg(Color::DarkGray)),
+            Span::styled("◈ ", Style::default().fg(Color::Blue).bold()),
+            Span::styled("Finalized: ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 format!("#{}", app.finalized_head),
                 Style::default().fg(Color::Blue).bold(),
@@ -545,12 +579,42 @@ fn draw_chain_state(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_style(Style::default().fg(CHAIN_STATE_COLOR))
                 .title(" L2 Chain State ")
-                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                .title_style(Style::default().fg(CHAIN_STATE_COLOR).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
     frame.render_widget(widget, area);
+}
+
+/// Create a visual progress bar string.
+fn create_progress_bar(progress: f64, width: usize) -> Vec<Span<'static>> {
+    let filled = ((progress / 100.0) * width as f64) as usize;
+    let empty = width.saturating_sub(filled);
+
+    // Create gradient effect with different shades
+    let filled_str: String = "█".repeat(filled);
+    let empty_str: String = "░".repeat(empty);
+
+    let bar_color = if progress >= 100.0 {
+        Color::Green
+    } else if progress >= 75.0 {
+        Color::LightGreen
+    } else if progress >= 50.0 {
+        Color::Yellow
+    } else if progress >= 25.0 {
+        Color::Rgb(255, 165, 0) // Orange
+    } else {
+        Color::Rgb(255, 99, 71) // Tomato red
+    };
+
+    vec![
+        Span::styled("[", Style::default().fg(Color::DarkGray)),
+        Span::styled(filled_str, Style::default().fg(bar_color)),
+        Span::styled(empty_str, Style::default().fg(Color::Rgb(60, 60, 60))),
+        Span::styled("]", Style::default().fg(Color::DarkGray)),
+    ]
 }
 
 /// Draw sync stats panel with progress, speed, and completion status.
@@ -561,26 +625,28 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             if app.skip_sync {
                 // Sync was skipped via --skip-sync flag
                 let status = Line::from(vec![
+                    Span::styled("⊘ ", Style::default().fg(Color::Magenta).bold()),
                     Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
                     Span::styled("SKIPPED", Style::default().fg(Color::Magenta).bold()),
                 ]);
                 let details = vec![
                     Line::from(""),
                     Line::from(vec![Span::styled(
-                        "Sync skipped via --skip-sync",
+                        "  Sync skipped via --skip-sync",
                         Style::default().fg(Color::Magenta),
                     )]),
                 ];
                 (status, details)
             } else {
                 let status = Line::from(vec![
+                    Span::styled("◌ ", Style::default().fg(Color::DarkGray).bold()),
                     Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
                     Span::styled("IDLE", Style::default().fg(Color::DarkGray)),
                 ]);
                 let details = vec![
                     Line::from(""),
                     Line::from(vec![Span::styled(
-                        "Waiting for sync...",
+                        "  Waiting for sync...",
                         Style::default().fg(Color::DarkGray),
                     )]),
                 ];
@@ -593,6 +659,7 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             let eta_str = eta.map_or_else(|| "calculating...".to_string(), format_duration);
 
             let status = Line::from(vec![
+                Span::styled("↻ ", Style::default().fg(Color::Yellow).bold()),
                 Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     format!("SYNCING {:.1}%", progress),
@@ -600,10 +667,14 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 ),
             ]);
 
+            // Create progress bar (use available width, minus padding)
+            let mut progress_bar = vec![Span::styled("  ", Style::default())];
+            progress_bar.extend(create_progress_bar(progress, 16));
+
             let details = vec![
-                Line::from(""),
+                Line::from(progress_bar),
                 Line::from(vec![
-                    Span::styled("Block:   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("  Block: ", Style::default().fg(Color::DarkGray)),
                     Span::styled(format!("#{}", current_block), Style::default().fg(Color::White)),
                     Span::styled(
                         format!(" / #{}", target_block),
@@ -611,14 +682,14 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("Speed:   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("  Speed: ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         format!("{:.1} blks/s", blocks_per_second),
-                        Style::default().fg(Color::Cyan),
+                        Style::default().fg(SYNC_COLOR),
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("ETA:     ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("  ETA:   ", Style::default().fg(Color::DarkGray)),
                     Span::styled(eta_str, Style::default().fg(Color::White)),
                     Span::styled(
                         format!(" ({} left)", remaining),
@@ -633,29 +704,34 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 if duration_secs > 0.0 { blocks_synced as f64 / duration_secs } else { 0.0 };
 
             let status = Line::from(vec![
+                Span::styled("✓ ", Style::default().fg(Color::Green).bold()),
                 Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
-                Span::styled("SYNC COMPLETE ✓", Style::default().fg(Color::Green).bold()),
+                Span::styled("COMPLETE", Style::default().fg(Color::Green).bold()),
             ]);
 
+            // Completed progress bar
+            let mut progress_bar = vec![Span::styled("  ", Style::default())];
+            progress_bar.extend(create_progress_bar(100.0, 16));
+
             let details = vec![
-                Line::from(""),
+                Line::from(progress_bar),
                 Line::from(vec![
-                    Span::styled("Synced:  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("  Synced: ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         format!("{} blocks", blocks_synced),
                         Style::default().fg(Color::Green),
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("Time:    ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("  Time:   ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         format!("{:.1}s", duration_secs),
                         Style::default().fg(Color::White),
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("Avg:     ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(format!("{:.1} blks/s", speed), Style::default().fg(Color::Cyan)),
+                    Span::styled("  Avg:    ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("{:.1} blks/s", speed), Style::default().fg(SYNC_COLOR)),
                 ]),
             ];
             (status, details)
@@ -669,7 +745,7 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     // Add syncs completed counter
     if app.syncs_completed > 0 {
         text.push(Line::from(vec![
-            Span::styled("Syncs:   ", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Syncs: ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 format!("{} completed", app.syncs_completed),
                 Style::default().fg(Color::Magenta),
@@ -677,16 +753,17 @@ fn draw_sync_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         ]));
     }
 
-    let title_color = match app.sync_state {
-        SyncState::Completed { .. } => Color::Green,
-        SyncState::Syncing { .. } => Color::Yellow,
-        SyncState::Idle => Color::Magenta,
+    let (title_color, border_color) = match app.sync_state {
+        SyncState::Completed { .. } => (Color::Green, Color::Green),
+        SyncState::Syncing { .. } => (Color::Yellow, Color::Yellow),
+        SyncState::Idle => (Color::Magenta, Color::DarkGray),
     };
 
     let widget = Paragraph::new(text)
         .block(
             Block::default()
                 .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color))
                 .title(" Sync Stats ")
                 .title_style(Style::default().fg(title_color).add_modifier(Modifier::BOLD)),
         )
@@ -704,15 +781,24 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let compression_stddev = app.compression_stddev();
     let mgas_per_sec = app.mgas_per_second();
 
-    let sync_status = if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
-        Span::styled("IN SYNC ✓", Style::default().fg(Color::Green).bold())
+    let (sync_icon, sync_status) = if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
+        (
+            Span::styled("● ", Style::default().fg(Color::Green).bold()),
+            Span::styled("IN SYNC", Style::default().fg(Color::Green).bold()),
+        )
     } else if app.unsafe_head > 0 {
-        Span::styled(
-            format!("SYNCING ({} behind)", app.unsafe_head.saturating_sub(app.finalized_head)),
-            Style::default().fg(Color::Yellow),
+        (
+            Span::styled("◐ ", Style::default().fg(Color::Yellow).bold()),
+            Span::styled(
+                format!("{} behind", app.unsafe_head.saturating_sub(app.finalized_head)),
+                Style::default().fg(Color::Yellow),
+            ),
         )
     } else {
-        Span::styled("WAITING...", Style::default().fg(Color::DarkGray))
+        (
+            Span::styled("○ ", Style::default().fg(Color::DarkGray).bold()),
+            Span::styled("WAITING", Style::default().fg(Color::DarkGray)),
+        )
     };
 
     // Format gas throughput - show in appropriate units (Mgas/s or Ggas/s)
@@ -727,9 +813,9 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
     // Color code gas throughput based on performance
     let gas_color = if mgas_per_sec >= 1000.0 {
-        Color::Green // Gigagas territory!
+        Color::Rgb(50, 205, 50) // Lime green - Gigagas territory!
     } else if mgas_per_sec >= 100.0 {
-        Color::Cyan // High throughput
+        Color::Rgb(0, 191, 255) // Deep sky blue - High throughput
     } else if mgas_per_sec > 0.0 {
         Color::White // Normal
     } else {
@@ -738,48 +824,53 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
     let text = vec![
         Line::from(vec![
+            sync_icon,
             Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
             sync_status,
         ]),
         Line::from(vec![
-            Span::styled("Gas throughput: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("⚡ ", Style::default().fg(METRICS_COLOR).bold()),
+            Span::styled("Gas:    ", Style::default().fg(Color::DarkGray)),
             Span::styled(gas_throughput_str, Style::default().fg(gas_color).bold()),
         ]),
         Line::from(vec![
-            Span::styled("Round-trip:     ", Style::default().fg(Color::DarkGray)),
+            Span::styled("↔ ", Style::default().fg(Color::Cyan).bold()),
+            Span::styled("Latency:", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 if avg_latency > 0.0 {
-                    format!("{:.1}ms avg", avg_latency)
+                    format!(" {:.1}ms", avg_latency)
                 } else {
-                    "--".to_string()
+                    " --".to_string()
                 },
                 Style::default().fg(Color::White),
             ),
             Span::styled(
-                if stddev > 0.0 { format!(" (±{:.1}ms)", stddev) } else { String::new() },
+                if stddev > 0.0 { format!(" ±{:.1}", stddev) } else { String::new() },
                 Style::default().fg(Color::DarkGray),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Txs/s:          ", Style::default().fg(Color::DarkGray)),
+            Span::styled("↑ ", Style::default().fg(Color::LightGreen).bold()),
+            Span::styled("Txs/s:  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 if txs_per_sec > 0.0 { format!("{:.1}", txs_per_sec) } else { "--".to_string() },
                 Style::default().fg(Color::White),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Compression:    ", Style::default().fg(Color::DarkGray)),
+            Span::styled("◆ ", Style::default().fg(Color::Magenta).bold()),
+            Span::styled("Compress:", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 if avg_compression > 0.0 {
-                    format!("{:.1}% avg", avg_compression)
+                    format!(" {:.1}%", avg_compression)
                 } else {
-                    "--".to_string()
+                    " --".to_string()
                 },
                 Style::default().fg(Color::White),
             ),
             Span::styled(
                 if compression_stddev > 0.0 {
-                    format!(" (±{:.1}%)", compression_stddev)
+                    format!(" ±{:.1}", compression_stddev)
                 } else {
                     String::new()
                 },
@@ -792,8 +883,9 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Performance Metrics ")
-                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                .border_style(Style::default().fg(METRICS_COLOR))
+                .title(" Performance ")
+                .title_style(Style::default().fg(METRICS_COLOR).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -806,29 +898,43 @@ fn draw_execution_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let rate = app.execution_rate();
     let avg_time = app.avg_execution_time_ms();
 
-    // Determine execution status
-    let (status_text, status_color) = if app.blocks_executed == 0 && app.blocks_fetched == 0 {
-        ("WAITING", Color::DarkGray)
-    } else if app.blocks_executed == 0 && app.blocks_fetched > 0 {
-        ("STARTING", Color::Yellow)
-    } else if let Some(elapsed) = app.time_since_last_execution() {
-        if elapsed.as_secs() > 30 {
-            ("STALLED", Color::Red)
-        } else if elapsed.as_secs() > 5 {
-            ("SLOW", Color::Yellow)
+    // Determine execution status with icons
+    let (status_icon, status_text, status_color) =
+        if app.blocks_executed == 0 && app.blocks_fetched == 0 {
+            ("○", "WAITING", Color::DarkGray)
+        } else if app.blocks_executed == 0 && app.blocks_fetched > 0 {
+            ("◐", "STARTING", Color::Yellow)
+        } else if let Some(elapsed) = app.time_since_last_execution() {
+            if elapsed.as_secs() > 30 {
+                ("✖", "STALLED", Color::Red)
+            } else if elapsed.as_secs() > 5 {
+                ("◐", "SLOW", Color::Yellow)
+            } else {
+                ("▶", "RUNNING", Color::Green)
+            }
         } else {
-            ("RUNNING", Color::Green)
-        }
+            ("○", "IDLE", Color::DarkGray)
+        };
+
+    // Backlog color gradient
+    let backlog_color = if backlog > 500 {
+        Color::Red
+    } else if backlog > 100 {
+        Color::Yellow
+    } else if backlog > 0 {
+        Color::Green
     } else {
-        ("IDLE", Color::DarkGray)
+        Color::DarkGray
     };
 
     let text = vec![
         Line::from(vec![
+            Span::styled(format!("{} ", status_icon), Style::default().fg(status_color).bold()),
             Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
             Span::styled(status_text, Style::default().fg(status_color).bold()),
         ]),
         Line::from(vec![
+            Span::styled("▣ ", Style::default().fg(EXECUTION_COLOR).bold()),
             Span::styled("Block:  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 format!("#{}", app.last_executed_block),
@@ -836,21 +942,17 @@ fn draw_execution_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             ),
         ]),
         Line::from(vec![
+            Span::styled("→ ", Style::default().fg(Color::Cyan).bold()),
             Span::styled("Rate:   ", Style::default().fg(Color::DarkGray)),
             Span::styled(format!("{:.1} blks/s", rate), Style::default().fg(Color::Cyan)),
         ]),
         Line::from(vec![
+            Span::styled("≡ ", Style::default().fg(backlog_color).bold()),
             Span::styled("Backlog:", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!(" {}", backlog),
-                if backlog > 100 {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Green)
-                },
-            ),
+            Span::styled(format!(" {}", backlog), Style::default().fg(backlog_color)),
         ]),
         Line::from(vec![
+            Span::styled("◷ ", Style::default().fg(Color::White).bold()),
             Span::styled("Avg:    ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 if avg_time > 0.0 { format!("{:.1}ms", avg_time) } else { "--".to_string() },
@@ -863,8 +965,9 @@ fn draw_execution_stats(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Execution Stats ")
-                .title_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                .border_style(Style::default().fg(EXECUTION_COLOR))
+                .title(" Execution ")
+                .title_style(Style::default().fg(EXECUTION_COLOR).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -946,8 +1049,9 @@ fn draw_sequencer_section(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect)
     // Draw the outer Sequencer box
     let outer_block = Block::default()
         .borders(Borders::ALL)
-        .title(" Sequencer ")
-        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(SEQUENCER_COLOR))
+        .title(" ⚙ Sequencer ")
+        .title_style(Style::default().fg(SEQUENCER_COLOR).add_modifier(Modifier::BOLD));
     let inner_area = outer_block.inner(area);
     frame.render_widget(outer_block, area);
 
@@ -966,8 +1070,9 @@ fn draw_validator_section(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect)
     // Draw the outer Validator box
     let outer_block = Block::default()
         .borders(Borders::ALL)
-        .title(" Validator ")
-        .title_style(Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(VALIDATOR_COLOR))
+        .title(" ⊕ Validator ")
+        .title_style(Style::default().fg(VALIDATOR_COLOR).add_modifier(Modifier::BOLD));
     let inner_area = outer_block.inner(area);
     frame.render_widget(outer_block, area);
 
@@ -980,15 +1085,15 @@ fn draw_harness_activity(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) 
     // Render logs in reverse order (newest first) since wrap() and scroll() conflict
     let logs = render_logs_reversed(&app.harness_logs);
 
-    let title = format!(" L2 Anvil (Block #{}) ", app.harness_block);
+    let title = format!(" ⛏ Anvil #{} ", app.harness_block);
 
     let widget = Paragraph::new(logs)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue))
+                .border_style(Style::default().fg(HARNESS_COLOR))
                 .title(title)
-                .title_style(Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+                .title_style(Style::default().fg(HARNESS_COLOR).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -1000,18 +1105,19 @@ fn draw_sync_updates(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     // Render logs in reverse order (newest first) since wrap() and scroll() conflict
     let logs = render_logs_reversed(&app.sync_logs);
 
-    // Determine title color based on sync state
-    let title_color = match app.sync_state {
-        SyncState::Completed { .. } => Color::Green,
-        SyncState::Syncing { .. } => Color::Yellow,
-        SyncState::Idle => Color::Cyan,
+    // Determine title color and border based on sync state
+    let (title_color, border_color) = match app.sync_state {
+        SyncState::Completed { .. } => (Color::Green, Color::Green),
+        SyncState::Syncing { .. } => (Color::Yellow, Color::Yellow),
+        SyncState::Idle => (SYNC_COLOR, Color::DarkGray),
     };
 
     let widget = Paragraph::new(logs)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Sync Updates ")
+                .border_style(Style::default().fg(border_color))
+                .title(" ↻ Sync Updates ")
                 .title_style(Style::default().fg(title_color).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
@@ -1028,8 +1134,9 @@ fn draw_block_builder(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Block Builder ")
-                .title_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                .border_style(Style::default().fg(BLOCK_BUILDER_COLOR))
+                .title(" ▣ Block Builder ")
+                .title_style(Style::default().fg(BLOCK_BUILDER_COLOR).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -1053,19 +1160,19 @@ fn draw_execution_and_batches(frame: &mut ratatui::Frame<'_>, app: &App, area: R
 fn draw_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let backlog = app.backlog_size();
 
-    // Determine title color based on execution state
-    let title_color = if app.blocks_executed == 0 && app.blocks_fetched == 0 {
-        Color::DarkGray
+    // Determine title color and border based on execution state
+    let (title_color, border_color) = if app.blocks_executed == 0 && app.blocks_fetched == 0 {
+        (Color::DarkGray, Color::DarkGray)
     } else if let Some(elapsed) = app.time_since_last_execution() {
         if elapsed.as_secs() > 30 {
-            Color::Red
+            (Color::Red, Color::Red)
         } else if elapsed.as_secs() > 5 || backlog > 100 {
-            Color::Yellow
+            (Color::Yellow, Color::Yellow)
         } else {
-            Color::LightGreen
+            (EXECUTION_COLOR, EXECUTION_COLOR)
         }
     } else {
-        Color::LightGreen
+        (EXECUTION_COLOR, EXECUTION_COLOR)
     };
 
     // Render logs in reverse order (newest first) since wrap() and scroll() conflict
@@ -1075,7 +1182,8 @@ fn draw_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Execution Logs ")
+                .border_style(Style::default().fg(border_color))
+                .title(" ▶ Execution ")
                 .title_style(Style::default().fg(title_color).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
@@ -1093,7 +1201,7 @@ fn draw_batch_submissions(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect)
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(BATCH_SUBMISSION_COLOR))
-                .title(" Batch Submissions ")
+                .title(" ↗ Batches ")
                 .title_style(
                     Style::default().fg(BATCH_SUBMISSION_COLOR).add_modifier(Modifier::BOLD),
                 ),
@@ -1125,8 +1233,9 @@ fn draw_derivation_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Re
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Execution Logs ")
-                .title_style(Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+                .border_style(Style::default().fg(EXECUTION_COLOR))
+                .title(" ▶ Execution ")
+                .title_style(Style::default().fg(EXECUTION_COLOR).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -1143,7 +1252,7 @@ fn draw_derivation_logs(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(DERIVATION_ORIGIN_COLOR))
-                .title(" Derived Blocks ")
+                .title(" ↙ Derived ")
                 .title_style(
                     Style::default().fg(DERIVATION_ORIGIN_COLOR).add_modifier(Modifier::BOLD),
                 ),
@@ -1159,52 +1268,52 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let start_block_display =
         app.start_block.map_or_else(|| "checkpoint".to_string(), |block| format!("#{block}"));
 
-    // Build sync status display
-    let sync_display = if app.skip_sync {
-        "SKIPPED"
+    // Build sync status display with icons
+    let (sync_icon, sync_display, sync_color) = if app.skip_sync {
+        ("⊘", "SKIP", Color::Magenta)
     } else if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
-        "IN SYNC ✓"
+        ("✓", "SYNC", Color::Green)
     } else {
-        "SYNCING"
-    };
-
-    let sync_color = if app.skip_sync {
-        Color::Magenta
-    } else if app.unsafe_head == app.finalized_head && app.unsafe_head > 0 {
-        Color::Green
-    } else {
-        Color::Yellow
+        ("↻", "SYNC", Color::Yellow)
     };
 
     let footer_line = Line::from(vec![
-        Span::styled("[q]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Quit  "),
-        Span::styled("[p]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Pause  "),
-        Span::styled("[r]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Reset  "),
-        Span::raw("  |  "),
-        Span::styled("Mode: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(&app.node_role, Style::default().fg(Color::Cyan)),
-        Span::raw("  |  "),
+        Span::styled(" [", Style::default().fg(Color::DarkGray)),
+        Span::styled("q", Style::default().fg(Color::Rgb(255, 99, 71)).bold()),
+        Span::styled("]", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Quit ", Style::default().fg(Color::Gray)),
+        Span::styled("[", Style::default().fg(Color::DarkGray)),
+        Span::styled("p", Style::default().fg(Color::Yellow).bold()),
+        Span::styled("]", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Pause ", Style::default().fg(Color::Gray)),
+        Span::styled("[", Style::default().fg(Color::DarkGray)),
+        Span::styled("r", Style::default().fg(Color::Cyan).bold()),
+        Span::styled("]", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Reset ", Style::default().fg(Color::Gray)),
+        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+        Span::styled(&app.node_role, Style::default().fg(SEQUENCER_COLOR).bold()),
+        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         Span::styled("Start: ", Style::default().fg(Color::DarkGray)),
         Span::styled(start_block_display, Style::default().fg(Color::Blue)),
-        Span::raw("  |  "),
-        Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         Span::styled(
-            if app.is_paused { "PAUSED" } else { "RUNNING" },
-            Style::default().fg(if app.is_paused { Color::Yellow } else { Color::Green }),
+            if app.is_paused { "⏸ PAUSED" } else { "▶ RUN" },
+            Style::default().fg(if app.is_paused { Color::Yellow } else { Color::Green }).bold(),
         ),
-        Span::raw("  |  "),
-        Span::styled("Sync: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(sync_display, Style::default().fg(sync_color)),
+        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+        Span::styled(sync_icon, Style::default().fg(sync_color).bold()),
+        Span::styled(format!(" {}", sync_display), Style::default().fg(sync_color)),
     ]);
+
+    // Footer border color based on overall status
+    let footer_border_color = if app.is_paused { Color::Yellow } else { Color::Rgb(80, 80, 80) };
 
     let widget = Paragraph::new(footer_line).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" Montana TUI ")
-            .title_style(Style::default().fg(Color::Cyan)),
+            .border_style(Style::default().fg(footer_border_color))
+            .title(" Montana ")
+            .title_style(Style::default().fg(SEQUENCER_COLOR).bold()),
     );
 
     frame.render_widget(widget, area);
@@ -1241,35 +1350,46 @@ fn draw_l1_chain(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let mut cursor_spans: Vec<Span<'_>> = Vec::new();
 
     if blocks_to_display.is_empty() {
-        // No blocks yet - show placeholder
-        block_number_spans
-            .push(Span::styled("Waiting for L1 blocks...", Style::default().fg(Color::DarkGray)));
+        // No blocks yet - show placeholder with animated dots
+        block_number_spans.push(Span::styled(
+            "  ⏳ Waiting for L1 blocks...",
+            Style::default().fg(Color::DarkGray),
+        ));
         block_visual_spans.push(Span::raw(""));
         cursor_spans.push(Span::raw(""));
     } else {
         // Add arrow indicator for scrolling
         if app.l1_blocks.len() > max_visible_blocks {
-            block_number_spans.push(Span::styled("← ", Style::default().fg(Color::DarkGray)));
+            block_number_spans.push(Span::styled("◀ ", Style::default().fg(L1_CHAIN_COLOR)));
             block_visual_spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
             cursor_spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
         }
 
-        for block in &blocks_to_display {
-            // Block number display (padded to BLOCK_WIDTH)
+        let num_blocks = blocks_to_display.len();
+        for (i, block) in blocks_to_display.iter().enumerate() {
+            // Block number display (padded to BLOCK_WIDTH) with gradient
             let num_str = format!("{:^7}", block.number);
-            block_number_spans.push(Span::styled(num_str, Style::default().fg(Color::DarkGray)));
+            // Use gradient from dim to bright based on position (newer = brighter)
+            let brightness =
+                if num_blocks > 1 { 50 + (i * 150 / (num_blocks - 1)) as u8 } else { 200 };
+            block_number_spans.push(Span::styled(
+                num_str,
+                Style::default().fg(Color::Rgb(brightness, brightness / 2, 0)),
+            ));
             block_number_spans.push(Span::raw(" "));
 
-            // Visual block representation - all in normal text color
+            // Visual block representation with color coding
             if let Some(batch_num) = block.batch_number {
-                // This block contains a batch submission
+                // This block contains a batch submission - highlight with batch color
                 let batch_label = format!("[B{:>4}]", batch_num);
-                block_visual_spans
-                    .push(Span::styled(batch_label, Style::default().fg(Color::White)));
+                block_visual_spans.push(Span::styled(
+                    batch_label,
+                    Style::default().fg(BATCH_SUBMISSION_COLOR).bold(),
+                ));
             } else {
-                // Empty block - show as dimmed box
+                // Empty block - show as dimmed box with subtle styling
                 block_visual_spans
-                    .push(Span::styled("[  ·  ]", Style::default().fg(Color::DarkGray)));
+                    .push(Span::styled("[  ·  ]", Style::default().fg(Color::Rgb(80, 80, 80))));
             }
             block_visual_spans.push(Span::raw(" "));
 
@@ -1304,7 +1424,7 @@ fn draw_l1_chain(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         }
 
         // Add scroll indicator if there are more blocks to the right (future)
-        block_number_spans.push(Span::styled(" →", Style::default().fg(Color::DarkGray)));
+        block_number_spans.push(Span::styled(" ▶", Style::default().fg(L1_CHAIN_COLOR)));
         block_visual_spans.push(Span::raw("  "));
         cursor_spans.push(Span::raw("  "));
     }
@@ -1315,20 +1435,20 @@ fn draw_l1_chain(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Line::from(cursor_spans),
     ];
 
-    // Build title with L1 head info and legend
+    // Build title with L1 head info
     let title = if app.l1_head > 0 {
-        format!(" L1 Chain (Head: #{}) ", app.l1_head)
+        format!(" ⛓ L1 Chain #{} ", app.l1_head)
     } else {
-        " L1 Chain ".to_string()
+        " ⛓ L1 Chain ".to_string()
     };
 
     let widget = Paragraph::new(text)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow))
+                .border_style(Style::default().fg(L1_CHAIN_COLOR))
                 .title(title)
-                .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                .title_style(Style::default().fg(L1_CHAIN_COLOR).add_modifier(Modifier::BOLD)),
         )
         .alignment(ratatui::layout::Alignment::Left);
 

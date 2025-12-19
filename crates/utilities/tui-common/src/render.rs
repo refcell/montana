@@ -1,20 +1,31 @@
 //! Rendering utilities for converting log entries to ratatui widgets.
 
 use ratatui::{
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 
 use crate::{LogEntry, LogLevel};
+
+/// Get the colored prefix and colors for a log level.
+///
+/// Returns (prefix, prefix_color, message_color) for the log level.
+const fn log_level_style(level: &LogLevel) -> (&'static str, Color, Color) {
+    match level {
+        LogLevel::Info => ("•", Color::Cyan, Color::Gray),
+        LogLevel::Warn => ("▲", Color::Yellow, Color::Yellow),
+        LogLevel::Error => ("✖", Color::Red, Color::LightRed),
+    }
+}
 
 /// Convert a vector of log entries to ratatui Lines with color coding.
 ///
 /// This function converts a slice of [`LogEntry`] instances into a vector
 /// of ratatui [`Line`] widgets, applying appropriate color coding based on
 /// the log level:
-/// - Info: Gray
-/// - Warn: Yellow
-/// - Error: Red
+/// - Info: Cyan bullet prefix, gray message
+/// - Warn: Yellow triangle prefix, yellow message
+/// - Error: Red X prefix, light red message
 ///
 /// # Examples
 ///
@@ -33,12 +44,15 @@ use crate::{LogEntry, LogLevel};
 pub fn render_logs(logs: &[LogEntry]) -> Vec<Line<'static>> {
     logs.iter()
         .map(|entry| {
-            let color = match entry.level {
-                LogLevel::Info => Color::Gray,
-                LogLevel::Warn => Color::Yellow,
-                LogLevel::Error => Color::Red,
-            };
-            Line::from(Span::styled(entry.message.clone(), Style::default().fg(color)))
+            let (prefix, prefix_color, msg_color) = log_level_style(&entry.level);
+            let prefix_style = Style::default().fg(prefix_color).add_modifier(Modifier::BOLD);
+            let msg_style = Style::default().fg(msg_color);
+
+            Line::from(vec![
+                Span::styled(prefix, prefix_style),
+                Span::styled(" ", Style::default()),
+                Span::styled(entry.message.clone(), msg_style),
+            ])
         })
         .collect()
 }
@@ -72,12 +86,15 @@ where
     logs.into_iter()
         .rev()
         .map(|entry| {
-            let color = match entry.level {
-                LogLevel::Info => Color::Gray,
-                LogLevel::Warn => Color::Yellow,
-                LogLevel::Error => Color::Red,
-            };
-            Line::from(Span::styled(entry.message.clone(), Style::default().fg(color)))
+            let (prefix, prefix_color, msg_color) = log_level_style(&entry.level);
+            let prefix_style = Style::default().fg(prefix_color).add_modifier(Modifier::BOLD);
+            let msg_style = Style::default().fg(msg_color);
+
+            Line::from(vec![
+                Span::styled(prefix, prefix_style),
+                Span::styled(" ", Style::default()),
+                Span::styled(entry.message.clone(), msg_style),
+            ])
         })
         .collect()
 }

@@ -68,6 +68,9 @@ pub trait KeyValueDatabase: Clone + Send + Sync {
     /// Set code by its hash.
     fn set_code(&self, code_hash: &B256, code: &[u8]) -> Result<(), DbError>;
 
+    /// Set multiple code entries in a batch. More efficient for bulk inserts.
+    fn set_code_batch(&self, entries: &[(B256, Vec<u8>)]) -> Result<(), DbError>;
+
     /// Get a header by block number.
     fn get_header(&self, block_number: u64) -> Result<Option<Header>, DbError>;
 
@@ -108,6 +111,9 @@ impl RocksDbKvDatabase {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        // Limit open file handles to avoid "Too many open files" errors.
+        // RocksDB will use an LRU cache to manage file descriptors.
+        opts.set_max_open_files(512);
 
         let cfs = [CF_CODE, CF_HEADERS, CF_CHAIN_STATE];
 
@@ -175,6 +181,15 @@ impl KeyValueDatabase for RocksDbKvDatabase {
         self.inner
             .put_cf(self.cf_code(), code_hash.as_slice(), code)
             .map_err(|e| DbError::new(format!("Failed to set code: {e}")))
+    }
+
+    fn set_code_batch(&self, entries: &[(B256, Vec<u8>)]) -> Result<(), DbError> {
+        let mut batch = rocksdb::WriteBatch::default();
+        let cf = self.cf_code();
+        for (code_hash, code) in entries {
+            batch.put_cf(cf, code_hash.as_slice(), code);
+        }
+        self.inner.write(batch).map_err(|e| DbError::new(format!("Failed to write batch: {e}")))
     }
 
     fn get_header(&self, block_number: u64) -> Result<Option<Header>, DbError> {

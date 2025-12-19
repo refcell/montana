@@ -84,6 +84,7 @@ fn main() -> Result<()> {
     let start_time = Instant::now();
     let mut migrated: u64 = 0;
     let mut errors: u64 = 0;
+    let mut batch: Vec<(B256, Vec<u8>)> = Vec::with_capacity(args.batch_size as usize);
 
     // Iterate through all bytecode entries
     // Key: B256 (code hash), Value: raw bytecode bytes
@@ -91,10 +92,14 @@ fn main() -> Result<()> {
         match result {
             Ok((key, value)) => {
                 let code_hash = B256::from(key);
-
-                // Store as code_hash -> raw bytecode
-                dest.set_code(&code_hash, &value)?;
+                batch.push((code_hash, value));
                 migrated += 1;
+
+                // Flush batch when full
+                if batch.len() as u64 >= args.batch_size {
+                    dest.set_code_batch(&batch)?;
+                    batch.clear();
+                }
 
                 // Log progress
                 if migrated % args.log_interval == 0 {
@@ -113,6 +118,11 @@ fn main() -> Result<()> {
                 errors += 1;
             }
         }
+    }
+
+    // Flush any remaining entries
+    if !batch.is_empty() {
+        dest.set_code_batch(&batch)?;
     }
 
     let elapsed = start_time.elapsed();

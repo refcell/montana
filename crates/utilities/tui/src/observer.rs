@@ -43,10 +43,10 @@ impl NodeObserver for TuiObserver {
             },
 
             // Block events
-            NodeEvent::BlockExecuted { block_number, execution_time_ms, gas_used } => {
+            NodeEvent::BlockExecuted { block_number, execution_time_us, gas_used } => {
                 TuiEvent::BlockExecuted {
                     block_number: *block_number,
-                    execution_time_ms: *execution_time_ms,
+                    execution_time_us: *execution_time_us,
                     gas_used: *gas_used,
                 }
             }

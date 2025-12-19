@@ -85,9 +85,9 @@ pub trait ExecutionCallback: Send + Sync {
     /// # Arguments
     ///
     /// * `block_number` - The block number that was executed
-    /// * `execution_time_ms` - Time taken to execute the block in milliseconds
+    /// * `execution_time_us` - Time taken to execute the block in microseconds
     /// * `gas_used` - Gas used by the block
-    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64, gas_used: u64);
+    fn on_block_executed(&self, block_number: u64, execution_time_us: u64, gas_used: u64);
 }
 
 /// Callback for reporting batch submission events.
@@ -650,8 +650,9 @@ where
         self.pending_blocks.push(block);
         self.current_batch_size += block_size;
 
-        // Calculate execution time
-        let execution_time_ms = start.elapsed().as_millis() as u64;
+        // Calculate execution time in microseconds for sub-millisecond precision
+        // The TUI will convert this to milliseconds for display
+        let execution_time_us = start.elapsed().as_micros() as u64;
         self.blocks_executed += 1;
 
         // Emit block executed event
@@ -662,7 +663,7 @@ where
 
         // Invoke execution callback for TUI visibility
         if let Some(ref callback) = self.execution_callback {
-            callback.on_block_executed(block_number, execution_time_ms, gas_used);
+            callback.on_block_executed(block_number, execution_time_us, gas_used);
         }
 
         tracing::debug!(

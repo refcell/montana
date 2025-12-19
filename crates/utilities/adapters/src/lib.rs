@@ -190,8 +190,8 @@ impl TuiExecutionCallback {
 }
 
 impl ExecutionCallback for TuiExecutionCallback {
-    fn on_block_executed(&self, block_number: u64, execution_time_ms: u64, gas_used: u64) {
-        self.handle.send(TuiEvent::BlockExecuted { block_number, execution_time_ms, gas_used });
+    fn on_block_executed(&self, block_number: u64, execution_time_us: u64, gas_used: u64) {
+        self.handle.send(TuiEvent::BlockExecuted { block_number, execution_time_us, gas_used });
     }
 }
 

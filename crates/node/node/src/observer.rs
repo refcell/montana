@@ -91,10 +91,10 @@ impl NodeObserver for LoggingObserver {
                     "sync completed"
                 );
             }
-            NodeEvent::BlockExecuted { block_number, execution_time_ms, gas_used } => {
+            NodeEvent::BlockExecuted { block_number, execution_time_us, gas_used } => {
                 tracing::debug!(
                     block = block_number,
-                    execution_ms = execution_time_ms,
+                    execution_us = execution_time_us,
                     gas_used = gas_used,
                     "block executed"
                 );

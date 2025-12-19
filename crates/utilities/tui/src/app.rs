@@ -626,12 +626,12 @@ impl App {
     /// # Arguments
     ///
     /// * `block_number` - The block number that was executed
-    /// * `execution_time_ms` - Time taken to execute the block in milliseconds
+    /// * `execution_time_us` - Time taken to execute the block in microseconds
     /// * `gas_used` - Gas used by the block
     pub fn record_block_executed(
         &mut self,
         block_number: u64,
-        execution_time_ms: u64,
+        execution_time_us: u64,
         gas_used: u64,
     ) {
         self.blocks_executed += 1;
@@ -645,8 +645,8 @@ impl App {
         // Track when this execution happened
         self.last_execution_time = Some(Instant::now());
 
-        // Track execution times for rate calculation
-        self.execution_times.push(execution_time_ms);
+        // Track execution times in microseconds for sub-millisecond precision
+        self.execution_times.push(execution_time_us);
         if self.execution_times.len() > 100 {
             self.execution_times.remove(0);
         }
@@ -700,12 +700,17 @@ impl App {
     }
 
     /// Get average execution time per block in milliseconds.
+    ///
+    /// Internally stores times in microseconds for sub-millisecond precision,
+    /// then converts to milliseconds for display.
     pub fn avg_execution_time_ms(&self) -> f64 {
         if self.execution_times.is_empty() {
             return 0.0;
         }
-        let sum: u64 = self.execution_times.iter().sum();
-        sum as f64 / self.execution_times.len() as f64
+        // execution_times stores microseconds, convert to milliseconds
+        let sum_us: u64 = self.execution_times.iter().sum();
+        let avg_us = sum_us as f64 / self.execution_times.len() as f64;
+        avg_us / 1000.0
     }
 
     /// Get time since last block execution in seconds.

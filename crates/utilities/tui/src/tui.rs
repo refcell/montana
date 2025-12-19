@@ -348,13 +348,14 @@ fn process_event(app: &mut App, event: TuiEvent) {
         TuiEvent::ModeInfo { node_role, start_block, skip_sync } => {
             app.set_mode_info(node_role, start_block, skip_sync);
         }
-        TuiEvent::BlockExecuted { block_number, execution_time_ms, gas_used } => {
-            app.record_block_executed(block_number, execution_time_ms, gas_used);
+        TuiEvent::BlockExecuted { block_number, execution_time_us, gas_used } => {
+            app.record_block_executed(block_number, execution_time_us, gas_used);
             let backlog = app.backlog_size();
             let rate = app.execution_rate();
             let mgas = app.mgas_per_second();
+            let execution_time_ms = execution_time_us as f64 / 1000.0;
             app.log_execution(LogEntry::info(format!(
-                "Block #{}: {}ms, {:.1} blks/s, {:.1} Mgas/s, {} backlog",
+                "Block #{}: {:.2}ms, {:.1} blks/s, {:.1} Mgas/s, {} backlog",
                 block_number, execution_time_ms, rate, mgas, backlog
             )));
         }

@@ -34,8 +34,8 @@ pub enum NodeEvent {
     BlockExecuted {
         /// The block number that was executed
         block_number: u64,
-        /// Execution time in milliseconds
-        execution_time_ms: u64,
+        /// Execution time in microseconds (for sub-millisecond precision)
+        execution_time_us: u64,
         /// Gas used by the block
         gas_used: u64,
     },

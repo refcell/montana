@@ -83,9 +83,13 @@ build-maxperf:
 build-montana:
     cargo build --bin montana
 
-# Cleans the workspace
-clean:
+# Cleans the workspace and anvil state
+clean: clean-anvil
     cargo clean
+
+# Cleans anvil state from ~/.foundry/anvil/
+clean-anvil:
+    -rm -rf ~/.foundry/anvil/
 
 # Checks if there are any unused dependencies
 check-udeps:

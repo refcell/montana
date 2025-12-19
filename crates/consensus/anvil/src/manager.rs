@@ -1,6 +1,6 @@
 //! Anvil instance manager.
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use alloy::{
     network::EthereumWallet,
@@ -125,9 +125,29 @@ impl AnvilManager {
     }
 
     /// Create a sink for submitting batches.
+    ///
+    /// # Arguments
+    ///
+    /// * `use_blobs` - Shared atomic flag controlling blob vs calldata mode.
+    ///   When true, batches are submitted as EIP-4844 blob transactions.
+    ///   When false, batches are submitted as calldata transactions.
     #[must_use]
-    pub fn sink(&self) -> AnvilBatchSink {
-        AnvilBatchSink::new(Arc::clone(&self.provider), self.sender, self.config.batch_inbox)
+    pub fn sink(&self, use_blobs: Arc<AtomicBool>) -> AnvilBatchSink {
+        AnvilBatchSink::new(
+            Arc::clone(&self.provider),
+            self.sender,
+            self.config.batch_inbox,
+            use_blobs,
+        )
+    }
+
+    /// Create a sink for submitting batches with default blob mode.
+    ///
+    /// This creates a sink that defaults to using blobs (EIP-4844).
+    /// For dynamic control, use [`sink`] instead.
+    #[must_use]
+    pub fn sink_default(&self) -> AnvilBatchSink {
+        self.sink(Arc::new(AtomicBool::new(true)))
     }
 
     /// Create a source for reading batches.

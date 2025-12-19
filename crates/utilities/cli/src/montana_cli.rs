@@ -109,4 +109,12 @@ pub struct MontanaCli {
     /// Only used when --with-harness is enabled.
     #[arg(long, default_value = "10000")]
     pub harness_tx_per_block: u64,
+
+    /// Start with blob mode enabled for batch submission.
+    ///
+    /// When enabled, batches are submitted as EIP-4844 blob transactions
+    /// instead of calldata transactions. Can be toggled at runtime with [b] in TUI.
+    /// Only applies when using Anvil batch mode.
+    #[arg(long)]
+    pub use_blobs: bool,
 }

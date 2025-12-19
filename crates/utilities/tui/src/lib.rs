@@ -38,7 +38,7 @@ pub use app::{App, L1Block, SyncState};
 /// [`create_tui`] function creates both a TUI instance and a handle for sending
 /// events.
 mod tui;
-pub use tui::{MontanaTui, create_tui};
+pub use tui::{MontanaTui, create_tui, create_tui_with_blob_mode};
 
 /// TUI observer for node events.
 ///

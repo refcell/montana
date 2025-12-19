@@ -21,6 +21,7 @@ alloy = { version = "1.0", default-features = false, features = [
     "consensus",
     "eips",
     "k256",
+    "kzg",
     "network",
     "node-bindings",
     "provider-http",
@@ -31,9 +32,11 @@ alloy = { version = "1.0", default-features = false, features = [
 
 # async
 async-trait.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 
 # misc
 thiserror.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

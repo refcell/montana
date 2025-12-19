@@ -1,3 +1,5 @@
+use std::sync::{Arc, atomic::AtomicBool};
+
 use eyre::Result;
 use montana_cli::MontanaCli;
 use montana_harness::Harness;
@@ -17,7 +19,9 @@ pub async fn run_headless(cli: MontanaCli) -> Result<()> {
     )
     .await?;
 
-    let mut node = build_node(cli, None, None, rpc_url).await?;
+    // In headless mode, use CLI flag for blob mode
+    let use_blobs = Some(Arc::new(AtomicBool::new(cli.use_blobs)));
+    let mut node = build_node(cli, None, None, rpc_url, use_blobs).await?;
     let result = node.run().await;
     // Drop harness AFTER node.run() completes to keep anvil alive
     drop(harness);

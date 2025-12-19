@@ -3,7 +3,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use async_trait::async_trait;
 use montana_anvil::{AnvilConfig, AnvilManager};
@@ -225,6 +225,9 @@ pub struct BatchContext {
     anvil: Option<AnvilManager>,
     /// The submission mode.
     mode: BatchSubmissionMode,
+    /// Shared flag for blob mode (only used in Anvil mode).
+    #[allow(dead_code)]
+    use_blobs: Option<Arc<AtomicBool>>,
 }
 
 impl BatchContext {
@@ -232,7 +235,29 @@ impl BatchContext {
     ///
     /// The `batch_inbox` parameter specifies the address where batches are sent.
     /// Both the sink and source use this address to ensure consistency.
+    ///
+    /// This method creates a context with blob mode enabled by default.
+    /// For dynamic blob mode control, use [`new_with_blob_flag`].
     pub async fn new(mode: BatchSubmissionMode, batch_inbox: Address) -> Result<Self, SinkError> {
+        Self::new_with_blob_flag(mode, batch_inbox, None).await
+    }
+
+    /// Create a new batch context with a shared blob mode flag.
+    ///
+    /// The `use_blobs` flag allows external control over whether batches are
+    /// submitted as blob transactions (EIP-4844) or calldata transactions.
+    /// When `None`, defaults to blob mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `mode` - The batch submission mode (InMemory, Anvil, or Remote)
+    /// * `batch_inbox` - The address where batches are sent
+    /// * `use_blobs` - Optional shared flag for dynamic blob mode control
+    pub async fn new_with_blob_flag(
+        mode: BatchSubmissionMode,
+        batch_inbox: Address,
+        use_blobs: Option<Arc<AtomicBool>>,
+    ) -> Result<Self, SinkError> {
         match mode {
             BatchSubmissionMode::InMemory => {
                 let queue = InMemoryBatchQueue::new();
@@ -242,6 +267,7 @@ impl BatchContext {
                     source: Arc::new(Box::new(source)),
                     anvil: None,
                     mode,
+                    use_blobs: None,
                 })
             }
             BatchSubmissionMode::Anvil => {
@@ -249,13 +275,19 @@ impl BatchContext {
                 let anvil = AnvilManager::spawn(config)
                     .await
                     .map_err(|e| SinkError::Connection(e.to_string()))?;
-                let sink = AnvilBatchSinkWrapper::new(anvil.sink());
+
+                // Use provided flag or create a default one (calldata mode by default).
+                let blob_flag =
+                    use_blobs.clone().unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+                let sink = AnvilBatchSinkWrapper::new(anvil.sink(blob_flag.clone()));
                 let source = AnvilBatchSourceWrapper::new(anvil.source());
+
                 Ok(Self {
                     sink: Arc::new(Box::new(sink)),
                     source: Arc::new(Box::new(source)),
                     anvil: Some(anvil),
                     mode,
+                    use_blobs: Some(blob_flag),
                 })
             }
             BatchSubmissionMode::Remote => Err(SinkError::Unsupported(

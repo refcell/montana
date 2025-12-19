@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use alloy::providers::{Provider, ProviderBuilder};
 use eyre::Result;
@@ -20,11 +23,22 @@ use primitives::OpBlock;
 use tokio::sync::mpsc;
 
 /// Build the node with the appropriate block producer based on CLI args.
+///
+/// # Arguments
+///
+/// * `cli` - Command line arguments
+/// * `tui_observer` - Optional TUI observer for node events
+/// * `tui_handle` - Optional handle for sending TUI events
+/// * `rpc_url` - RPC endpoint URL
+/// * `use_blobs` - Optional shared flag for blob mode control. When provided,
+///   this flag is used to dynamically toggle between blob and calldata mode
+///   for batch submissions.
 pub async fn build_node(
     cli: MontanaCli,
     tui_observer: Option<Arc<TuiObserver>>,
     tui_handle: Option<TuiHandle>,
     rpc_url: String,
+    use_blobs: Option<Arc<AtomicBool>>,
 ) -> Result<Node<BlockProducerWrapper>> {
     // Build provider
     let provider = ProviderBuilder::new()
@@ -68,7 +82,8 @@ pub async fn build_node(
     );
     let block_producer = BlockProducerWrapper::new(block_producer, "rpc");
 
-    build_node_common(cli, block_producer, tui_observer, tui_handle, provider, rpc_url).await
+    build_node_common(cli, block_producer, tui_observer, tui_handle, provider, rpc_url, use_blobs)
+        .await
 }
 
 /// Build the node with common configuration.
@@ -79,6 +94,7 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
     tui_handle: Option<TuiHandle>,
     _provider: P,
     rpc_url: String,
+    use_blobs: Option<Arc<AtomicBool>>,
 ) -> Result<Node<BlockProducerWrapper>> {
     // Build node config
     let config = NodeConfig {
@@ -94,10 +110,10 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
     // Use batch mode from CLI directly (it's already BatchSubmissionMode)
     let batch_mode = cli.batch_mode;
 
-    // Build batch context
+    // Build batch context with optional blob mode flag from TUI
     let batch_inbox = Address::repeat_byte(0x42);
     let batch_ctx = Arc::new(
-        BatchContext::new(batch_mode, batch_inbox)
+        BatchContext::new_with_blob_flag(batch_mode, batch_inbox, use_blobs)
             .await
             .map_err(|e| eyre::eyre!("Failed to create batch context: {}", e))?,
     );

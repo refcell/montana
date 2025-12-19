@@ -153,7 +153,7 @@ impl BatchContext {
                     batch_inbox = ?anvil.batch_inbox(),
                     "Anvil instance spawned"
                 );
-                let sink = AnvilBatchSinkWrapper::new(anvil.sink());
+                let sink = AnvilBatchSinkWrapper::new(anvil.sink_default());
                 Ok(Self { sink: Arc::new(sink), anvil: Some(anvil), mode })
             }
             BatchSubmissionMode::Remote => Err(BatchContextError::Unsupported(

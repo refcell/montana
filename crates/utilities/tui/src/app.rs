@@ -1,5 +1,9 @@
 use std::{
     collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -152,6 +156,11 @@ pub struct App {
     pub is_paused: bool,
     /// Whether harness mode is enabled (testing/demo mode)
     pub harness_mode: bool,
+    /// Whether to use blobs for batch submission (true = blobs, false = calldata)
+    pub use_blobs: bool,
+    /// Shared atomic flag for blob mode that can be read by the batcher.
+    /// This is set when `use_blobs` changes via `toggle_blobs()`.
+    use_blobs_shared: Option<Arc<AtomicBool>>,
 
     // Harness tracking
     /// Harness block logs (only populated in harness mode)
@@ -214,6 +223,10 @@ impl App {
             skip_sync: false,
             is_paused: false,
             harness_mode: false,
+            // Default to calldata mode since blob transactions require valid KZG proofs
+            // which are not computed in test mode. Users can toggle to blobs via 'b' key.
+            use_blobs: false,
+            use_blobs_shared: None,
             harness_logs: Vec::new(),
             harness_block: 0,
             harness_init_block: 0,
@@ -274,6 +287,54 @@ impl App {
     /// When paused, the TUI will not process new events or update the display.
     pub const fn toggle_pause(&mut self) {
         self.is_paused = !self.is_paused;
+    }
+
+    /// Toggle the blob mode for batch submission.
+    ///
+    /// When `use_blobs` is true, batches are submitted as EIP-4844 blob transactions.
+    /// When false, batches are submitted as regular calldata transactions.
+    ///
+    /// If a shared flag was set via [`set_use_blobs_shared`], the atomic flag
+    /// will also be updated so external components (like the batcher) can observe
+    /// the change.
+    pub fn toggle_blobs(&mut self) {
+        self.use_blobs = !self.use_blobs;
+        // Update the shared flag if set
+        if let Some(ref shared) = self.use_blobs_shared {
+            shared.store(self.use_blobs, Ordering::SeqCst);
+        }
+    }
+
+    /// Set the shared atomic flag for blob mode.
+    ///
+    /// This allows external components (like the batcher) to observe blob mode
+    /// changes in real-time. The flag should be created by the caller and passed
+    /// to both the TUI and the batcher.
+    ///
+    /// The app's internal `use_blobs` state is synchronized FROM the shared flag,
+    /// so the caller's initial value is preserved.
+    ///
+    /// # Arguments
+    ///
+    /// * `shared` - An atomic boolean that will be updated when blob mode toggles
+    pub fn set_use_blobs_shared(&mut self, shared: Arc<AtomicBool>) {
+        // Read the initial value from the shared flag (set by caller)
+        self.use_blobs = shared.load(Ordering::SeqCst);
+        self.use_blobs_shared = Some(shared);
+    }
+
+    /// Get the shared blob mode flag.
+    ///
+    /// Returns a clone of the shared atomic flag if one was set, or creates
+    /// a new one and stores it for future use.
+    pub fn get_or_create_use_blobs_shared(&mut self) -> Arc<AtomicBool> {
+        if let Some(ref shared) = self.use_blobs_shared {
+            Arc::clone(shared)
+        } else {
+            let shared = Arc::new(AtomicBool::new(self.use_blobs));
+            self.use_blobs_shared = Some(Arc::clone(&shared));
+            shared
+        }
     }
 
     /// Update node mode information.
@@ -485,11 +546,7 @@ impl App {
     pub fn transactions_per_second(&self) -> f64 {
         self.tx_tracking_start_time.map_or(0.0, |start| {
             let elapsed = start.elapsed().as_secs_f64();
-            if elapsed > 0.0 {
-                self.transactions_received as f64 / elapsed
-            } else {
-                0.0
-            }
+            if elapsed > 0.0 { self.transactions_received as f64 / elapsed } else { 0.0 }
         })
     }
 
@@ -933,5 +990,76 @@ mod tests {
         // Standard deviation should be approximately 81.65
         let stddev = app.latency_stddev_ms();
         assert!(stddev > 81.0 && stddev < 82.0);
+    }
+
+    #[test]
+    fn test_toggle_blobs() {
+        let mut app = App::new();
+        // Default is calldata mode (blobs disabled) for compatibility
+        assert!(!app.use_blobs);
+
+        app.toggle_blobs();
+        assert!(app.use_blobs);
+
+        app.toggle_blobs();
+        assert!(!app.use_blobs);
+    }
+
+    #[test]
+    fn test_toggle_blobs_with_shared_flag() {
+        let mut app = App::new();
+        let shared = Arc::new(AtomicBool::new(false));
+        app.set_use_blobs_shared(Arc::clone(&shared));
+
+        // Verify initial state is synced (default is calldata/false)
+        assert!(!app.use_blobs);
+        assert!(!shared.load(Ordering::SeqCst));
+
+        // Toggle and verify shared flag updates
+        app.toggle_blobs();
+        assert!(app.use_blobs);
+        assert!(shared.load(Ordering::SeqCst));
+
+        // Toggle back
+        app.toggle_blobs();
+        assert!(!app.use_blobs);
+        assert!(!shared.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_set_use_blobs_shared_reads_from_flag() {
+        // When the shared flag is set to true, the app should read that value
+        let mut app = App::new();
+        assert!(!app.use_blobs); // Default is false
+
+        // Set a shared flag that's already true (simulating --use-blobs CLI flag)
+        let shared = Arc::new(AtomicBool::new(true));
+        app.set_use_blobs_shared(Arc::clone(&shared));
+
+        // App should now be in blob mode (read FROM the shared flag)
+        assert!(app.use_blobs);
+        assert!(shared.load(Ordering::SeqCst));
+
+        // Toggling should still work
+        app.toggle_blobs();
+        assert!(!app.use_blobs);
+        assert!(!shared.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_get_or_create_use_blobs_shared() {
+        let mut app = App::new();
+
+        // First call creates the shared flag
+        let shared1 = app.get_or_create_use_blobs_shared();
+        assert!(!shared1.load(Ordering::SeqCst)); // Default is false (calldata)
+
+        // Second call returns the same flag
+        let shared2 = app.get_or_create_use_blobs_shared();
+        assert!(Arc::ptr_eq(&shared1, &shared2));
+
+        // Toggle should update the shared flag
+        app.toggle_blobs();
+        assert!(shared1.load(Ordering::SeqCst));
     }
 }

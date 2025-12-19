@@ -1,4 +1,8 @@
-use std::{io, time::Duration};
+use std::{
+    io,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -17,8 +21,11 @@ use montana_tui_common::{LogEntry, format_bytes, render_logs_reversed};
 
 use crate::{App, SyncState, TuiEvent, TuiHandle};
 
-/// Color for batch submission indicators (matches Batch Submissions border)
-const BATCH_SUBMISSION_COLOR: Color = Color::Cyan;
+/// Color for batch submission indicators when using blobs (EIP-4844)
+const BATCH_SUBMISSION_BLOB_COLOR: Color = Color::Cyan;
+
+/// Color for batch submission indicators when using calldata
+const BATCH_SUBMISSION_CALLDATA_COLOR: Color = Color::Yellow;
 
 /// Color for derivation origin indicators (matches Derived Blocks border)
 const DERIVATION_ORIGIN_COLOR: Color = Color::Magenta;
@@ -51,6 +58,9 @@ pub struct MontanaTui {
     /// Receiver for TUI events
     #[allow(dead_code)] // Will be used in full TUI implementation
     event_rx: mpsc::UnboundedReceiver<TuiEvent>,
+    /// Shared blob mode flag that can be passed to external components.
+    /// This flag is updated when the user toggles blob mode in the TUI.
+    use_blobs: Arc<AtomicBool>,
 }
 
 impl MontanaTui {
@@ -62,8 +72,33 @@ impl MontanaTui {
     /// # Arguments
     ///
     /// * `event_rx` - Unbounded receiver for TUI events
-    pub const fn new(event_rx: mpsc::UnboundedReceiver<TuiEvent>) -> Self {
-        Self { event_rx }
+    pub fn new(event_rx: mpsc::UnboundedReceiver<TuiEvent>) -> Self {
+        // Default to calldata mode (false) for safety/compatibility
+        Self { event_rx, use_blobs: Arc::new(AtomicBool::new(false)) }
+    }
+
+    /// Create a new Montana TUI with a pre-configured blob mode flag.
+    ///
+    /// This allows external components to observe blob mode changes.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_rx` - Unbounded receiver for TUI events
+    /// * `use_blobs` - Shared atomic flag for blob mode control
+    pub const fn new_with_blob_flag(
+        event_rx: mpsc::UnboundedReceiver<TuiEvent>,
+        use_blobs: Arc<AtomicBool>,
+    ) -> Self {
+        Self { event_rx, use_blobs }
+    }
+
+    /// Get the shared blob mode flag.
+    ///
+    /// This flag is updated when the user toggles blob mode in the TUI
+    /// and can be shared with external components like the batcher.
+    #[must_use]
+    pub fn use_blobs(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.use_blobs)
     }
 
     /// Run the TUI - this blocks until the user quits.
@@ -87,8 +122,9 @@ impl MontanaTui {
         execute!(stdout, EnterAlternateScreen)?;
         let mut terminal = ratatui::init();
 
-        // Create app state
+        // Create app state and wire up the shared blob flag
         let mut app = App::new();
+        app.set_use_blobs_shared(Arc::clone(&self.use_blobs));
 
         // Run the main event loop
         let result = self.event_loop(&mut terminal, &mut app);
@@ -128,6 +164,9 @@ impl MontanaTui {
                     }
                     KeyCode::Char('r') => {
                         app.reset();
+                    }
+                    KeyCode::Char('b') => {
+                        app.toggle_blobs();
                     }
                     _ => {}
                 }
@@ -180,6 +219,24 @@ impl MontanaTui {
 pub fn create_tui() -> (MontanaTui, TuiHandle) {
     let (tx, rx) = mpsc::unbounded_channel();
     (MontanaTui::new(rx), TuiHandle::new(tx))
+}
+
+/// Create a TUI with an initial blob mode setting.
+///
+/// Like [`create_tui`], but allows specifying whether to start in blob mode.
+///
+/// # Arguments
+///
+/// * `use_blobs` - Initial blob mode setting. When true, batches use EIP-4844 blobs.
+///
+/// # Returns
+///
+/// A tuple of `(MontanaTui, TuiHandle)` with the specified initial blob mode.
+pub fn create_tui_with_blob_mode(use_blobs: bool) -> (MontanaTui, TuiHandle) {
+    use std::sync::atomic::AtomicBool;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let tui = MontanaTui::new_with_blob_flag(rx, Arc::new(AtomicBool::new(use_blobs)));
+    (tui, TuiHandle::new(tx))
 }
 
 /// Format a duration nicely for display.
@@ -763,11 +820,7 @@ fn draw_metrics(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("Txs/s:          ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                if txs_per_sec > 0.0 {
-                    format!("{:.1}", txs_per_sec)
-                } else {
-                    "--".to_string()
-                },
+                if txs_per_sec > 0.0 { format!("{:.1}", txs_per_sec) } else { "--".to_string() },
                 Style::default().fg(Color::White),
             ),
         ]),
@@ -1088,19 +1141,29 @@ fn draw_execution(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 }
 
 /// Draw batch submission logs.
+///
+/// The border color indicates the current submission mode:
+/// - **Cyan**: Using EIP-4844 blob transactions
+/// - **Yellow**: Using calldata transactions
 fn draw_batch_submissions(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     // Render logs in reverse order (newest first) since wrap() and scroll() conflict
     let logs = render_logs_reversed(&app.batch_logs);
+
+    // Choose color based on blob mode
+    let color =
+        if app.use_blobs { BATCH_SUBMISSION_BLOB_COLOR } else { BATCH_SUBMISSION_CALLDATA_COLOR };
+
+    // Show mode in title
+    let mode_indicator = if app.use_blobs { "BLOBS" } else { "CALLDATA" };
+    let title = format!(" Batch Submissions ({mode_indicator}) ");
 
     let widget = Paragraph::new(logs)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(BATCH_SUBMISSION_COLOR))
-                .title(" Batch Submissions ")
-                .title_style(
-                    Style::default().fg(BATCH_SUBMISSION_COLOR).add_modifier(Modifier::BOLD),
-                ),
+                .border_style(Style::default().fg(color))
+                .title(title)
+                .title_style(Style::default().fg(color).add_modifier(Modifier::BOLD)),
         )
         .wrap(Wrap { trim: true });
 
@@ -1180,6 +1243,13 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Color::Yellow
     };
 
+    // Build DA mode display (blobs vs calldata)
+    let (da_mode, da_color) = if app.use_blobs {
+        ("BLOBS", BATCH_SUBMISSION_BLOB_COLOR)
+    } else {
+        ("CALLDATA", BATCH_SUBMISSION_CALLDATA_COLOR)
+    };
+
     let footer_line = Line::from(vec![
         Span::styled("[q]", Style::default().fg(Color::Yellow)),
         Span::raw(" Quit  "),
@@ -1187,9 +1257,14 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Span::raw(" Pause  "),
         Span::styled("[r]", Style::default().fg(Color::Yellow)),
         Span::raw(" Reset  "),
+        Span::styled("[b]", Style::default().fg(Color::Yellow)),
+        Span::raw(" Toggle DA  "),
         Span::raw("  |  "),
         Span::styled("Mode: ", Style::default().fg(Color::DarkGray)),
         Span::styled(&app.node_role, Style::default().fg(Color::Cyan)),
+        Span::raw("  |  "),
+        Span::styled("DA: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(da_mode, Style::default().fg(da_color)),
         Span::raw("  |  "),
         Span::styled("Start: ", Style::default().fg(Color::DarkGray)),
         Span::styled(start_block_display, Style::default().fg(Color::Blue)),
@@ -1281,19 +1356,24 @@ fn draw_l1_chain(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             let is_batch_cursor = app.latest_batch_submission_l1_block == Some(block.number);
             let is_derivation_cursor = app.latest_derivation_origin_l1_block == Some(block.number);
 
+            // Choose batch submission color based on current DA mode
+            let batch_color = if app.use_blobs {
+                BATCH_SUBMISSION_BLOB_COLOR
+            } else {
+                BATCH_SUBMISSION_CALLDATA_COLOR
+            };
+
             if is_batch_cursor && is_derivation_cursor {
                 // Both cursors on same block - show both arrows side by side
                 cursor_spans.push(Span::styled("  ", Style::default()));
-                cursor_spans
-                    .push(Span::styled("▲", Style::default().fg(BATCH_SUBMISSION_COLOR).bold()));
+                cursor_spans.push(Span::styled("▲", Style::default().fg(batch_color).bold()));
                 cursor_spans
                     .push(Span::styled("▲", Style::default().fg(DERIVATION_ORIGIN_COLOR).bold()));
                 cursor_spans.push(Span::styled("   ", Style::default()));
             } else if is_batch_cursor {
                 // Batch submission cursor - centered arrow
                 cursor_spans.push(Span::styled("   ", Style::default()));
-                cursor_spans
-                    .push(Span::styled("▲", Style::default().fg(BATCH_SUBMISSION_COLOR).bold()));
+                cursor_spans.push(Span::styled("▲", Style::default().fg(batch_color).bold()));
                 cursor_spans.push(Span::styled("    ", Style::default()));
             } else if is_derivation_cursor {
                 // Derivation origin cursor - centered arrow

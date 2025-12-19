@@ -8,7 +8,7 @@ use eyre::Result;
 use montana_adapters::HarnessProgressAdapter;
 use montana_cli::{MontanaCli, MontanaMode};
 use montana_harness::Harness;
-use montana_tui::{TuiObserver, create_tui};
+use montana_tui::{TuiObserver, create_tui_with_blob_mode};
 
 use crate::builder::build_node;
 
@@ -18,7 +18,11 @@ pub fn run_with_tui(cli: MontanaCli) -> Result<()> {
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
 
-    let (tui, handle) = create_tui();
+    let (tui, handle) = create_tui_with_blob_mode(cli.use_blobs);
+
+    // Get the shared blob mode flag from the TUI.
+    // This flag will be updated when the user presses 'b' to toggle blob mode.
+    let use_blobs = tui.use_blobs();
 
     // Send mode info to TUI immediately after creation
     let node_role = match cli.mode {
@@ -77,12 +81,18 @@ pub fn run_with_tui(cli: MontanaCli) -> Result<()> {
                 }
             };
 
-            let result =
-                match build_node(cli, Some(tui_observer), Some(block_feeder_handle), rpc_url).await
-                {
-                    Ok(mut node) => node.run().await,
-                    Err(e) => Err(e),
-                };
+            let result = match build_node(
+                cli,
+                Some(tui_observer),
+                Some(block_feeder_handle),
+                rpc_url,
+                Some(use_blobs),
+            )
+            .await
+            {
+                Ok(mut node) => node.run().await,
+                Err(e) => Err(e),
+            };
 
             if let Err(e) = result {
                 tracing::error!(error = %e, "Node error");

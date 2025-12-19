@@ -149,3 +149,19 @@ harness-sync BLOCKS='100' *ARGS:
 # Poll interval matches block time for responsive updates
 harness-fast *ARGS:
     cargo run --release -p montana -- --with-harness --skip-sync --poll-interval-ms 50 {{ARGS}}
+
+# Runs OP Stack comparison benchmarks (Go)
+bench-opstack:
+    cd benchmarks/op-stack && go test -bench=. -benchmem -count=5 -benchtime=1s
+
+# Runs all benchmarks and compares Montana vs OP Stack
+bench-compare:
+    ./benchmarks/compare.sh
+
+# Runs only the Montana benchmarks for comparison
+bench-montana:
+    ./benchmarks/compare.sh montana
+
+# Generates benchmark fixtures
+bench-fixtures:
+    cd benchmarks/op-stack && go run generate_fixtures.go

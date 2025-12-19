@@ -30,6 +30,9 @@
 > [!CAUTION]
 > Montana is under active development and is not ready for production use.
 
+> [!IMPORTANT]
+> Based on our contrived benchmarks, Montana achieves up to **9x faster** decompression and **7.7x faster** Brotli compression compared to the OP Stack. See [Performance](#performance) for details.
+
 ## What's Montana?
 
 Montana is an experimental, high-performance implementation of a minimal L2 stack written entirely in Rust. It provides a complete L2 stack comprising both sequencer and validator node implementations, each with distinct execution and consensus layers. The execution layer processes blocks using op-revm, providing state transitions for Base stack chains through block fetching, transaction execution, and state management via an in-memory database with RPC fallback. The consensus layer manages the data availability layer through a trait-abstracted compression pipeline supporting Brotli, Zstd, and Zlib compression algorithms.
@@ -69,42 +72,46 @@ just harness-fast
 
 Full pipeline benchmarks measured across 1,000 batches on local anvil infrastructure:
 
-```
-                                    p50         p95         p99
-  ────────────────────────────────────────────────────────────────
-  Batch Submission (L2 → L1)       12ms        18ms        24ms
-  Derivation (L1 → L2)              8ms        14ms        19ms
-  Full Round Trip                  21ms        34ms        45ms
-  ────────────────────────────────────────────────────────────────
-```
+| Operation | p50 | p95 | p99 |
+|-----------|-----|-----|-----|
+| Batch Submission (L2 → L1) | 12ms | 18ms | 24ms |
+| Derivation (L1 → L2) | 8ms | 14ms | 19ms |
+| Full Round Trip | 21ms | 34ms | 45ms |
 
 ### Block Execution
 
 Measured using op-revm across 10,000 Base mainnet blocks:
 
-```
-                                    p50         p95         p99
-  ────────────────────────────────────────────────────────────────
-  Block Execution                  1.2ms       3.8ms       7.1ms
-  State Commitment                 0.4ms       0.9ms       1.6ms
-  ────────────────────────────────────────────────────────────────
-```
+| Operation | p50 | p95 | p99 |
+|-----------|-----|-----|-----|
+| Block Execution | 1.2ms | 3.8ms | 7.1ms |
+| State Commitment | 0.4ms | 0.9ms | 1.6ms |
 
 ### Compression
 
 Benchmarked with 31 Base mainnet blocks (5,766 transactions, 1.67 MB raw):
 
-```
-  ┌─────────────────────────────────────────────────────────────┐
-  │                                                             │
-  │  Brotli   ████████████████░░░░░░░░░░░░░░░░░░░░░░  16.7%    │
-  │  Zstd     ██████████████████░░░░░░░░░░░░░░░░░░░░  17.9%    │
-  │  Zlib     ██████████████████████████░░░░░░░░░░░░  25.7%    │
-  │                                                             │
-  └─────────────────────────────────────────────────────────────┘
-```
+| Algorithm | Compressed Size |
+|-----------|-----------------|
+| Brotli | 16.7% |
+| Zstd | 17.9% |
+| Zlib | 25.7% |
 
 **Brotli** achieves the best compression at **83.3% reduction**, making it the default for batch submission.
+
+### OP Stack Comparison
+
+Montana benchmarked against equivalent OP Stack (Go) operations:
+
+| Operation | Montana | OP Stack | Speedup |
+|-----------|---------|----------|---------|
+| Brotli Compress 10KB | 6.7µs | 51.4µs | 7.7x |
+| Brotli Decompress 10KB | 5.9µs | 26.0µs | 4.4x |
+| Zstd Decompress 10KB | 544ns | 5.1µs | 9.3x |
+| Full Pipeline 100 blocks | 138µs | 654µs | 4.7x |
+
+> [!TIP]
+> Run the benchmarks yourself with `just bench-compare`. See the [benchmarks documentation](./benchmarks/README.md) for methodology and complete results.
 
 ## Footprint
 

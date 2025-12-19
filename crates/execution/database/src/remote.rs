@@ -313,7 +313,8 @@ impl<P: Provider<Optimism> + Clone> Database for RPCDatabase<P> {
         // Update block number and load cache for new block
         self.state_block.store(block_number, Ordering::Release);
         let file_cache = Self::load_cache_for_block(block_number);
-        *self.file_cache.write().unwrap() = file_cache;
+        *self.file_cache.write().map_err(|e| DbError::new(format!("lock poisoned: {}", e)))? =
+            file_cache;
 
         // RPCDatabase doesn't compute state roots
         Ok(B256::ZERO)

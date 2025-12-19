@@ -12,4 +12,7 @@ pub enum LocalError {
     /// File not found.
     #[error("File not found: {0}")]
     NotFound(String),
+    /// Lock poisoned.
+    #[error("lock poisoned: {0}")]
+    LockPoisoned(String),
 }

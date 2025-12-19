@@ -8,6 +8,14 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+/// Errors that can occur when accessing the block transaction count store.
+#[derive(Debug, thiserror::Error)]
+pub enum BlockTxCountStoreError {
+    /// The RwLock was poisoned by a panic in another thread.
+    #[error("lock poisoned: {0}")]
+    LockPoisoned(String),
+}
+
 use async_trait::async_trait;
 use montana_harness::HarnessProgressReporter;
 use montana_roles::{BatchCallback, DerivationCallback, ExecutionCallback};
@@ -35,23 +43,48 @@ impl BlockTxCountStore {
     /// # Arguments
     /// * `first_block` - First block number in the batch
     /// * `block_tx_counts` - Transaction counts for each block (in order)
-    pub fn record_batch(&self, first_block: u64, block_tx_counts: &[usize]) {
-        let mut counts = self.tx_counts.write().unwrap();
+    ///
+    /// # Errors
+    /// Returns an error if the lock is poisoned.
+    pub fn record_batch(
+        &self,
+        first_block: u64,
+        block_tx_counts: &[usize],
+    ) -> Result<(), BlockTxCountStoreError> {
+        let mut counts = self
+            .tx_counts
+            .write()
+            .map_err(|e| BlockTxCountStoreError::LockPoisoned(e.to_string()))?;
         for (i, &tx_count) in block_tx_counts.iter().enumerate() {
             counts.insert(first_block + i as u64, tx_count);
         }
+        Ok(())
     }
 
     /// Get the transaction count for a block.
     ///
     /// Returns 0 if the block is not found (e.g., in validator-only mode).
-    pub fn get_tx_count(&self, block_number: u64) -> usize {
-        self.tx_counts.read().unwrap().get(&block_number).copied().unwrap_or(0)
+    ///
+    /// # Errors
+    /// Returns an error if the lock is poisoned.
+    pub fn get_tx_count(&self, block_number: u64) -> Result<usize, BlockTxCountStoreError> {
+        let counts = self
+            .tx_counts
+            .read()
+            .map_err(|e| BlockTxCountStoreError::LockPoisoned(e.to_string()))?;
+        Ok(counts.get(&block_number).copied().unwrap_or(0))
     }
 
     /// Remove the transaction count for a block (to prevent unbounded growth).
-    pub fn remove(&self, block_number: u64) {
-        self.tx_counts.write().unwrap().remove(&block_number);
+    ///
+    /// # Errors
+    /// Returns an error if the lock is poisoned.
+    pub fn remove(&self, block_number: u64) -> Result<(), BlockTxCountStoreError> {
+        self.tx_counts
+            .write()
+            .map_err(|e| BlockTxCountStoreError::LockPoisoned(e.to_string()))?
+            .remove(&block_number);
+        Ok(())
     }
 }
 
@@ -226,7 +259,9 @@ impl BatchCallback for TuiBatchCallback {
         l1_block_number: u64,
     ) {
         // Store the tx counts for later retrieval during derivation
-        self.tx_count_store.record_batch(first_block, block_tx_counts);
+        if let Err(e) = self.tx_count_store.record_batch(first_block, block_tx_counts) {
+            tracing::error!("Failed to record batch tx counts: {}", e);
+        }
 
         self.handle.send(TuiEvent::BatchSubmitted {
             batch_number,
@@ -289,10 +324,18 @@ impl DerivationCallback for TuiDerivationCallback {
     ) {
         // Look up the actual tx count from the shared store (populated by batch callback)
         // This will return 0 if not found (e.g., in validator-only mode)
-        let actual_tx_count = self.tx_count_store.get_tx_count(block_number);
+        let actual_tx_count = match self.tx_count_store.get_tx_count(block_number) {
+            Ok(count) => count,
+            Err(e) => {
+                tracing::error!("Failed to get tx count for block {}: {}", block_number, e);
+                0
+            }
+        };
 
         // Remove the entry to prevent unbounded growth
-        self.tx_count_store.remove(block_number);
+        if let Err(e) = self.tx_count_store.remove(block_number) {
+            tracing::error!("Failed to remove tx count for block {}: {}", block_number, e);
+        }
 
         self.handle.send(TuiEvent::BlockDerived {
             number: block_number,

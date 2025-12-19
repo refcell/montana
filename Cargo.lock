@@ -3513,7 +3513,9 @@ dependencies = [
  "montana-pipeline",
  "montana-roles",
  "montana-tui",
+ "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

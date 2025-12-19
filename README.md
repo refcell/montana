@@ -29,6 +29,9 @@
 > [!CAUTION]
 > Montana is under active development and is not ready for production use.
 
+> [!IMPORTANT]
+> Based on our contrived benchmarks, Montana achieves up to **9x faster** decompression and **7.7x faster** Brotli compression compared to the OP Stack. See [Performance](#performance) for details.
+
 ## What's Montana?
 
 Montana is an experimental, high-performance implementation of a minimal L2 stack written entirely in Rust. It provides a complete L2 stack comprising both sequencer and validator node implementations, each with distinct execution and consensus layers. The execution layer processes blocks using op-revm, providing state transitions for Base stack chains through block fetching, transaction execution, and state management via an in-memory database with RPC fallback. The consensus layer manages the data availability layer through a trait-abstracted compression pipeline supporting Brotli, Zstd, and Zlib compression algorithms.
@@ -107,7 +110,7 @@ Benchmarked with 31 Base mainnet blocks (5,766 transactions, 1.67 MB raw):
 
 ### OP Stack Comparison
 
-Montana's Rust implementation benchmarked against equivalent OP Stack (Go) operations:
+Montana benchmarked against equivalent OP Stack (Go) operations:
 
 ```
                                     Montana         OP Stack        Speedup
@@ -119,26 +122,8 @@ Montana's Rust implementation benchmarked against equivalent OP Stack (Go) opera
   ────────────────────────────────────────────────────────────────────────────
 ```
 
-Key performance wins:
-- **Decompression** (critical for derivation): Up to **9x faster**
-- **Brotli compression** (default algorithm): **7.7x faster**
-- **Full pipeline throughput**: **4.7x faster** for 100-block batches
-- **Memory efficiency**: Near-zero allocations vs thousands in Go
-
-Run the benchmarks yourself:
-
-```sh
-# Montana (Rust) benchmarks
-just bench
-
-# OP Stack (Go) comparison benchmarks
-just bench-opstack
-
-# Full comparison
-just bench-compare
-```
-
-For detailed methodology and complete results, see the [benchmarks documentation](./benchmarks/README.md).
+> [!TIP]
+> Run the benchmarks yourself with `just bench-compare`. See the [benchmarks documentation](./benchmarks/README.md) for methodology and complete results.
 
 ## Footprint
 

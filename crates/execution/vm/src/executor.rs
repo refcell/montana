@@ -13,7 +13,7 @@ use revm::{
     context_interface::result::{ExecutionResult, Output},
     state::EvmState,
 };
-use tracing::info;
+use tracing::{error, info};
 
 /// Trait for block execution, allowing type-erased usage.
 ///
@@ -99,7 +99,10 @@ where
         let mut tx_results = Vec::with_capacity(tx_count);
 
         for (idx, tx) in transactions.enumerate() {
-            let tx_result = self.execute_tx(&tx, idx, tx_count, &block_env, &cfg)?;
+            let tx_result =
+                self.execute_tx(&tx, idx, tx_count, &block_env, &cfg).inspect_err(|e| {
+                    error!(block = block_number, tx_idx = idx, "Transaction execution failed: {e}")
+                })?;
             tx_results.push(tx_result);
         }
 

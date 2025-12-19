@@ -6,10 +6,7 @@ use chainspec::Chain;
 use database::Database;
 use derive_more::Display;
 use op_alloy::consensus::OpTxEnvelope;
-use op_revm::{
-    DefaultOp, L1BlockInfo, OpBuilder,
-    OpSpecId::JOVIAN,
-};
+use op_revm::{DefaultOp, L1BlockInfo, OpBuilder, OpSpecId::JOVIAN};
 use revm::{
     ExecuteEvm,
     context::CfgEnv,
@@ -53,6 +50,21 @@ pub struct TxResult {
     pub state: EvmState,
 }
 
+/// Metrics collected during block execution
+#[derive(Debug, Clone, Default)]
+pub struct BlockMetrics {
+    /// Total gas used by all transactions
+    pub total_gas_used: u64,
+    /// Number of successful transactions
+    pub successful_txs: usize,
+    /// Number of failed transactions
+    pub failed_txs: usize,
+    /// State root computation time in microseconds
+    pub state_root_time_us: u64,
+    /// Total execution time in microseconds
+    pub execution_time_us: u64,
+}
+
 /// Result of executing a block
 #[derive(Debug, Clone)]
 pub struct BlockResult {
@@ -62,6 +74,8 @@ pub struct BlockResult {
     pub tx_results: Vec<TxResult>,
     /// State root after executing this block
     pub state_root: B256,
+    /// Execution metrics
+    pub metrics: BlockMetrics,
 }
 
 /// Block executor that uses op-revm to execute Base stack blocks
@@ -82,6 +96,8 @@ where
 
     /// Execute all transactions in a block
     pub fn execute_block(&mut self, block: OpBlock) -> Result<BlockResult, ExecutorError> {
+        let start_time = std::time::Instant::now();
+
         let block_number = block.header().number();
         let tx_count = block.transactions.len();
         let timestamp = block.header().timestamp();
@@ -104,12 +120,23 @@ where
 
         let transactions = block.transactions.into_transactions();
         let mut tx_results = Vec::with_capacity(tx_count);
+        let mut total_gas_used = 0u64;
+        let mut successful_txs = 0usize;
+        let mut failed_txs = 0usize;
 
         for (idx, tx) in transactions.enumerate() {
             let tx_result =
                 self.execute_tx(&tx, idx, tx_count, &block_env, &cfg).inspect_err(|e| {
                     error!(block = block_number, tx_idx = idx, tx_hash = %tx.inner.inner.tx_hash(), "Transaction execution failed: {e}")
                 })?;
+
+            total_gas_used += tx_result.gas_used;
+            if tx_result.success {
+                successful_txs += 1;
+            } else {
+                failed_txs += 1;
+            }
+
             tx_results.push(tx_result);
         }
 
@@ -118,12 +145,22 @@ where
             tx_results.iter().map(|r| r.state.clone()).collect();
 
         // Commit all transaction changes at once and get the state root
+        let state_root_start = std::time::Instant::now();
         let state_root = self
             .db
             .commit_block(block_number, transaction_changes)
             .map_err(|e| ExecutorError::Database(e.to_string()))?;
+        let state_root_time_us = state_root_start.elapsed().as_micros() as u64;
 
-        Ok(BlockResult { block_number, tx_results, state_root })
+        let metrics = BlockMetrics {
+            total_gas_used,
+            successful_txs,
+            failed_txs,
+            state_root_time_us,
+            execution_time_us: start_time.elapsed().as_micros() as u64,
+        };
+
+        Ok(BlockResult { block_number, tx_results, state_root, metrics })
     }
 
     fn execute_tx(

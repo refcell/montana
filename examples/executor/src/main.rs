@@ -20,7 +20,7 @@ use database::{CachedDatabase, KeyValueDatabase, RocksDbKvDatabase, TrieDatabase
 use eyre::Result;
 use op_alloy::network::Optimism;
 use tracing::{info, warn};
-use vm::BlockExecutor;
+use vm::{BlockExecutor, BlockMetrics};
 
 /// CLI arguments for the executor example.
 #[derive(Parser, Debug)]
@@ -59,6 +59,10 @@ pub struct ExecutionMetrics {
     pub evm_execution_time: Duration,
     /// Total time spent committing state to disk.
     pub commit_time: Duration,
+    /// Total number of successful transactions.
+    pub successful_txs: usize,
+    /// Total number of failed transactions.
+    pub failed_txs: usize,
 }
 
 impl ExecutionMetrics {
@@ -84,6 +88,15 @@ impl ExecutionMetrics {
         gas_billions / seconds
     }
 
+    /// Accumulate metrics from a single block execution.
+    pub fn accumulate(&mut self, block_metrics: &BlockMetrics) {
+        self.total_gas_used += block_metrics.total_gas_used;
+        self.evm_execution_time += Duration::from_micros(block_metrics.execution_time_us);
+        self.commit_time += Duration::from_micros(block_metrics.state_root_time_us);
+        self.successful_txs += block_metrics.successful_txs;
+        self.failed_txs += block_metrics.failed_txs;
+    }
+
     /// Log the metrics summary.
     pub fn log_summary(&self, blocks_executed: u64) {
         info!("=== Execution Metrics Summary ===");
@@ -93,24 +106,15 @@ impl ExecutionMetrics {
             self.total_gas_used,
             self.total_gas_used as f64 / 1_000_000_000.0
         );
+        info!("Successful transactions: {}", self.successful_txs);
+        info!("Failed transactions: {}", self.failed_txs);
         info!("Total process time: {:?}", self.total_process_time);
         info!("EVM execution time: {:?}", self.evm_execution_time);
-        info!("Commit time: {:?}", self.commit_time);
+        info!("State root time: {:?}", self.commit_time);
         info!("Throughput (total): {:.4} Ggas/s", self.gigagas_per_second());
         info!("Throughput (EVM only): {:.4} Ggas/s", self.evm_gigagas_per_second());
         info!("=================================");
     }
-}
-
-/// Metrics for a single block execution.
-#[derive(Debug, Clone, Default)]
-pub struct BlockMetrics {
-    /// Gas used in this block.
-    pub gas_used: u64,
-    /// Time spent executing transactions (EVM time).
-    pub evm_time: Duration,
-    /// Time spent committing state to disk.
-    pub commit_time: Duration,
 }
 
 #[tokio::main]
@@ -190,8 +194,7 @@ async fn main() -> Result<()> {
         let tx_count = block.transactions.len();
         info!("Block {} has {} transactions", block_num, tx_count);
 
-        // Execute block and measure EVM time
-        let evm_start = Instant::now();
+        // Execute block
         let result = match executor.execute_block(block) {
             Ok(r) => r,
             Err(e) => {
@@ -199,31 +202,21 @@ async fn main() -> Result<()> {
                 continue;
             }
         };
-        let evm_elapsed = evm_start.elapsed();
 
-        // Calculate gas used in this block
-        let block_gas: u64 = result.tx_results.iter().map(|tx| tx.gas_used).sum();
-
-        // Note: commit_block is called inside execute_block, so we estimate commit time
-        // by measuring the total execution time minus a proportion for EVM work.
-        // In a real implementation, you'd instrument the executor to track this separately.
-        // For this example, we'll measure the total and attribute most to EVM.
-        let commit_time_estimate = Duration::from_micros(100); // Minimal estimate
-
-        // Update metrics
-        metrics.total_gas_used += block_gas;
-        metrics.evm_execution_time += evm_elapsed;
-        metrics.commit_time += commit_time_estimate;
-
+        // Update metrics using the block execution metrics
+        metrics.accumulate(&result.metrics);
         blocks_executed += 1;
 
         info!(
-            "Block {} executed: {} txs, {} gas, state_root: {}, evm_time: {:?}",
+            "Block {} executed: {} txs ({} ok, {} failed), {} gas, state_root: {}, exec_time: {}us, state_root_time: {}us",
             block_num,
             result.tx_results.len(),
-            block_gas,
+            result.metrics.successful_txs,
+            result.metrics.failed_txs,
+            result.metrics.total_gas_used,
             result.state_root,
-            evm_elapsed
+            result.metrics.execution_time_us,
+            result.metrics.state_root_time_us
         );
 
         // Write block_number - 1 to the kvdb

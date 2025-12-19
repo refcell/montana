@@ -1,0 +1,36 @@
+[package]
+name = "executor"
+description = "Montana Block Executor Example - Execute blocks from RPC with metrics"
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# internal crates
+blocksource.workspace = true
+chainspec.workspace = true
+database.workspace = true
+vm.workspace = true
+
+# alloy
+alloy.workspace = true
+op-alloy.workspace = true
+
+# async
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# cli
+clap = { workspace = true, features = ["derive"] }
+
+# misc
+eyre.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

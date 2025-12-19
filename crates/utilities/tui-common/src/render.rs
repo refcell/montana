@@ -10,7 +10,7 @@ use crate::{LogEntry, LogLevel};
 /// Get the colored prefix and colors for a log level.
 ///
 /// Returns (prefix, prefix_color, message_color) for the log level.
-fn log_level_style(level: &LogLevel) -> (&'static str, Color, Color) {
+const fn log_level_style(level: &LogLevel) -> (&'static str, Color, Color) {
     match level {
         LogLevel::Info => ("•", Color::Cyan, Color::Gray),
         LogLevel::Warn => ("▲", Color::Yellow, Color::Yellow),

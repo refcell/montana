@@ -1298,9 +1298,7 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             if app.is_paused { "⏸ PAUSED" } else { "▶ RUN" },
-            Style::default()
-                .fg(if app.is_paused { Color::Yellow } else { Color::Green })
-                .bold(),
+            Style::default().fg(if app.is_paused { Color::Yellow } else { Color::Green }).bold(),
         ),
         Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
         Span::styled(sync_icon, Style::default().fg(sync_color).bold()),
@@ -1308,11 +1306,7 @@ fn draw_footer(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     ]);
 
     // Footer border color based on overall status
-    let footer_border_color = if app.is_paused {
-        Color::Yellow
-    } else {
-        Color::Rgb(80, 80, 80)
-    };
+    let footer_border_color = if app.is_paused { Color::Yellow } else { Color::Rgb(80, 80, 80) };
 
     let widget = Paragraph::new(footer_line).block(
         Block::default()
@@ -1376,11 +1370,8 @@ fn draw_l1_chain(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             // Block number display (padded to BLOCK_WIDTH) with gradient
             let num_str = format!("{:^7}", block.number);
             // Use gradient from dim to bright based on position (newer = brighter)
-            let brightness = if num_blocks > 1 {
-                50 + (i * 150 / (num_blocks - 1)) as u8
-            } else {
-                200
-            };
+            let brightness =
+                if num_blocks > 1 { 50 + (i * 150 / (num_blocks - 1)) as u8 } else { 200 };
             block_number_spans.push(Span::styled(
                 num_str,
                 Style::default().fg(Color::Rgb(brightness, brightness / 2, 0)),
@@ -1397,10 +1388,8 @@ fn draw_l1_chain(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 ));
             } else {
                 // Empty block - show as dimmed box with subtle styling
-                block_visual_spans.push(Span::styled(
-                    "[  ·  ]",
-                    Style::default().fg(Color::Rgb(80, 80, 80)),
-                ));
+                block_visual_spans
+                    .push(Span::styled("[  ·  ]", Style::default().fg(Color::Rgb(80, 80, 80))));
             }
             block_visual_spans.push(Span::raw(" "));
 

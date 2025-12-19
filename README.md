@@ -105,6 +105,41 @@ Benchmarked with 31 Base mainnet blocks (5,766 transactions, 1.67 MB raw):
 
 **Brotli** achieves the best compression at **83.3% reduction**, making it the default for batch submission.
 
+### OP Stack Comparison
+
+Montana's Rust implementation benchmarked against equivalent OP Stack (Go) operations:
+
+```
+                                    Montana         OP Stack        Speedup
+  ────────────────────────────────────────────────────────────────────────────
+  Brotli Compress 10KB              6.7µs           51.4µs          7.7x
+  Brotli Decompress 10KB            5.9µs           26.0µs          4.4x
+  Zstd Decompress 10KB              544ns           5.1µs           9.3x
+  Full Pipeline 100 blocks          138µs           654µs           4.7x
+  ────────────────────────────────────────────────────────────────────────────
+```
+
+Key performance wins:
+- **Decompression** (critical for derivation): Up to **9x faster**
+- **Brotli compression** (default algorithm): **7.7x faster**
+- **Full pipeline throughput**: **4.7x faster** for 100-block batches
+- **Memory efficiency**: Near-zero allocations vs thousands in Go
+
+Run the benchmarks yourself:
+
+```sh
+# Montana (Rust) benchmarks
+just bench
+
+# OP Stack (Go) comparison benchmarks
+just bench-opstack
+
+# Full comparison
+just bench-compare
+```
+
+For detailed methodology and complete results, see the [benchmarks documentation](./benchmarks/README.md).
+
 ## Footprint
 
 Lines of code comparison with the OP Stack ([op-reth], [op-batcher], [op-node]):

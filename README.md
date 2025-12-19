@@ -112,15 +112,12 @@ Benchmarked with 31 Base mainnet blocks (5,766 transactions, 1.67 MB raw):
 
 Montana benchmarked against equivalent OP Stack (Go) operations:
 
-```
-                                    Montana         OP Stack        Speedup
-  ────────────────────────────────────────────────────────────────────────────
-  Brotli Compress 10KB              6.7µs           51.4µs          7.7x
-  Brotli Decompress 10KB            5.9µs           26.0µs          4.4x
-  Zstd Decompress 10KB              544ns           5.1µs           9.3x
-  Full Pipeline 100 blocks          138µs           654µs           4.7x
-  ────────────────────────────────────────────────────────────────────────────
-```
+| Operation | Montana | OP Stack | Speedup |
+|-----------|---------|----------|---------|
+| Brotli Compress 10KB | 6.7µs | 51.4µs | 7.7x |
+| Brotli Decompress 10KB | 5.9µs | 26.0µs | 4.4x |
+| Zstd Decompress 10KB | 544ns | 5.1µs | 9.3x |
+| Full Pipeline 100 blocks | 138µs | 654µs | 4.7x |
 
 > [!TIP]
 > Run the benchmarks yourself with `just bench-compare`. See the [benchmarks documentation](./benchmarks/README.md) for methodology and complete results.

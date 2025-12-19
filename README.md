@@ -17,10 +17,10 @@
 
 <p align="center">
   <a href="#whats-montana">What's Montana?</a> •
+  <a href="#usage">Usage</a> •
   <a href="#demo">Demo</a> •
   <a href="#performance">Performance</a> •
   <a href="#footprint">Footprint</a> •
-  <a href="#usage">Usage</a> •
   <a href="#contributing">Contributing</a> •
   <a href="#provenance">Provenance</a> •
   <a href="#license">License</a>
@@ -36,6 +36,17 @@ Montana is an experimental, high-performance implementation of a minimal L2 stac
 Montana includes a local simulation harness that orchestrates anvil instances for both L1 and L2 chains, enabling full end-to-end testing of the batch submission and derivation pipeline without external infrastructure. The sequencer batches L2 blocks and submits them to L1 via EIP-4844 blobs or legacy calldata, while the validator derives batches from L1, decompresses them, and re-executes blocks to reconstruct the canonical chain state. The architecture is fully modular with trait-abstracted sources and sinks, allowing batch data to flow through local files, anvil chains, or production L1 endpoints.
 
 For detailed documentation on the consensus pipeline architecture, see the [pipeline crate README](./crates/consensus/pipeline/README.md).
+
+## Usage
+
+Simulate the entire L2 stack locally using anvil instances for both L1 and L2 chains. See a [demo video](#demo) of this command running below.
+
+```sh
+just harness-fast
+```
+
+> [!TIP]
+> See the [Justfile](./Justfile) for other useful commands, including `just ci` to run all CI checks locally.
 
 ## Demo
 
@@ -108,17 +119,6 @@ Lines of code comparison with the OP Stack ([op-reth], [op-batcher], [op-node]):
 [op-reth]: https://github.com/paradigmxyz/reth/tree/main/crates/optimism
 [op-batcher]: https://github.com/ethereum-optimism/optimism/tree/develop/op-batcher
 [op-node]: https://github.com/ethereum-optimism/optimism/tree/develop/op-node
-
-## Usage
-
-Simulate the entire L2 stack locally using anvil instances for both L1 and L2 chains.
-
-```sh
-just harness-fast
-```
-
-> [!TIP]
-> See the [Justfile](./Justfile) for other useful commands, including `just ci` to run all CI checks locally.
 
 ## Contributing
 

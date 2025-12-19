@@ -1,5 +1,7 @@
 <h1 align="center">
-<img src="./assets/header.png" alt="Montana" width="100%" align="center">
+<!-- <img src="./assets/header.png" alt="Montana" width="100%" align="center"> -->
+    <img width="400" alt="logo" src="https://github.com/user-attachments/assets/28d5e3f5-25d9-45a2-abac-1dfc5f0611fc" />
+
 </h1>
 
 <h4 align="center">

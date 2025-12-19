@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use montana_pipeline::{BatchSink, CompressedBatch, SinkError, SubmissionReceipt};
 use serde::{Deserialize, Serialize};
 
+use crate::LocalError;
+
 /// JSON representation of a submission receipt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonReceipt {
@@ -74,13 +76,21 @@ impl LocalBatchSink {
     }
 
     /// Get the current sink data.
-    pub fn data(&self) -> JsonSinkData {
-        self.data.lock().unwrap().clone()
+    ///
+    /// # Errors
+    /// Returns an error if the lock is poisoned.
+    pub fn data(&self) -> Result<JsonSinkData, LocalError> {
+        let data = self.data.lock().map_err(|e| LocalError::LockPoisoned(e.to_string()))?;
+        Ok(data.clone())
     }
 
     /// Get the number of submitted batches.
-    pub fn batch_count(&self) -> usize {
-        self.data.lock().unwrap().batches.len()
+    ///
+    /// # Errors
+    /// Returns an error if the lock is poisoned.
+    pub fn batch_count(&self) -> Result<usize, LocalError> {
+        let data = self.data.lock().map_err(|e| LocalError::LockPoisoned(e.to_string()))?;
+        Ok(data.batches.len())
     }
 
     /// Convert bytes to hex string.
@@ -91,7 +101,10 @@ impl LocalBatchSink {
     /// Write data to file if output path is set.
     fn write_to_file(&self) -> Result<(), SinkError> {
         if let Some(ref path) = self.output_path {
-            let data = self.data.lock().unwrap();
+            let data = self
+                .data
+                .lock()
+                .map_err(|e| SinkError::TxFailed(format!("lock poisoned: {}", e)))?;
             let json = serde_json::to_string_pretty(&*data)
                 .map_err(|e| SinkError::TxFailed(format!("JSON serialization error: {}", e)))?;
             std::fs::write(path, json)
@@ -117,7 +130,10 @@ impl BatchSink for LocalBatchSink {
         blob_hash[1..9].copy_from_slice(&batch_number.to_le_bytes());
 
         let l1_block = {
-            let mut next = self.next_l1_block.lock().unwrap();
+            let mut next = self
+                .next_l1_block
+                .lock()
+                .map_err(|e| SinkError::TxFailed(format!("lock poisoned: {}", e)))?;
             let current = *next;
             *next += 1;
             current
@@ -133,7 +149,10 @@ impl BatchSink for LocalBatchSink {
         };
 
         {
-            let mut data = self.data.lock().unwrap();
+            let mut data = self
+                .data
+                .lock()
+                .map_err(|e| SinkError::TxFailed(format!("lock poisoned: {}", e)))?;
             data.batches.push(json_batch);
             data.receipts.push(json_receipt);
         }
@@ -161,7 +180,7 @@ mod tests {
     #[test]
     fn local_batch_sink_in_memory() {
         let sink = LocalBatchSink::in_memory();
-        assert_eq!(sink.batch_count(), 0);
+        assert_eq!(sink.batch_count().unwrap(), 0);
     }
 
     #[tokio::test]
@@ -180,7 +199,7 @@ mod tests {
         assert_eq!(receipt.batch_number, 1);
         assert_eq!(receipt.l1_block, 1);
         assert!(receipt.blob_hash.is_some());
-        assert_eq!(sink.batch_count(), 1);
+        assert_eq!(sink.batch_count().unwrap(), 1);
     }
 
     #[tokio::test]
@@ -200,7 +219,7 @@ mod tests {
             assert_eq!(receipt.l1_block, (i + 1) as u64);
         }
 
-        assert_eq!(sink.batch_count(), 5);
+        assert_eq!(sink.batch_count().unwrap(), 5);
     }
 
     #[tokio::test]
@@ -239,7 +258,7 @@ mod tests {
         };
         sink.submit(batch).await.unwrap();
 
-        let data = sink.data();
+        let data = sink.data().unwrap();
         assert_eq!(data.batches.len(), 1);
         assert_eq!(data.batches[0].batch_number, 42);
         assert_eq!(data.batches[0].data, "0xdeadbeef");

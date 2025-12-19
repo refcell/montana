@@ -33,3 +33,5 @@ montana-tui.workspace = true
 
 # misc
 eyre.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

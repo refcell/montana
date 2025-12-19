@@ -170,8 +170,11 @@ impl<KV: KeyValueDatabase> DatabaseRef for TrieDatabase<KV> {
         match account {
             Some(acc) => {
                 // Get code from the key-value database
+                // Use new_raw_checked to auto-detect EIP-7702 delegation designators
                 let code = if acc.code_hash != KECCAK_EMPTY {
-                    self.kvdb.get_code(&acc.code_hash)?.map(|bytes| Bytecode::new_raw(bytes.into()))
+                    self.kvdb
+                        .get_code(&acc.code_hash)?
+                        .and_then(|bytes| Bytecode::new_raw_checked(bytes.into()).ok())
                 } else {
                     None
                 };
@@ -189,8 +192,9 @@ impl<KV: KeyValueDatabase> DatabaseRef for TrieDatabase<KV> {
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
         // Check key-value database for code
+        // Use new_raw_checked to auto-detect EIP-7702 delegation designators
         if let Some(bytes) = self.kvdb.get_code(&code_hash)? {
-            return Ok(Bytecode::new_raw(bytes.into()));
+            return Ok(Bytecode::new_raw_checked(bytes.into()).unwrap_or_default());
         }
 
         // If not found, return empty bytecode

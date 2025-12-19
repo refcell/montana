@@ -166,7 +166,10 @@ impl<P: Provider<Optimism> + Clone> RPCDatabase<P> {
                 let bytecode = if code_bytes.is_empty() {
                     Bytecode::default()
                 } else {
-                    Bytecode::new_raw(code_bytes)
+                    // Use new_raw_checked to auto-detect EIP-7702 delegation designators
+                    // This is needed for EIP-3607 validation: accounts with delegation
+                    // designator code (0xef0100 || address) are still allowed to send txs
+                    Bytecode::new_raw_checked(code_bytes).unwrap_or_else(|_| Bytecode::default())
                 };
 
                 let code_hash =

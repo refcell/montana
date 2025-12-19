@@ -3704,6 +3704,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "vm",
 ]
 
 [[package]]
@@ -3712,7 +3713,9 @@ version = "0.0.1"
 dependencies = [
  "alloy",
  "blocksource",
+ "chainspec",
  "crossterm",
+ "database",
  "eyre",
  "montana-adapters",
  "montana-batch-context",
@@ -3730,6 +3733,7 @@ dependencies = [
  "ratatui",
  "tokio",
  "tracing",
+ "vm",
 ]
 
 [[package]]

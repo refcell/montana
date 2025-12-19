@@ -15,6 +15,15 @@ use revm::{
 };
 use tracing::info;
 
+/// Trait for block execution, allowing type-erased usage.
+///
+/// This trait abstracts over the database type, allowing validators and other
+/// components to use block execution without being generic over the database.
+pub trait Executor: Send + Sync {
+    /// Execute all transactions in a block and commit state changes.
+    fn execute_block(&mut self, block: OpBlock) -> Result<BlockResult, ExecutorError>;
+}
+
 /// Errors that can occur during block execution
 #[derive(Debug, Display)]
 pub enum ExecutorError {
@@ -160,6 +169,15 @@ where
             }
             Err(e) => Err(ExecutorError::Evm(e.to_string())),
         }
+    }
+}
+
+impl<DB> Executor for BlockExecutor<DB>
+where
+    DB: Database + Send + Sync,
+{
+    fn execute_block(&mut self, block: OpBlock) -> Result<BlockResult, ExecutorError> {
+        Self::execute_block(self, block)
     }
 }
 

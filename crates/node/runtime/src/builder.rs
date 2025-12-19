@@ -1,6 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::providers::{Provider, ProviderBuilder};
+use chainspec::BASE_MAINNET;
+use database::{CachedDatabase, RocksDbKvDatabase, TrieDatabase};
 use eyre::Result;
 use montana_adapters::{
     BatchSinkAdapter, BatchSourceAdapter, BlockProducerWrapper, BlockTxCountStore,
@@ -12,12 +14,14 @@ use montana_block_feeder::run_block_feeder;
 use montana_brotli::BrotliCompressor;
 use montana_checkpoint::Checkpoint;
 use montana_cli::MontanaCli;
+use montana_harness::{AnvilState, DEFAULT_GENESIS_STATE};
 use montana_node::{Node, NodeBuilder, NodeConfig, SyncConfig, SyncStage};
 use montana_roles::{Sequencer, Validator};
 use montana_tui::{TuiEvent, TuiHandle, TuiObserver};
 use op_alloy::network::Optimism;
 use primitives::OpBlock;
 use tokio::sync::mpsc;
+use vm::BlockExecutor;
 
 /// Build the node with the appropriate block producer based on CLI args.
 pub async fn build_node(
@@ -248,7 +252,27 @@ pub async fn build_node_common<P: Provider<Optimism> + Clone + 'static>(
         let checkpoint_path =
             if cli.with_harness { None } else { Some(cli.checkpoint_path.clone()) };
 
-        let mut validator = Validator::new(source, compressor, checkpoint_path)?;
+        // Create database for validator execution
+        let data_dir = PathBuf::from("./montana-data/validator");
+        std::fs::create_dir_all(&data_dir)?;
+
+        let kvdb_path = data_dir.join("kvdb");
+        let trie_path = data_dir.join("triedb");
+
+        // Get genesis state (using DEFAULT_GENESIS_STATE for now)
+        let anvil_state = AnvilState::from_json(DEFAULT_GENESIS_STATE)
+            .map_err(|e| eyre::eyre!("Failed to parse anvil state: {}", e))?;
+        let genesis = anvil_state.into_genesis();
+
+        let kvdb = RocksDbKvDatabase::open_or_create(&kvdb_path, &genesis)
+            .map_err(|e| eyre::eyre!("Failed to create kvdb: {}", e))?;
+        let trie_db = TrieDatabase::open_or_create(&trie_path, &genesis, kvdb)
+            .map_err(|e| eyre::eyre!("Failed to create trie db: {:?}", e))?;
+        let cached_db = CachedDatabase::new(trie_db);
+        let executor = BlockExecutor::new(cached_db, BASE_MAINNET);
+
+        let mut validator =
+            Validator::new(source, compressor, checkpoint_path, Box::new(executor))?;
 
         // Wire up derivation callback for TUI visibility if available
         if let Some(ref handle) = tui_handle {

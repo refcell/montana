@@ -17,6 +17,7 @@ montana-checkpoint = { workspace = true }
 montana-batcher = { workspace = true }
 montana-pipeline = { workspace = true }
 primitives = { workspace = true }
+vm = { workspace = true }
 async-trait.workspace = true
 eyre.workspace = true
 serde_json.workspace = true

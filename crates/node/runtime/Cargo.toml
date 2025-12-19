@@ -15,6 +15,11 @@ workspace = true
 [dependencies]
 # execution crates
 blocksource.workspace = true
+database.workspace = true
+vm.workspace = true
+
+# primitives
+chainspec.workspace = true
 
 # alloy
 alloy.workspace = true

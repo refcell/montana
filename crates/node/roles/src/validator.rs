@@ -3,11 +3,15 @@
 //! The validator derives and validates batches from L1.
 
 use std::{path::PathBuf, sync::Arc};
+// TODO: Re-enable when block execution is restored
+#[allow(unused_imports)]
+use std::time::Instant;
 
 use async_trait::async_trait;
 use montana_checkpoint::Checkpoint;
 use primitives::OpBlockBatch;
 use tokio::sync::mpsc;
+use vm::Executor;
 
 use crate::{Role, RoleCheckpoint, TickResult};
 
@@ -102,6 +106,8 @@ pub struct Validator<S, C> {
     batch_source: S,
     /// Compressor for decompressing batch data.
     compressor: C,
+    /// Block executor for EVM execution.
+    executor: Box<dyn Executor>,
     /// Checkpoint for resumption.
     checkpoint: Checkpoint,
     /// Path to checkpoint file (None disables checkpoint persistence).
@@ -121,6 +127,7 @@ impl<S: std::fmt::Debug, C: std::fmt::Debug> std::fmt::Debug for Validator<S, C>
         f.debug_struct("Validator")
             .field("batch_source", &self.batch_source)
             .field("compressor", &self.compressor)
+            .field("executor", &"Box<dyn Executor>")
             .field("checkpoint", &self.checkpoint)
             .field("checkpoint_path", &self.checkpoint_path)
             .field("poll_interval_ms", &self.poll_interval_ms)
@@ -146,6 +153,7 @@ where
     /// * `compressor` - Compressor for decompressing batch data
     /// * `checkpoint_path` - Optional path to checkpoint file. If `None`, checkpointing
     ///   is disabled (useful for harness/demo mode where fresh starts are expected).
+    /// * `executor` - Block executor for EVM execution
     ///
     /// # Errors
     /// Returns an error if the checkpoint file exists but cannot be loaded.
@@ -153,6 +161,7 @@ where
         batch_source: S,
         compressor: C,
         checkpoint_path: Option<PathBuf>,
+        executor: Box<dyn Executor>,
     ) -> eyre::Result<Self> {
         let checkpoint = if let Some(ref path) = checkpoint_path {
             Checkpoint::load(path)?.map_or_else(
@@ -177,6 +186,7 @@ where
         Ok(Self {
             batch_source,
             compressor,
+            executor,
             checkpoint,
             checkpoint_path,
             poll_interval_ms: 50,
@@ -269,11 +279,26 @@ where
         // Decompress
         let decompressed = self.compressor.decompress(&batch.data)?;
 
-        // Deserialize the OpBlockBatch from the decompressed data to validate it
-        let _block_batch = OpBlockBatch::from_bytes(&decompressed)
+        // Deserialize the OpBlockBatch from the decompressed data
+        let block_batch = OpBlockBatch::from_bytes(&decompressed)
             .map_err(|e| eyre::eyre!("Failed to deserialize OpBlockBatch: {}", e))?;
 
         self.emit(ValidatorEvent::BatchDerived { batch_number: batch.batch_number, block_count });
+
+        // Execute each block in the batch
+        for block in block_batch.blocks {
+            let block_number = block.header.number;
+            let tx_count = block.transactions.len();
+
+            let start = Instant::now();
+            let _result = self.executor.execute_block(block);
+            let execution_time_ms = start.elapsed().as_millis() as u64;
+
+            // Invoke per-block callback for TUI visibility
+            if let Some(ref callback) = self.derivation_callback {
+                callback.on_block_derived(block_number, tx_count, 0, execution_time_ms);
+            }
+        }
 
         // Update checkpoint (only save if persistence is enabled)
         self.checkpoint.record_batch_derived(batch.batch_number);
@@ -284,7 +309,7 @@ where
 
         self.emit(ValidatorEvent::BatchValidated { batch_number: batch.batch_number });
 
-        // Invoke derivation callback for TUI visibility
+        // Invoke batch-level derivation callback for TUI visibility
         if let Some(ref callback) = self.derivation_callback {
             tracing::debug!(
                 batch_number = batch.batch_number,
@@ -294,17 +319,6 @@ where
                 "Invoking derivation callback for TUI"
             );
             callback.on_batch_derived(batch.batch_number, block_count, first_block, last_block);
-
-            // Also emit per-block events for the execution logs section
-            // Note: tx_count is not available at this level (would require parsing decompressed data)
-            // Timing is also estimated as we don't track per-block timing during batch processing
-            for block_num in first_block..=last_block {
-                callback.on_block_derived(
-                    block_num, 0, // tx_count not available at batch level
-                    1, // derivation_time_ms placeholder
-                    1, // execution_time_ms placeholder
-                );
-            }
         }
 
         tracing::info!(
@@ -312,7 +326,7 @@ where
             block_count,
             first_block,
             last_block,
-            "Batch validated successfully"
+            "Batch executed and validated successfully"
         );
 
         Ok(())

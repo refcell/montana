@@ -19,6 +19,7 @@
   <a href="#whats-montana">What's Montana?</a> •
   <a href="#demo">Demo</a> •
   <a href="#performance">Performance</a> •
+  <a href="#footprint">Footprint</a> •
   <a href="#usage">Usage</a> •
   <a href="#contributing">Contributing</a> •
   <a href="#provenance">Provenance</a> •
@@ -92,6 +93,21 @@ Benchmarked with 31 Base mainnet blocks (5,766 transactions, 1.67 MB raw):
 ```
 
 **Brotli** achieves the best compression at **83.3% reduction**, making it the default for batch submission.
+
+## Footprint
+
+Lines of code comparison with the OP Stack ([op-reth], [op-batcher], [op-node]):
+
+| Service | Montana | OP Stack | Reduction |
+|---------|---------|----------|-----------|
+| Execution Node | 3,263 | 17,619 | 81.5% |
+| Batch Submitter | 7,063 | 9,163 | 22.9% |
+| Derivation Pipeline | 1,675 | 38,575 | 95.7% |
+| **Total** | **12,001** | **65,357** | **81.6%** |
+
+[op-reth]: https://github.com/paradigmxyz/reth/tree/main/crates/optimism
+[op-batcher]: https://github.com/ethereum-optimism/optimism/tree/develop/op-batcher
+[op-node]: https://github.com/ethereum-optimism/optimism/tree/develop/op-node
 
 ## Usage
 

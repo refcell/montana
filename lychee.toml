@@ -13,4 +13,7 @@ exclude = [
     'https://github.com/base/montana/blob/main/LICENSE',
     # GitHub user-attachments URLs are ephemeral and may return 404
     'https://github.com/user-attachments/assets/.*',
+    # GitHub profile URLs may be rate limited or cause network errors
+    'https://github.com/refcell',
+    'https://github.com/danyalprout',
 ]

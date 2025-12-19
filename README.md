@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://crates.io/crates/montana"><img src="https://img.shields.io/crates/v/montana.svg?style=flat&labelColor=1C2C2E&color=4ade80" alt="Crates.io"></a>
+  <img src="https://img.shields.io/crates/msrv/montana?style=flat&labelColor=1C2C2E&color=fbbf24&logo=rust&logoColor=white" alt="MSRV">
   <a href="https://github.com/refcell/montana/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/refcell/montana/ci.yml?style=flat&labelColor=1C2C2E&label=ci&logo=GitHub%20Actions&logoColor=white" alt="CI"></a>
   <a href="https://github.com/refcell/montana/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-d1d1f6.svg?style=flat&labelColor=1C2C2E&color=a78bfa&logo=googledocs&logoColor=white" alt="License"></a>
   <img src="https://img.shields.io/badge/chain-base-blue?style=flat&labelColor=1C2C2E&color=60a5fa" alt="Chain: Base">

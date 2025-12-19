@@ -109,7 +109,7 @@ alloy-chains = "0.2.1"
 op-alloy = { version = "0.23.1", features = ["consensus", "network", "rpc-types"] }
 
 # REVM dependencies
-revm = { version = "33.1.0", default-features = false, features = ["std", "secp256k1", "c-kzg", "blst", "serde"] }
+revm = { version = "33.1.0", default-features = false, features = ["std", "secp256k1", "c-kzg", "blst", "serde", "optional_eip3607"] }
 op-revm = { version = "14.1.0" }
 
 # misc

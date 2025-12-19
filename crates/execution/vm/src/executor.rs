@@ -101,7 +101,7 @@ where
         for (idx, tx) in transactions.enumerate() {
             let tx_result =
                 self.execute_tx(&tx, idx, tx_count, &block_env, &cfg).inspect_err(|e| {
-                    error!(block = block_number, tx_idx = idx, "Transaction execution failed: {e}")
+                    error!(block = block_number, tx_idx = idx, tx_hash = %tx.inner.inner.tx_hash(), "Transaction execution failed: {e}")
                 })?;
             tx_results.push(tx_result);
         }

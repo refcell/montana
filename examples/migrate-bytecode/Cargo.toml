@@ -13,11 +13,12 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+database.workspace = true
 migration.workspace = true
 
+alloy = { workspace = true, features = ["genesis"] }
 alloy-primitives.workspace = true
 clap = { workspace = true, features = ["derive"] }
 eyre.workspace = true
-rocksdb.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

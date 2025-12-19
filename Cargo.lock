@@ -3436,11 +3436,12 @@ dependencies = [
 name = "migrate-bytecode"
 version = "0.0.1"
 dependencies = [
+ "alloy",
  "alloy-primitives",
  "clap",
+ "database",
  "eyre",
  "migration",
- "rocksdb",
  "tracing",
  "tracing-subscriber 0.3.22",
 ]

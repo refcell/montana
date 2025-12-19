@@ -5,11 +5,12 @@
 
 use std::{path::PathBuf, time::Instant};
 
+use alloy::genesis::Genesis;
 use alloy_primitives::B256;
 use clap::Parser;
+use database::{KeyValueDatabase, RocksDbKvDatabase};
 use eyre::Result;
 use migration::libmdbx::{Database, DatabaseOptions, Mode, NoWriteMap};
-use rocksdb::{DB, Options};
 use tracing::info;
 
 /// Default batch size for commits.
@@ -71,11 +72,9 @@ fn main() -> Result<()> {
     };
     let source = Database::<NoWriteMap>::open_with_options(&args.source, source_opts)?;
 
-    // Open destination RocksDB
-    let mut rocks_opts = Options::default();
-    rocks_opts.create_if_missing(true);
-    rocks_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-    let dest = DB::open(&rocks_opts, &args.dest)?;
+    // Open destination RocksDB using the database crate
+    let genesis = Genesis::default();
+    let dest = RocksDbKvDatabase::open_or_create(&args.dest, &genesis)?;
 
     // Begin read transaction on source
     let src_txn = source.begin_ro_txn()?;
@@ -85,7 +84,6 @@ fn main() -> Result<()> {
     let start_time = Instant::now();
     let mut migrated: u64 = 0;
     let mut errors: u64 = 0;
-    let mut batch = rocksdb::WriteBatch::default();
 
     // Iterate through all bytecode entries
     // Key: B256 (code hash), Value: raw bytecode bytes
@@ -95,7 +93,7 @@ fn main() -> Result<()> {
                 let code_hash = B256::from(key);
 
                 // Store as code_hash -> raw bytecode
-                batch.put(code_hash.as_slice(), &value);
+                dest.set_code(&code_hash, &value)?;
                 migrated += 1;
 
                 // Log progress
@@ -109,24 +107,12 @@ fn main() -> Result<()> {
                         "bytecode migration progress"
                     );
                 }
-
-                // Flush batch
-                if migrated % args.batch_size == 0 {
-                    dest.write(batch)?;
-                    batch = rocksdb::WriteBatch::default();
-                    tracing::debug!(migrated, "flushed batch");
-                }
             }
             Err(e) => {
                 tracing::warn!(error = %e, "failed to read bytecode entry");
                 errors += 1;
             }
         }
-    }
-
-    // Flush remaining entries
-    if !batch.is_empty() {
-        dest.write(batch)?;
     }
 
     let elapsed = start_time.elapsed();
